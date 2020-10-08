@@ -3,7 +3,7 @@
 set -euxo pipefail
 
 apt-get update
-DEBIAN_FRONTEND=noninteractive apt install --no-install-recommends \
+DEBIAN_FRONTEND=noninteractive apt install \
   curl \
   terminator \
   tmux \
