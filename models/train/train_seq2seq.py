@@ -60,7 +60,7 @@ if __name__ == '__main__':
     # debugging
     parser.add_argument('--fast_epoch', help='fast epoch during debugging', action='store_true')
     parser.add_argument('--dataset_fraction', help='use fraction of the dataset for debugging (0 indicates full size)', default=0, type=int)
-    
+
     # args and init
     args = parser.parse_args()
     args.dout = args.dout.format(**vars(args))
@@ -100,9 +100,15 @@ if __name__ == '__main__':
 
     # to gpu
     if args.gpu:
-        model = model.to(torch.device('cuda'))
+        try:
+            model = model.to(torch.device('cuda'))
+        except:
+            model = model.to(torch.device('cuda'))
         if not optimizer is None:
-            optimizer_to(optimizer, torch.device('cuda'))
+            try:
+                optimizer_to(optimizer, torch.device('cuda'))
+            except:
+                optimizer_to(optimizer, torch.device('cuda'))
 
     # start train loop
     model.run_train(splits, optimizer=optimizer)

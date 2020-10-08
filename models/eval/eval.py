@@ -50,7 +50,10 @@ class Eval(object):
 
         # gpu
         if self.args.gpu:
-            self.model = self.model.to(torch.device('cuda'))
+            try:
+                self.model = self.model.to(torch.device('cuda'))
+            except:
+                self.model = self.model.to(torch.device('cuda'))
 
         # success and failure lists
         self.create_stats()

@@ -12,7 +12,10 @@ class Resnet18(object):
         self.model = models.resnet18(pretrained=True)
 
         if args.gpu:
-            self.model = self.model.to(torch.device('cuda'))
+            try:
+                self.model = self.model.to(torch.device('cuda'))
+            except:
+                self.model = self.model.to(torch.device('cuda'))
 
         if eval:
             self.model = self.model.eval()
@@ -38,7 +41,10 @@ class MaskRCNN(object):
         self.feat_layer = 3
 
         if args.gpu:
-            self.model = self.model.to(torch.device('cuda'))
+            try:
+                self.model = self.model.to(torch.device('cuda'))
+            except:
+                self.model = self.model.to(torch.device('cuda'))
 
         if eval:
             self.model = self.model.eval()
