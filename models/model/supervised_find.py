@@ -16,7 +16,7 @@ import cv2
 from env.thor_env import ThorEnv
 from env.find_one import FindOne, index_all_items, ACTIONS, NUM_ACTIONS, \
         ACTION_TO_INDEX, ACTIONS_DONE
-from models.nn.fo_ie import NatureCNN
+from models.nn.fo import NatureCNN
 import gen.constants as constants
 from gen.graph.graph_obj import Graph
 
@@ -27,7 +27,10 @@ parser = argparse.ArgumentParser()
 
 parser.add_argument('-lr', '--lr', type=float, default=0.01, help='learning rate')
 parser.add_argument('-oed', '--object-embedding-dim', type=int, default=16, help='object embedding dim')
-parser.add_argument('-fs', '--frame_stack', type=int, default=3, help='number of frames to stack')
+parser.add_argument('-fs', '--frame-stack', type=int, default=3, help='number of frames to stack')
+parser.add_argument('-zffs', '--zero-fill-frame-stack', dest='zero_fill_frame_stack', action='store_true', help='fill frames with zeros when frame stacking on early steps')
+parser.add_argument('-fffs', '--first-fill-frame-stack', dest='zero_fill_frame_stack', action='store_false', help='replicate first frame when frame stacking on early steps')
+parser.set_defaults(zero_fill_frame_stack=False)
 parser.add_argument('-ei', '--eval-interval', type=int, default=100, help='number of training trajectories between evaluation trajectories')
 parser.add_argument('-tf', '--teacher-force', dest='teacher_force', action='store_true')
 parser.add_argument('-ntf', '--no-teacher-force', dest='teacher_force', action='store_false')
@@ -65,9 +68,8 @@ def trajectory_avg_entropy(trajectory_logits):
             torch.exp(F.log_softmax(trajectory_logits, dim=-1)),
             dim=-1), dim=-1)
 
-# TODO: make frame_stack a separate argument so we don't poke around inside
-# model
-def rollout_trajectory(fo, model, teacher_force=False, scene_name_or_num=None):
+def rollout_trajectory(fo, model, frame_stack=1, zero_fill_frame_stack=False,
+        teacher_force=False, scene_name_or_num=None):
     frames = []
     all_action_scores = []
     pred_action_indexes = []
@@ -78,16 +80,26 @@ def rollout_trajectory(fo, model, teacher_force=False, scene_name_or_num=None):
         frames.append(frame)
 
         # Most recent frames are last/later channels
-        if len(frames) < model.frame_stack:
-            stacked_frames = [torch.zeros(1, 3 * (model.frame_stack -
-                len(frames)), 300, 300, device=device)] + \
-            [torch.from_numpy(np.ascontiguousarray(f) .reshape(1, 3, 300,
-                300)).float().to(device) for f in
-                frames]
+        if len(frames) < frame_stack:
+            if zero_fill_frame_stack:
+                # Fill earlier frames with zeroes
+                stacked_frames = [torch.zeros(1, 3 * (frame_stack -
+                    len(frames)), 300, 300, device=device)] + \
+                [torch.from_numpy(np.ascontiguousarray(f) .reshape(1, 3, 300,
+                    300)).float().to(device) for f in
+                    frames]
+            else:
+                # Repeat first frame
+                stacked_frames = [torch.from_numpy(np.ascontiguousarray(frames[0])
+                    .reshape(1, 3, 300, 300)).float().to(device) for i in
+                    range(frame_stack - len(frames))] + \
+                            [torch.from_numpy(np.ascontiguousarray(f)
+                                .reshape(1, 3, 300, 300)).float().to(device)
+                                for f in frames]
         else:
             stacked_frames = [torch.from_numpy(np.ascontiguousarray(f)
                 .reshape(1, 3, 300, 300)).float().to(device) for f in
-                frames[(len(frames) - model.frame_stack):]]
+                frames[(len(frames) - frame_stack):]]
         # Concatenate along channels dimension
         stacked_frames = torch.cat(stacked_frames, dim=1)
 
@@ -134,7 +146,8 @@ def rollout_trajectory(fo, model, teacher_force=False, scene_name_or_num=None):
     trajectory_results['expert_actions'] = fo.original_expert_actions
     return trajectory_results
 
-def train(fo, model, optimizer, teacher_force=False, eval_interval=100):
+def train(fo, model, optimizer, frame_stack=1, zero_fill_frame_stack=False,
+        teacher_force=False, eval_interval=100):
     writer = SummaryWriter(log_dir='tensorboard_logs')
     train_iter = 0
     train_frames = 0
@@ -146,7 +159,10 @@ def train(fo, model, optimizer, teacher_force=False, eval_interval=100):
     # TODO: want a replay memory?
     while True:
         # Collect a trajectory
-        trajectory_results = rollout_trajectory(fo, model, teacher_force,
+        trajectory_results = rollout_trajectory(fo, model,
+                frame_stack=frame_stack,
+                zero_fill_frame_stack=zero_fill_frame_stack,
+                teacher_force=teacher_force,
                 scene_name_or_num=random.choice(TRAIN_SCENE_NUMBERS))
         all_action_scores = torch.cat(trajectory_results['all_action_scores'])
 
@@ -235,7 +251,9 @@ def train(fo, model, optimizer, teacher_force=False, eval_interval=100):
             last_distances_to_goal = []
 
             # Collect test statistics and write, print
-            seen_results, unseen_results = test(fo, model)
+            seen_results, unseen_results = test(fo, model,
+                    frame_stack=frame_stack,
+                    zero_fill_frame_stack=zero_fill_frame_stack)
 
             seen_successes_mean = np.mean([x[0] for x in
                 seen_results['successes']])
@@ -291,7 +309,8 @@ def train(fo, model, optimizer, teacher_force=False, eval_interval=100):
             writer.add_scalar('validation/unseen/avg_trajectory_entropy_frames',
                     unseen_entropys_mean, train_frames)
 
-def test(fo, model, seen_episodes=10, unseen_episodes=10):
+def test(fo, model, frame_stack=1, zero_fill_frame_stack=False,
+        seen_episodes=1, unseen_episodes=1):
     model.eval()
     successes = [] # tuples of (success, path_weighted_success)
     # tuples of (crow_distance, walking_distance, actions_distance i.e. how
@@ -301,6 +320,8 @@ def test(fo, model, seen_episodes=10, unseen_episodes=10):
     # Evaluate on training (seen) scenes
     for i in range(seen_episodes):
         trajectory_results = rollout_trajectory(fo, model,
+                frame_stack=frame_stack,
+                zero_fill_frame_stack=zero_fill_frame_stack,
                 scene_name_or_num=random.choice(TRAIN_SCENE_NUMBERS))
         successes.append((float(trajectory_results['success']),
                 float(trajectory_results['success']) *
@@ -325,6 +346,8 @@ def test(fo, model, seen_episodes=10, unseen_episodes=10):
     entropys = []
     for i in range(unseen_episodes):
         trajectory_results = rollout_trajectory(fo, model,
+                frame_stack=frame_stack,
+                zero_fill_frame_stack=zero_fill_frame_stack,
                 scene_name_or_num=random.choice(VALIDATION_SCENE_NUMBERS))
         successes.append((float(trajectory_results['success']),
                 float(trajectory_results['success']) *
@@ -369,6 +392,7 @@ if __name__ == '__main__':
             frame_stack=args.frame_stack,
             object_embedding_dim=args.object_embedding_dim).to(device)
     optimizer = optim.SGD(model.parameters(), lr=args.lr)
-    train(fo, model, optimizer, teacher_force=args.teacher_force,
-            eval_interval=args.eval_interval)
+    train(fo, model, optimizer, frame_stack=args.frame_stack,
+            zero_fill_frame_stack=args.zero_fill_frame_stack,
+            teacher_force=args.teacher_force, eval_interval=args.eval_interval)
 
