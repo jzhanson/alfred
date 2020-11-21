@@ -190,22 +190,23 @@ def collate_trajectories(samples):
             new_samples[k].append(sample[k])
     return new_samples
 
+def get_trajectories_dataloaders(batch_size=1):
+    dataloaders = {}
+    for split in ['train', 'valid_seen', 'valid_unseen']:
+        fo_dataset = FindOneTrajectoriesDataset(os.path.join(
+            os.environ['ALFRED_ROOT'], "data/find_one/" + split + ".json"))
+        dataloader = DataLoader(fo_dataset, batch_size=batch_size,
+                shuffle=True, num_workers=0, collate_fn=collate_trajectories)
+        dataloaders[split] = dataloader
+    return dataloaders
+
 if __name__ == '__main__':
     make_fo_dataset()
 
-    fo_dataset = FindOneTrajectoriesDataset(os.path.join(
-        os.environ['ALFRED_ROOT'], "data/find_one/train.json"))
-
-    print(fo_dataset[0].keys())
-    print(len(fo_dataset[0]['images']))
-
-    dataloader = DataLoader(fo_dataset, batch_size=4, shuffle=True,
-            num_workers=0, collate_fn=collate_trajectories)
-
-    for sample_batched in dataloader:
+    dataloaders = get_trajectories_dataloaders(batch_size=4)
+    for sample_batched in dataloaders['train']:
         print(len(sample_batched['low_actions']),
                 len(sample_batched['images']), len(sample_batched['features']),
                 len(sample_batched['target']))
         break
-
 
