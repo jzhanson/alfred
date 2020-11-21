@@ -118,18 +118,31 @@ def make_fo_dataset():
         json.dump(validation_unseen_trajectories, outfile, sort_keys=True,
                 indent=4)
 
-class FindOneTrajectoriesDataset(Dataset):
+class FindOneDataset(Dataset):
     """
     This class returns trajectories by index.
     """
-    def __init__(self, json_path, images=True, features=True):
+    def __init__(self, json_path, images=True, features=True,
+            transitions=False):
         with open(json_path, 'r') as jsonfile:
             self.trajectories = json.load(jsonfile)
         self.images = images
         self.features = features
+        if transitions:
+            self.transitions = []
+            # To avoid having to iterate through anything, we fill this list
+            # with tuples of (trajectory index, transition index within that
+            # trajectory)
+            self.transitions = []
+            for trajectory_index in range(len(self.trajectories)):
+                for transition_index in range(len(self.trajectories[
+                    trajectory_index]['low_actions'])):
+                    self.transitions.append((trajectory_index,
+                        transition_index))
 
     def __len__(self):
-        return len(self.trajectories)
+        return len(self.transitions) if self.transitions is not None else \
+                len(self.trajectories)
 
     def __getitem__(self, idx):
         if type(idx) is int or (torch.is_tensor(idx) and len(idx.shape) == 0):
@@ -151,24 +164,46 @@ class FindOneTrajectoriesDataset(Dataset):
             sample['features'] = []
 
         for index in indexes:
-            sample['target'].append(self.trajectories[index]['target'])
-            sample['low_actions'].append(self.trajectories[index]
-                    ['low_actions'])
-            current_path = self.trajectories[index]['path']
-            # Load the images and/or features of each sample
-            if self.images:
-                current_images = []
-                for image_name in self.trajectories[index]['images']:
+            if self.transitions is not None:
+                trajectory_index, transition_index = self.transitions[index]
+                sample['target'].append(self.trajectories[trajectory_index][
+                    'target'])
+                sample['low_actions'].append(self.trajectories[
+                    trajectory_index]['low_actions'][transition_index])
+                current_path = self.trajectories[trajectory_index]['path']
+                # Load the images and/or features of each sample
+                if self.images:
                     image_path = os.path.join(current_path, 'raw_images',
-                            image_name)
+                            self.trajectories[trajectory_index]['images'][
+                                transition_index])
                     # Reshape cv2 BGR image to RGB
-                    current_images.append(torch.flip(torch.tensor(cv2.imread(
-                        image_path)), [2]))
-                sample['images'].append(torch.stack(current_images))
-            if self.features:
-                features = torch.load(os.path.join(current_path, 'feat_conv.pt'))
-                sample['features'].append(features[self.trajectories
-                        [index]['features']])
+                    sample['images'].append(torch.flip(torch.tensor(cv2
+                        .imread(image_path)), [2]))
+                if self.features:
+                    features = torch.load(os.path.join(current_path,
+                        'feat_conv.pt'))
+                    sample['features'].append(features[self.trajectories
+                            [trajectory_index]['features'][transition_index]])
+            else:
+                sample['target'].append(self.trajectories[index]['target'])
+                sample['low_actions'].append(self.trajectories[index]
+                        ['low_actions'])
+                current_path = self.trajectories[index]['path']
+                # Load the images and/or features of each sample
+                if self.images:
+                    current_images = []
+                    for image_name in self.trajectories[index]['images']:
+                        image_path = os.path.join(current_path, 'raw_images',
+                                image_name)
+                        # Reshape cv2 BGR image to RGB
+                        current_images.append(torch.flip(torch.tensor(cv2
+                            .imread( image_path)), [2]))
+                    sample['images'].append(torch.stack(current_images))
+                if self.features:
+                    features = torch.load(os.path.join(current_path,
+                        'feat_conv.pt'))
+                    sample['features'].append(features[self.trajectories
+                            [index]['features']])
 
         if singleton:
             # If input is an int or a tensor with no shape, return sample as an
@@ -190,20 +225,26 @@ def collate_trajectories(samples):
             new_samples[k].append(sample[k])
     return new_samples
 
-def get_trajectories_dataloaders(batch_size=1):
+def get_trajectories_dataloaders(batch_size=1, transitions=False):
     dataloaders = {}
     for split in ['train', 'valid_seen', 'valid_unseen']:
-        fo_dataset = FindOneTrajectoriesDataset(os.path.join(
-            os.environ['ALFRED_ROOT'], "data/find_one/" + split + ".json"))
-        dataloader = DataLoader(fo_dataset, batch_size=batch_size,
-                shuffle=True, num_workers=0, collate_fn=collate_trajectories)
+        fo_dataset = FindOneDataset(os.path.join(
+            os.environ['ALFRED_ROOT'], "data/find_one/" + split + ".json"),
+            transitions=transitions)
+        # Some weird torch 1.1.0 doesn't like me passing collate_fn=None
+        if transitions:
+            dataloader = DataLoader(fo_dataset, batch_size=batch_size,
+                    shuffle=True, num_workers=0)
+        else:
+            dataloader = DataLoader(fo_dataset, batch_size=batch_size,
+                    shuffle=True, num_workers=0, collate_fn=collate_trajectories)
         dataloaders[split] = dataloader
     return dataloaders
 
 if __name__ == '__main__':
     make_fo_dataset()
 
-    dataloaders = get_trajectories_dataloaders(batch_size=4)
+    dataloaders = get_trajectories_dataloaders(batch_size=4, transitions=True)
     for sample_batched in dataloaders['train']:
         print(len(sample_batched['low_actions']),
                 len(sample_batched['images']), len(sample_batched['features']),
