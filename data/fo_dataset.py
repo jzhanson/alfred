@@ -9,6 +9,8 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 import cv2
 
+from env.find_one import ACTIONS_DONE
+
 def get_trajectories(paths):
     trajectories = []
     # Iterate through jsons
@@ -50,10 +52,10 @@ def get_trajectories(paths):
                     current_trajectories[trajectory_index]['low_actions'] \
                             .append(low_action['api_action']['action'])
 
-
-            # Can also consider just saving the features
-            #features = torch.load(os.path.join(path, 'feat_conv.pt'))
+            # Iterate through images once and grab the images that correspond
+            # to a high_idx, one per low action
             seen_low_idxs = []
+            trajectory_index_to_last_low_idx = {}
             for i in range(len(traj_dict['images'])):
                 image = traj_dict['images'][i]
                 # Only save one image per low action, only for the low actions
@@ -69,12 +71,46 @@ def get_trajectories(paths):
                             .append(image_name)
                     # Supposedly 10 extra features are at the end and don't
                     # matter --- see models/model/seq2seq_im_mask.py
-                    #current_trajectories[trajectory_index]['features'] \
-                    #        .append(features[i])
                     current_trajectories[trajectory_index]['features'] \
                             .append(i)
-
+                    # Also record the high_idx and the low_idx so we can get
+                    # the image and feature immediately after the high_pddl
+                    # for annotating with the 'Done' action
+                    trajectory_index_to_last_low_idx[trajectory_index] = \
+                            image['low_idx']
                     seen_low_idxs.append(image['low_idx'])
+            # Iterate through one last time and grab the last images and
+            # features. Sort by high_idx so we only have to iterate through
+            # images once, instead of len(images) *
+            # len(high_idx_to_last_low_idx) times.
+            trajectory_index_to_last_low_idx = sorted(
+                    trajectory_index_to_last_low_idx.items(), key=lambda x:
+                    x[0])
+            for i in range(len(traj_dict['images'])):
+                image = traj_dict['images'][i]
+                if image['low_idx'] <= trajectory_index_to_last_low_idx[0][1]:
+                    # Keep going until we reach the first low_idx after the
+                    # last low_idx in the current high_idx
+                    continue
+                trajectory_index = trajectory_index_to_last_low_idx[0][0]
+                image_name = image['image_name'].split('.')[0] + '.jpg'
+                current_trajectories[trajectory_index]['images'].append(
+                        image_name)
+                current_trajectories[trajectory_index]['features'].append(
+                        i)
+                current_trajectories[trajectory_index]['low_actions'].append(
+                        ACTIONS_DONE)
+                trajectory_index_to_last_low_idx.pop(0)
+                if len(trajectory_index_to_last_low_idx) == 0:
+                    break
+            # There may be an edge case where the high_pddl is at the very end
+            # so the above loop skips adding an extra frame for the done action
+            # because the episode ended. In this case, we choose not to
+            # duplicate the last frame since that would be technically
+            # incorrect, but print to keep track of if/when this happens
+            if len(trajectory_index_to_last_low_idx) > 0:
+                print("trajectories not annotated with Done action: " +
+                        str(len(trajectory_index_to_last_low_idx)))
             trajectories.extend(current_trajectories)
     return trajectories
 
@@ -139,6 +175,8 @@ class FindOneDataset(Dataset):
                     trajectory_index]['low_actions'])):
                     self.transitions.append((trajectory_index,
                         transition_index))
+        else:
+            self.transitions = None
 
     def __len__(self):
         return len(self.transitions) if self.transitions is not None else \
@@ -225,7 +263,7 @@ def collate_trajectories(samples):
             new_samples[k].append(sample[k])
     return new_samples
 
-def get_trajectories_dataloaders(batch_size=1, transitions=False):
+def get_dataloaders(batch_size=1, transitions=False):
     dataloaders = {}
     for split in ['train', 'valid_seen', 'valid_unseen']:
         fo_dataset = FindOneDataset(os.path.join(
@@ -244,7 +282,7 @@ def get_trajectories_dataloaders(batch_size=1, transitions=False):
 if __name__ == '__main__':
     make_fo_dataset()
 
-    dataloaders = get_trajectories_dataloaders(batch_size=4, transitions=True)
+    dataloaders = get_dataloaders(batch_size=4, transitions=True)
     for sample_batched in dataloaders['train']:
         print(len(sample_batched['low_actions']),
                 len(sample_batched['images']), len(sample_batched['features']),
