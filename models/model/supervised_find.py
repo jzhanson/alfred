@@ -81,27 +81,29 @@ def rollout_trajectory(fo, model, frame_stack=1, zero_fill_frame_stack=False,
 
         # Most recent frames are last/later channels
         if len(frames) < frame_stack:
+            # A frame is shape (300, 300, 3). Use transpose instead of reshape
+            # to avoid data reordering. Concatenate along channels dimension
             if zero_fill_frame_stack:
                 # Fill earlier frames with zeroes
-                stacked_frames = [torch.zeros(1, 3 * (frame_stack -
+                stacked_frames = torch.cat([torch.zeros(3 * (frame_stack -
                     len(frames)), 300, 300, device=device)] + \
-                [torch.from_numpy(np.ascontiguousarray(f) .reshape(1, 3, 300,
-                    300)).float().to(device) for f in
-                    frames]
+                            [torch.from_numpy(np.ascontiguousarray(f)
+                                .transpose(2, 0, 1)).float().to(device) for f
+                                in frames])
             else:
                 # Repeat first frame
-                stacked_frames = [torch.from_numpy(np.ascontiguousarray(frames[0])
-                    .reshape(1, 3, 300, 300)).float().to(device) for i in
-                    range(frame_stack - len(frames))] + \
-                            [torch.from_numpy(np.ascontiguousarray(f)
-                                .reshape(1, 3, 300, 300)).float().to(device)
-                                for f in frames]
+                stacked_frames = torch.cat([torch.from_numpy(
+                    np.ascontiguousarray(frames[0]).transpose(2, 0,
+                        1)).float().to(device) for i in range(frame_stack -
+                            len(frames))] + \
+                                    [torch.from_numpy(np.ascontiguousarray(f)
+                                        .transpose(2, 0, 1)).float().to(device)
+                                        for f in frames])
         else:
-            stacked_frames = [torch.from_numpy(np.ascontiguousarray(f)
-                .reshape(1, 3, 300, 300)).float().to(device) for f in
-                frames[(len(frames) - frame_stack):]]
-        # Concatenate along channels dimension
-        stacked_frames = torch.cat(stacked_frames, dim=1)
+            stacked_frames = torch.cat([torch.from_numpy(
+                np.ascontiguousarray(f).transpose(2, 0, 1)).float().to(device)
+                for f in frames[(len(frames) - frame_stack):]])
+        stacked_frames = torch.unsqueeze(stacked_frames, dim=0)
 
         action_scores = model(stacked_frames,
                 torch.tensor([target_object_index], device=device))
