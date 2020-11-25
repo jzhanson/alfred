@@ -1,6 +1,7 @@
 import os
 import sys
 sys.path.append(os.path.join(os.environ['ALFRED_ROOT']))
+sys.path.append(os.path.join(os.environ['ALFRED_ROOT'], 'data'))
 sys.path.append(os.path.join(os.environ['ALFRED_ROOT'], 'gen'))
 sys.path.append(os.path.join(os.environ['ALFRED_ROOT'], 'models'))
 
@@ -19,6 +20,7 @@ from env.find_one import FindOne, index_all_items, ACTIONS, NUM_ACTIONS, \
 from models.nn.fo import NatureCNN
 import gen.constants as constants
 from gen.graph.graph_obj import Graph
+from data.fo_dataset import get_dataloaders
 
 from tensorboardX import SummaryWriter
 
@@ -35,6 +37,13 @@ parser.add_argument('-ei', '--eval-interval', type=int, default=100, help='numbe
 parser.add_argument('-tf', '--teacher-force', dest='teacher_force', action='store_true')
 parser.add_argument('-ntf', '--no-teacher-force', dest='teacher_force', action='store_false')
 parser.set_defaults(teacher_force=False)
+parser.add_argument('-ud', '--use-dataset', dest='use_dataset', action='store_true')
+parser.add_argument('-nud', '--no-use-dataset', dest='use_dataset', action='store_false')
+parser.set_defaults(use_dataset=True)
+parser.add_argument('-dt', '--dataset-transitions', dest='dataset_transitions', action='store_true')
+parser.add_argument('-ndt', '--dataset-trajectories', dest='dataset_transitions', action='store_false')
+parser.set_defaults(dataset_transitions=False)
+parser.add_argument('-bs', '--batch-size', type=int, default=4, help='batch size of training trajectories or transitions if dataset-transitions is set')
 
 '''
 parser.add_argument('-do', '--dropout', type=float, default=0.02, help='dropout prob')
@@ -148,8 +157,234 @@ def rollout_trajectory(fo, model, frame_stack=1, zero_fill_frame_stack=False,
     trajectory_results['expert_actions'] = fo.original_expert_actions
     return trajectory_results
 
+def flatten_trajectories(batch_samples, frame_stack=1,
+        zero_fill_frame_stack=False):
+    flat_targets = []
+    flat_actions = []
+    for i in range(len(batch_samples['target'])):
+        trajectory_actions = batch_samples['low_actions'][i]
+        target = batch_samples['target'][i]
+        # Repeat trajectory targets for each action
+        flat_targets.extend([target for _ in trajectory_actions])
+        flat_actions.extend([action for action in trajectory_actions])
+    # Stack frames along channel dimension
+    trajectory_images = []
+    for i in range(len(batch_samples['images'])):
+        for j in range(len(batch_samples['images'][i])):
+            if j < frame_stack - 1:
+                if zero_fill_frame_stack:
+                    # Fill earlier frames with zeroes
+                    frames = torch.cat([torch.zeros((frame_stack - j
+                        - 1 * 3), 300, 300)] + [frame.permute(2, 0, 1) for
+                            frame in batch_samples['images'][i][:j+1]])
+                else:
+                    # Repeat first frame
+                    frames = torch.cat( [batch_samples['images'][i][0].permute(
+                        2, 0, 1) for _ in range(frame_stack
+                                    - j - 1)] + [frame.permute(2, 0, 1) for
+                                        frame in batch_samples['images'][i][
+                                            :j+1]])
+                trajectory_images.append(frames)
+            else:
+                trajectory_images.append(torch.cat([frame.permute(2, 0, 1) for
+                    frame in batch_samples['images'][i][
+                        j-frame_stack+1:j+1]]))
+
+    flat_images = torch.stack(trajectory_images).to(device=device,
+            dtype=torch.float32)
+
+    flat_batch_samples = {}
+    flat_batch_samples['target'] = flat_targets
+    flat_batch_samples['low_actions'] = flat_actions
+    flat_batch_samples['images'] = flat_images
+    # TODO: do the same for features
+    flat_batch_samples['features'] = []
+    return flat_batch_samples
+
+def actions_accuracy(action_scores, flat_action_indexes):
+    argmax_actions = torch.argmax(action_scores, dim=1)
+    correct_preds = 0
+    for i in range(len(flat_action_indexes)):
+        if argmax_actions[i] == flat_action_indexes[i]:
+            correct_preds += 1
+    accuracy = correct_preds / len(argmax_actions)
+    return accuracy
+
+def train_dataset(fo, model, optimizer, dataloaders, obj_type_to_index,
+        dataset_transitions=False, batch_size=20, frame_stack=1,
+        zero_fill_frame_stack=False, eval_interval=1):
+    """
+    Train a model by sampling from a torch dataloader.
+
+    dataloaders is a dict with 'train', 'valid_seen', 'valid_unseen' as keys
+    and values of those dataloaders.
+    """
+    writer = SummaryWriter(log_dir='tensorboard_logs')
+    train_iter = 0
+    train_frames = 0
+    train_trajectories = 0
+    last_losses = []
+    last_accuracies = []
+    # XXX: hack to make GotoLocation targets which are currently all
+    # lowercase in data/fo_dataset.py because the ['plan']['high_pddl']
+    # for GotoLocations only has the lowercase object names
+    lowercase_obj_type_to_index = {k.lower() : v for k, v in
+            obj_type_to_index.items()}
+
+    while True:
+        for batch_samples in dataloaders['train']:
+            if dataset_transitions:
+                # TODO: test the transitions branch of the code
+                flat_targets = batch_samples['target']
+                flat_actions = batch_samples['low_actions']
+                # Stacking frames doesn't make sense
+                flat_images = batch_samples['images']
+                flat_features = batch_samples['features']
+            else:
+                flat_batch_samples = flatten_trajectories(
+                        batch_samples, frame_stack=frame_stack,
+                        zero_fill_frame_stack=zero_fill_frame_stack)
+                flat_targets = flat_batch_samples['target']
+                flat_actions = flat_batch_samples['low_actions']
+                flat_images = flat_batch_samples['images']
+                flat_features = flat_batch_samples['features']
+
+            # Turn target names into indexes and action names into indexes
+            flat_target_indexes = torch.tensor([lowercase_obj_type_to_index[
+                target] for target in flat_targets], device=device)
+            flat_action_indexes = torch.tensor([ACTION_TO_INDEX[action] for
+                action in flat_actions], device=device)
+
+            # Train
+            action_scores = model(flat_images, flat_target_indexes)
+            loss = F.cross_entropy(action_scores, flat_action_indexes)
+            optimizer.zero_grad()
+            # TODO: RuntimeError: cuDNN error: CUDNN_STATUS_EXECUTION_FAILED
+            #loss.backward()
+            try:
+                loss.backward(retain_graph=True)
+            except:
+                loss.backward()
+            # TODO: may want to clamp gradients
+            optimizer.step()
+
+            train_iter += 1
+            train_frames += len(action_scores)
+            train_trajectories += batch_size
+            last_losses.append(loss.item())
+            accuracy = actions_accuracy(action_scores, flat_action_indexes)
+            last_accuracies.append(accuracy)
+
+            writer.add_scalar('train/loss', loss, train_iter)
+            writer.add_scalar('train/loss_frames', loss, train_frames)
+            writer.add_scalar('train/loss_trajectories', loss,
+                    train_trajectories)
+            writer.add_scalar('train/accuracy', accuracy, train_iter)
+            writer.add_scalar('train/accuracy_frames', accuracy, train_frames)
+            writer.add_scalar('train/accuracy_trajectories', accuracy,
+                    train_trajectories)
+            # Record average policy entropy over all trajectories/transitions
+            with torch.no_grad():
+                entropy = trajectory_avg_entropy(action_scores)
+            writer.add_scalar('train/entropy', entropy, train_iter)
+            writer.add_scalar('train/entropy_frames', entropy, train_frames)
+            writer.add_scalar('train/entropy_trajectories', entropy,
+                    train_trajectories)
+
+            if train_iter % eval_interval == 0:
+                last_losses_mean = np.mean(last_losses)
+                writer.add_scalar('train/avg_loss', last_losses_mean,
+                        train_iter)
+                writer.add_scalar('train/avg_loss_frames', last_losses_mean,
+                        train_frames)
+                writer.add_scalar('train/avg_loss_trajectories',
+                        last_losses_mean, train_trajectories)
+                last_accuracies_mean = np.mean(last_accuracies)
+                writer.add_scalar('train/avg_accuracy', last_accuracies_mean,
+                        train_iter)
+                writer.add_scalar('train/avg_accuracy_frames',
+                        last_accuracies_mean, train_frames)
+                writer.add_scalar('train/avg_accuracy_trajectories',
+                        last_accuracies_mean, train_trajectories)
+
+                print('iteration %d frames %d trajectories %d avg loss %.6f \
+                        avg accuracy %.6f' % (train_iter, train_frames,
+                            train_trajectories, last_losses_mean,
+                            last_accuracies_mean))
+
+                last_losses = []
+                last_accuracies = []
+
+                # Evaluate on valid_seen and valid_unseen
+                results = test_dataset(model, dataloaders, obj_type_to_index,
+                        dataset_transitions=dataset_transitions,
+                        frame_stack=frame_stack,
+                        zero_fill_frame_stack=zero_fill_frame_stack)
+                for split in ['valid_seen', 'valid_unseen']:
+                    writer.add_scalar(split + '/accuracy',
+                            results[split]['accuracy'], train_iter)
+                    writer.add_scalar(split + '/accuracy_frames',
+                            results[split]['accuracy'], train_frames)
+                    writer.add_scalar(split + '/accuracy_trajectories',
+                            results[split]['accuracy'], train_trajectories)
+
+                # TODO: make the training/valid/test splits in this file
+                # consistent with the splits in the dataset
+                #test()
+
+# TODO maybe don't call these functions test
+def test_dataset(model, dataloaders, obj_type_to_index,
+        dataset_transitions=False,frame_stack=1, zero_fill_frame_stack=False):
+    results = {}
+    # XXX: hack to make GotoLocation targets which are currently all
+    # lowercase in data/fo_dataset.py because the ['plan']['high_pddl']
+    # for GotoLocations only has the lowercase object names
+    lowercase_obj_type_to_index = {k.lower() : v for k, v in
+            obj_type_to_index.items()}
+
+    model.eval()
+    for split in ['valid_seen', 'valid_unseen']:
+        results[split] = {}
+        # Should be only one batch for valid_seen and valid_unseen, so just
+        # bind the symbol
+        for batch_samples in dataloaders[split]:
+            continue
+        if dataset_transitions:
+            # TODO: test the transitions branch of the code
+            flat_targets = batch_samples['target']
+            flat_actions = batch_samples['low_actions']
+            # Stacking frames doesn't make sense
+            flat_images = batch_samples['images']
+            flat_features = batch_samples['features']
+        else:
+            flat_batch_samples = flatten_trajectories(
+                    batch_samples, frame_stack=frame_stack,
+                    zero_fill_frame_stack=zero_fill_frame_stack)
+            flat_targets = flat_batch_samples['target']
+            flat_actions = flat_batch_samples['low_actions']
+            flat_images = flat_batch_samples['images']
+            flat_features = flat_batch_samples['features']
+
+        # Turn target names into indexes and action names into indexes
+        flat_target_indexes = torch.tensor([lowercase_obj_type_to_index[target]
+            for target in flat_targets], device=device)
+        flat_action_indexes = torch.tensor([ACTION_TO_INDEX[action] for action
+            in flat_actions], device=device)
+
+        action_scores = model(flat_images, flat_target_indexes)
+        accuracy = actions_accuracy(action_scores, flat_action_indexes)
+        results[split]['accuracy'] = accuracy
+
+    model.train()
+    return results
+
+
 def train(fo, model, optimizer, frame_stack=1, zero_fill_frame_stack=False,
         teacher_force=False, eval_interval=100):
+    """
+    Train a model by collecting a trajectory online, then training with correct
+    action supervision.
+    """
     writer = SummaryWriter(log_dir='tensorboard_logs')
     train_iter = 0
     train_frames = 0
@@ -390,11 +625,27 @@ if __name__ == '__main__':
 
     fo = FindOne(env, obj_type_to_index)
 
+    if args.use_dataset:
+        # Frame stacking models only make sense if you're sampling trajectories
+        # from a dataset, not transitions
+        if args.dataset_transitions and args.frame_stack > 1:
+            args.frame_stack = 1
+        dataloaders = get_dataloaders(batch_size=args.batch_size,
+                transitions=args.dataset_transitions)
     model = NatureCNN(len(obj_type_to_index), NUM_ACTIONS,
             frame_stack=args.frame_stack,
             object_embedding_dim=args.object_embedding_dim).to(device)
     optimizer = optim.SGD(model.parameters(), lr=args.lr)
-    train(fo, model, optimizer, frame_stack=args.frame_stack,
-            zero_fill_frame_stack=args.zero_fill_frame_stack,
-            teacher_force=args.teacher_force, eval_interval=args.eval_interval)
+
+    if args.use_dataset:
+        train_dataset(fo, model, optimizer, dataloaders, obj_type_to_index,
+                dataset_transitions=args.dataset_transitions,
+                batch_size=args.batch_size, frame_stack=args.frame_stack,
+                zero_fill_frame_stack=args.zero_fill_frame_stack,
+                eval_interval=args.eval_interval)
+    else:
+        train(fo, model, optimizer, frame_stack=args.frame_stack,
+                zero_fill_frame_stack=args.zero_fill_frame_stack,
+                teacher_force=args.teacher_force,
+                eval_interval=args.eval_interval)
 
