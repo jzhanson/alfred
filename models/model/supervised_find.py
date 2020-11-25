@@ -21,6 +21,7 @@ from models.nn.fo import NatureCNN
 import gen.constants as constants
 from gen.graph.graph_obj import Graph
 from data.fo_dataset import get_dataloaders
+from models.utils.metric import compute_actions_f1
 
 from tensorboardX import SummaryWriter
 
@@ -43,7 +44,7 @@ parser.set_defaults(use_dataset=True)
 parser.add_argument('-dt', '--dataset-transitions', dest='dataset_transitions', action='store_true')
 parser.add_argument('-ndt', '--dataset-trajectories', dest='dataset_transitions', action='store_false')
 parser.set_defaults(dataset_transitions=False)
-parser.add_argument('-bs', '--batch-size', type=int, default=4, help='batch size of training trajectories or transitions if dataset-transitions is set')
+parser.add_argument('-bs', '--batch-size', type=int, default=1, help='batch size of training trajectories or transitions if dataset-transitions is set')
 
 '''
 parser.add_argument('-do', '--dropout', type=float, default=0.02, help='dropout prob')
@@ -61,12 +62,12 @@ parser.add_argument('-id', '--model-id', type=str, default='model', help='model 
 # Available scenes are [1, 30], [201, 230], [301, 330], and [401, 430]
 # Tragically this is hardcoded in ai2thor 2.1.0 in
 # ai2thor/controller.py line 429
-TRAIN_SCENE_NUMBERS = list(range(1, 21)) + list(range(201, 221)) + \
-    list(range(301, 321)) + list(range(401, 421)) # 20 scenes per room type
-VALIDATION_SCENE_NUMBERS = list(range(21, 26)) + list(range(221, 226)) + \
-    list(range(321, 326)) + list(range(421, 426)) # 5 scenes per room type
-TEST_SCENE_NUMBERS = list(range(26, 31)) + list(range(226, 231)) + \
-    list(range(326, 331)) + list(range(426, 431)) # 5 scenes per room type
+# I got these splits out of the last number in the first directory of each
+# train, valid_seen and valid_unseen task
+TRAIN_SCENE_NUMBERS = [1, 2, 3, 4, 5, 6, 7, 8, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 30, 201, 202, 203, 204, 205, 206, 207, 208, 209, 210, 211, 212, 213, 214, 216, 217, 218, 220, 221, 222, 223, 224, 225, 227, 228, 229, 230, 301, 302, 303, 304, 305, 306, 307, 309, 310, 311, 312, 313, 314, 316, 317, 318, 319, 320, 321, 322, 323, 324, 326, 327, 328, 329, 330, 401, 402, 403, 405, 406, 407, 408, 409, 410, 411, 412, 413, 414, 415, 416, 417, 418, 419, 420, 421, 422, 423, 426, 427, 428, 429, 430]
+VALID_SEEN_SCENE_NUMBERS = [1, 2, 3, 4, 5, 6, 7, 8, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 30, 201, 202, 203, 204, 205, 206, 207, 212, 213, 214, 216, 218, 222, 223, 224, 225, 227, 229, 230, 301, 302, 303, 304, 305, 309, 310, 311, 313, 314, 316, 318, 320, 323, 324, 326, 327, 328, 329, 330, 401, 402, 403, 405, 406, 407, 408, 409, 410, 412, 413, 414, 415, 417, 418, 419, 422, 423, 426, 427, 428, 429]
+VALID_UNSEEN_SCENE_NUMBERS = [10, 219, 308, 424]
+TEST_SCENE_NUMBERS = [9, 29, 215, 226, 315, 325, 404, 425]
 
 # TODO: clean up moving model to CUDA
 device = torch.device('cuda:3')
@@ -201,18 +202,19 @@ def flatten_trajectories(batch_samples, frame_stack=1,
     flat_batch_samples['features'] = []
     return flat_batch_samples
 
-def actions_accuracy(action_scores, flat_action_indexes):
-    argmax_actions = torch.argmax(action_scores, dim=1)
+def actions_accuracy_f1(predicted_action_indexes, expert_action_indexes):
     correct_preds = 0
-    for i in range(len(flat_action_indexes)):
-        if argmax_actions[i] == flat_action_indexes[i]:
+    for i in range(len(expert_action_indexes)):
+        if predicted_action_indexes[i] == expert_action_indexes[i]:
             correct_preds += 1
-    accuracy = correct_preds / len(argmax_actions)
-    return accuracy
+    accuracy = correct_preds / len(predicted_action_indexes)
+    f1 = compute_actions_f1(predicted_action_indexes,
+            expert_action_indexes).item()
+    return accuracy, f1
 
 def train_dataset(fo, model, optimizer, dataloaders, obj_type_to_index,
-        dataset_transitions=False, batch_size=20, frame_stack=1,
-        zero_fill_frame_stack=False, eval_interval=1):
+        dataset_transitions=False, batch_size=1, frame_stack=1,
+        zero_fill_frame_stack=False, eval_interval=100):
     """
     Train a model by sampling from a torch dataloader.
 
@@ -225,11 +227,7 @@ def train_dataset(fo, model, optimizer, dataloaders, obj_type_to_index,
     train_trajectories = 0
     last_losses = []
     last_accuracies = []
-    # XXX: hack to make GotoLocation targets which are currently all
-    # lowercase in data/fo_dataset.py because the ['plan']['high_pddl']
-    # for GotoLocations only has the lowercase object names
-    lowercase_obj_type_to_index = {k.lower() : v for k, v in
-            obj_type_to_index.items()}
+    last_f1s = []
 
     while True:
         for batch_samples in dataloaders['train']:
@@ -250,8 +248,9 @@ def train_dataset(fo, model, optimizer, dataloaders, obj_type_to_index,
                 flat_features = flat_batch_samples['features']
 
             # Turn target names into indexes and action names into indexes
-            flat_target_indexes = torch.tensor([lowercase_obj_type_to_index[
-                target] for target in flat_targets], device=device)
+            flat_target_indexes = torch.tensor([obj_type_to_index[
+                constants.OBJECTS_LOWER_TO_UPPER[target]] for target in flat_targets],
+                device=device)
             flat_action_indexes = torch.tensor([ACTION_TO_INDEX[action] for
                 action in flat_actions], device=device)
 
@@ -272,8 +271,10 @@ def train_dataset(fo, model, optimizer, dataloaders, obj_type_to_index,
             train_frames += len(action_scores)
             train_trajectories += batch_size
             last_losses.append(loss.item())
-            accuracy = actions_accuracy(action_scores, flat_action_indexes)
+            accuracy, f1 = actions_accuracy_f1(torch.argmax(action_scores,
+                dim=1), flat_action_indexes)
             last_accuracies.append(accuracy)
+            last_f1s.append(f1)
 
             writer.add_scalar('train/loss', loss, train_iter)
             writer.add_scalar('train/loss_frames', loss, train_frames)
@@ -282,6 +283,10 @@ def train_dataset(fo, model, optimizer, dataloaders, obj_type_to_index,
             writer.add_scalar('train/accuracy', accuracy, train_iter)
             writer.add_scalar('train/accuracy_frames', accuracy, train_frames)
             writer.add_scalar('train/accuracy_trajectories', accuracy,
+                    train_trajectories)
+            writer.add_scalar('train/f1', f1, train_iter)
+            writer.add_scalar('train/f1_frames', f1, train_frames)
+            writer.add_scalar('train/f1_trajectories', f1,
                     train_trajectories)
             # Record average policy entropy over all trajectories/transitions
             with torch.no_grad():
@@ -306,14 +311,21 @@ def train_dataset(fo, model, optimizer, dataloaders, obj_type_to_index,
                         last_accuracies_mean, train_frames)
                 writer.add_scalar('train/avg_accuracy_trajectories',
                         last_accuracies_mean, train_trajectories)
+                last_f1s_mean = np.mean(last_f1s)
+                writer.add_scalar('train/avg_f1', last_f1s_mean, train_iter)
+                writer.add_scalar('train/avg_f1_frames', last_f1s_mean,
+                        train_frames)
+                writer.add_scalar('train/avg_f1_trajectories', last_f1s_mean,
+                        train_trajectories)
 
                 print('iteration %d frames %d trajectories %d avg loss %.6f \
-                        avg accuracy %.6f' % (train_iter, train_frames,
-                            train_trajectories, last_losses_mean,
-                            last_accuracies_mean))
+                        avg accuracy %.6f avg f1 %.6f' % (train_iter,
+                            train_frames, train_trajectories, last_losses_mean,
+                            last_accuracies_mean, last_f1s_mean))
 
                 last_losses = []
                 last_accuracies = []
+                last_f1s = []
 
                 # Evaluate on valid_seen and valid_unseen
                 results = test_dataset(model, dataloaders, obj_type_to_index,
@@ -327,60 +339,77 @@ def train_dataset(fo, model, optimizer, dataloaders, obj_type_to_index,
                             results[split]['accuracy'], train_frames)
                     writer.add_scalar(split + '/accuracy_trajectories',
                             results[split]['accuracy'], train_trajectories)
+                    writer.add_scalar(split + '/f1',
+                            results[split]['f1'], train_iter)
+                    writer.add_scalar(split + '/f1_frames',
+                            results[split]['f1'], train_frames)
+                    writer.add_scalar(split + '/f1_trajectories',
+                            results[split]['f1'], train_trajectories)
+                    print(split + ' accuracy %.6f f1 %.6f' %
+                            (results[split]['accuracy'],
+                                results[split]['f1']))
 
-                # TODO: make the training/valid/test splits in this file
-                # consistent with the splits in the dataset
-                #test()
+                seen_results, unseen_results = test(fo, model,
+                        frame_stack=frame_stack,
+                        zero_fill_frame_stack=zero_fill_frame_stack,
+                        seen_episodes=10, unseen_episodes=10)
+                write_test_results(writer, seen_results, unseen_results,
+                        train_iter, train_frames, train_trajectories)
 
 # TODO maybe don't call these functions test
 def test_dataset(model, dataloaders, obj_type_to_index,
         dataset_transitions=False,frame_stack=1, zero_fill_frame_stack=False):
     results = {}
-    # XXX: hack to make GotoLocation targets which are currently all
-    # lowercase in data/fo_dataset.py because the ['plan']['high_pddl']
-    # for GotoLocations only has the lowercase object names
-    lowercase_obj_type_to_index = {k.lower() : v for k, v in
-            obj_type_to_index.items()}
 
     model.eval()
     for split in ['valid_seen', 'valid_unseen']:
         results[split] = {}
-        # Should be only one batch for valid_seen and valid_unseen, so just
-        # bind the symbol
+        all_predicted_action_indexes = []
+        all_expert_action_indexes = []
         for batch_samples in dataloaders[split]:
-            continue
-        if dataset_transitions:
-            # TODO: test the transitions branch of the code
-            flat_targets = batch_samples['target']
-            flat_actions = batch_samples['low_actions']
-            # Stacking frames doesn't make sense
-            flat_images = batch_samples['images']
-            flat_features = batch_samples['features']
-        else:
-            flat_batch_samples = flatten_trajectories(
-                    batch_samples, frame_stack=frame_stack,
-                    zero_fill_frame_stack=zero_fill_frame_stack)
-            flat_targets = flat_batch_samples['target']
-            flat_actions = flat_batch_samples['low_actions']
-            flat_images = flat_batch_samples['images']
-            flat_features = flat_batch_samples['features']
+            if dataset_transitions:
+                # TODO: test the transitions branch of the code
+                flat_targets = batch_samples['target']
+                flat_actions = batch_samples['low_actions']
+                # Stacking frames doesn't make sense
+                flat_images = batch_samples['images']
+                flat_features = batch_samples['features']
+            else:
+                flat_batch_samples = flatten_trajectories(batch_samples,
+                        frame_stack=frame_stack,
+                        zero_fill_frame_stack=zero_fill_frame_stack)
+                flat_targets = flat_batch_samples['target']
+                flat_actions = flat_batch_samples['low_actions']
+                flat_images = flat_batch_samples['images']
+                flat_features = flat_batch_samples['features']
 
-        # Turn target names into indexes and action names into indexes
-        flat_target_indexes = torch.tensor([lowercase_obj_type_to_index[target]
-            for target in flat_targets], device=device)
-        flat_action_indexes = torch.tensor([ACTION_TO_INDEX[action] for action
-            in flat_actions], device=device)
+            # Turn target names into indexes and action names into indexes
+            flat_target_indexes = torch.tensor([obj_type_to_index[
+                constants.OBJECTS_LOWER_TO_UPPER[target]] for target in
+                flat_targets], device=device)
+            flat_action_indexes = torch.tensor([ACTION_TO_INDEX[action] for
+                action in flat_actions], device=device)
 
-        action_scores = model(flat_images, flat_target_indexes)
-        accuracy = actions_accuracy(action_scores, flat_action_indexes)
+            with torch.no_grad():
+                action_scores = model(flat_images, flat_target_indexes)
+            all_predicted_action_indexes.append(torch.argmax(action_scores,
+                dim=1))
+            all_expert_action_indexes.append(flat_action_indexes)
+
+        all_predicted_action_indexes = torch.cat(all_predicted_action_indexes)
+        all_expert_action_indexes = torch.cat(all_expert_action_indexes)
+
+        accuracy, f1 = actions_accuracy_f1(all_predicted_action_indexes,
+                all_expert_action_indexes)
         results[split]['accuracy'] = accuracy
+        results[split]['f1'] = f1
 
     model.train()
     return results
 
 
 def train(fo, model, optimizer, frame_stack=1, zero_fill_frame_stack=False,
-        teacher_force=False, eval_interval=100):
+        teacher_force=False, eval_interval=1000):
     """
     Train a model by collecting a trajectory online, then training with correct
     action supervision.
@@ -492,59 +521,89 @@ def train(fo, model, optimizer, frame_stack=1, zero_fill_frame_stack=False,
                     frame_stack=frame_stack,
                     zero_fill_frame_stack=zero_fill_frame_stack)
 
-            seen_successes_mean = np.mean([x[0] for x in
-                seen_results['successes']])
-            seen_path_weighted_successes_mean = np.mean([x[1] for x in
-                seen_results['successes']])
-            unseen_successes_mean = np.mean([x[0] for x in
-                unseen_results['successes']])
-            unseen_path_weighted_successes_mean = np.mean([x[1] for x in
-                unseen_results['successes']])
-            writer.add_scalar('validation/seen/avg_success',
-                    seen_successes_mean, train_iter)
-            writer.add_scalar('validation/seen/avg_success_frames',
-                    seen_successes_mean, train_frames)
-            writer.add_scalar('validation/seen/avg_path_weighted_success',
-                    seen_path_weighted_successes_mean, train_iter)
-            writer.add_scalar('validation/seen/avg_path_weighted_success_frames',
-                    seen_path_weighted_successes_mean, train_frames)
-            writer.add_scalar('validation/unseen/avg_success',
-                    unseen_successes_mean, train_iter)
-            writer.add_scalar('validation/unseen/avg_success_frames',
-                    unseen_successes_mean, train_frames)
-            writer.add_scalar('validation/unseen/avg_path_weighted_success',
-                    unseen_path_weighted_successes_mean, train_iter)
-            writer.add_scalar(
-                    'validation/unseen/avg_path_weighted_success_frames',
-                    unseen_path_weighted_successes_mean, train_frames)
+            write_test_results(writer, seen_results, unseen_results,
+                    train_iter, train_frames)
 
-            # Mean actions left before goal
-            seen_actions_distances_mean = np.mean([x[2] for x in
-                seen_results['distances_to_goal']])
-            unseen_actions_distances_mean = np.mean([x[2] for x in
-                unseen_results['distances_to_goal']])
-            writer.add_scalar('validation/seen/avg_actions_distance',
-                    seen_actions_distances_mean, train_iter)
-            writer.add_scalar('validation/seen/avg_actions_distance_frames',
-                    seen_actions_distances_mean, train_frames)
-            writer.add_scalar('validation/unseen/avg_actions_distance',
-                    unseen_actions_distances_mean, train_iter)
-            writer.add_scalar('validation/unseen/avg_actions_distance_frames',
-                    unseen_actions_distances_mean, train_frames)
+def write_test_results(writer, seen_results, unseen_results, train_iter,
+        train_frames, train_trajectories=None):
 
-            # Mean over trajectories of mean entropy per trajectory
-            seen_entropys_mean = torch.mean(torch.tensor(
-                seen_results['entropys'], device=device))
-            unseen_entropys_mean = torch.mean(torch.tensor(
-                unseen_results['entropys'], device=device))
-            writer.add_scalar('validation/seen/avg_trajectory_entropy',
-                    seen_entropys_mean, train_iter)
-            writer.add_scalar('validation/seen/avg_trajectory_entropy_frames',
-                    seen_entropys_mean, train_frames)
-            writer.add_scalar('validation/unseen/avg_trajectory_entropy',
-                    unseen_entropys_mean, train_iter)
-            writer.add_scalar('validation/unseen/avg_trajectory_entropy_frames',
-                    unseen_entropys_mean, train_frames)
+    seen_successes_mean = np.mean([x[0] for x in
+        seen_results['successes']])
+    seen_path_weighted_successes_mean = np.mean([x[1] for x in
+        seen_results['successes']])
+    unseen_successes_mean = np.mean([x[0] for x in
+        unseen_results['successes']])
+    unseen_path_weighted_successes_mean = np.mean([x[1] for x in
+        unseen_results['successes']])
+    writer.add_scalar('validation/seen/avg_success',
+            seen_successes_mean, train_iter)
+    writer.add_scalar('validation/seen/avg_success_frames',
+            seen_successes_mean, train_frames)
+    writer.add_scalar('validation/seen/avg_path_weighted_success',
+            seen_path_weighted_successes_mean, train_iter)
+    writer.add_scalar('validation/seen/avg_path_weighted_success_frames',
+            seen_path_weighted_successes_mean, train_frames)
+    writer.add_scalar('validation/unseen/avg_success',
+            unseen_successes_mean, train_iter)
+    writer.add_scalar('validation/unseen/avg_success_frames',
+            unseen_successes_mean, train_frames)
+    writer.add_scalar('validation/unseen/avg_path_weighted_success',
+            unseen_path_weighted_successes_mean, train_iter)
+    writer.add_scalar(
+            'validation/unseen/avg_path_weighted_success_frames',
+            unseen_path_weighted_successes_mean, train_frames)
+    if train_trajectories is not None:
+        writer.add_scalar('validation/seen/avg_success_trajectories',
+                seen_successes_mean, train_trajectories)
+        writer.add_scalar(
+                'validation/seen/avg_path_weighted_success_trajectories',
+                seen_path_weighted_successes_mean, train_trajectories)
+        writer.add_scalar('validation/unseen/avg_success_trajectories',
+                unseen_successes_mean, train_trajectories)
+        writer.add_scalar(
+                'validation/unseen/avg_path_weighted_success_trajectories',
+                unseen_path_weighted_successes_mean, train_trajectories)
+
+    # Mean actions left before goal
+    seen_actions_distances_mean = np.mean([x[2] for x in
+        seen_results['distances_to_goal']])
+    unseen_actions_distances_mean = np.mean([x[2] for x in
+        unseen_results['distances_to_goal']])
+    writer.add_scalar('validation/seen/avg_actions_distance',
+            seen_actions_distances_mean, train_iter)
+    writer.add_scalar('validation/seen/avg_actions_distance_frames',
+            seen_actions_distances_mean, train_frames)
+    writer.add_scalar('validation/unseen/avg_actions_distance',
+            unseen_actions_distances_mean, train_iter)
+    writer.add_scalar('validation/unseen/avg_actions_distance_frames',
+            unseen_actions_distances_mean, train_frames)
+    if train_trajectories is not None:
+        writer.add_scalar('validation/seen/avg_actions_distance_trajectories',
+                seen_actions_distances_mean, train_trajectories)
+        writer.add_scalar(
+                'validation/unseen/avg_actions_distance_trajectories',
+                unseen_actions_distances_mean, train_trajectories)
+
+    # Mean over trajectories of mean entropy per trajectory
+    seen_entropys_mean = torch.mean(torch.tensor(
+        seen_results['entropys'], device=device))
+    unseen_entropys_mean = torch.mean(torch.tensor(
+        unseen_results['entropys'], device=device))
+    writer.add_scalar('validation/seen/avg_trajectory_entropy',
+            seen_entropys_mean, train_iter)
+    writer.add_scalar('validation/seen/avg_trajectory_entropy_frames',
+            seen_entropys_mean, train_frames)
+    writer.add_scalar('validation/unseen/avg_trajectory_entropy',
+            unseen_entropys_mean, train_iter)
+    writer.add_scalar('validation/unseen/avg_trajectory_entropy_frames',
+            unseen_entropys_mean, train_frames)
+    if train_trajectories is not None:
+        writer.add_scalar(
+                'validation/seen/avg_trajectory_entropy_trajectories',
+                seen_entropys_mean, train_trajectories)
+        writer.add_scalar(
+                'validation/unseen/avg_trajectory_entropy_trajectories',
+                unseen_entropys_mean, train_trajectories)
 
 def test(fo, model, frame_stack=1, zero_fill_frame_stack=False,
         seen_episodes=1, unseen_episodes=1):
@@ -556,10 +615,11 @@ def test(fo, model, frame_stack=1, zero_fill_frame_stack=False,
     entropys = []
     # Evaluate on training (seen) scenes
     for i in range(seen_episodes):
-        trajectory_results = rollout_trajectory(fo, model,
-                frame_stack=frame_stack,
-                zero_fill_frame_stack=zero_fill_frame_stack,
-                scene_name_or_num=random.choice(TRAIN_SCENE_NUMBERS))
+        with torch.no_grad():
+            trajectory_results = rollout_trajectory(fo, model,
+                    frame_stack=frame_stack,
+                    zero_fill_frame_stack=zero_fill_frame_stack,
+                    scene_name_or_num=random.choice(TRAIN_SCENE_NUMBERS))
         successes.append((float(trajectory_results['success']),
                 float(trajectory_results['success']) *
                 len(fo.original_expert_actions) /
@@ -582,10 +642,11 @@ def test(fo, model, frame_stack=1, zero_fill_frame_stack=False,
     distances_to_goal = []
     entropys = []
     for i in range(unseen_episodes):
-        trajectory_results = rollout_trajectory(fo, model,
-                frame_stack=frame_stack,
-                zero_fill_frame_stack=zero_fill_frame_stack,
-                scene_name_or_num=random.choice(VALIDATION_SCENE_NUMBERS))
+        with torch.no_grad():
+            trajectory_results = rollout_trajectory(fo, model,
+                    frame_stack=frame_stack,
+                    zero_fill_frame_stack=zero_fill_frame_stack,
+                    scene_name_or_num=random.choice(VALID_UNSEEN_SCENE_NUMBERS))
         successes.append((float(trajectory_results['success']),
                 float(trajectory_results['success']) *
                 len(fo.original_expert_actions) /
