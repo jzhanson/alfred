@@ -20,7 +20,8 @@ AVAILABLE_SCENE_NUMBERS = list(range(1, 31)) + list(range(201, 231)) + \
     list(range(301, 331)) + list(range(401, 431)) # 20 scenes per room type
 
 ACTIONS_DONE = 'Done'
-ACTIONS = ['MoveAhead', 'RotateLeft', 'RotateRight', 'Done']
+ACTIONS = ['MoveAhead', 'RotateLeft', 'RotateRight', 'LookUp', 'LookDown',
+        'Done']
 NUM_ACTIONS = len(ACTIONS)
 INDEX_TO_ACTION = dict(enumerate(ACTIONS))
 ACTION_TO_INDEX = dict((v,k) for k,v in INDEX_TO_ACTION.items())
