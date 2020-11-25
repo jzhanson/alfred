@@ -122,16 +122,20 @@ def make_fo_dataset():
     #splits = split_tasks.keys()
 
     training_paths = [os.path.join(task_repo, 'train', item['task']) for item in
-            split_tasks['train'][:16]]
+            split_tasks['train']]
     validation_seen_paths = [os.path.join(task_repo, 'valid_seen',
-        item['task']) for item in split_tasks['valid_seen'][:16]]
+        item['task']) for item in split_tasks['valid_seen']]
     validation_unseen_paths = [os.path.join(task_repo, 'valid_unseen', \
-            item['task']) for item in split_tasks['valid_unseen'][:16]]
+            item['task']) for item in split_tasks['valid_unseen']]
 
     training_trajectories = get_trajectories(training_paths)
     validation_seen_trajectories = get_trajectories(validation_seen_paths)
     validation_unseen_trajectories = get_trajectories(validation_unseen_paths)
-
+    print('training trajectories: ' + str(len(training_trajectories)))
+    print('validation seen trajectories: ' + str(len(
+        validation_seen_trajectories)))
+    print('validation unseen trajectories: ' + str(len(
+        validation_unseen_trajectories)))
     # Save training trajectories as JSON
     if not os.path.isdir(os.path.join(os.environ['ALFRED_ROOT'],
         "data/find_one")):
@@ -275,7 +279,8 @@ def get_dataloaders(batch_size=1, transitions=False):
                     shuffle=True, num_workers=0)
         else:
             dataloader = DataLoader(fo_dataset, batch_size=batch_size,
-                    shuffle=True, num_workers=0, collate_fn=collate_trajectories)
+                    shuffle=True, num_workers=0,
+                    collate_fn=collate_trajectories)
         dataloaders[split] = dataloader
     return dataloaders
 
