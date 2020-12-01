@@ -35,6 +35,8 @@ parser.add_argument('-zffs', '--zero-fill-frame-stack', dest='zero_fill_frame_st
 parser.add_argument('-fffs', '--first-fill-frame-stack', dest='zero_fill_frame_stack', action='store_false', help='replicate first frame when frame stacking on early steps')
 parser.set_defaults(zero_fill_frame_stack=False)
 parser.add_argument('-ei', '--eval-interval', type=int, default=100, help='number of training trajectories between evaluation trajectories')
+parser.add_argument('-ees', '--eval-episodes-seen', type=int, default=10, help='number of episodes to evaluate live on seen scenes')
+parser.add_argument('-eeu', '--eval-episodes-unseen', type=int, default=10, help='number of episodes to evaluate live on unseen scenes')
 parser.add_argument('-tf', '--teacher-force', dest='teacher_force', action='store_true')
 parser.add_argument('-ntf', '--no-teacher-force', dest='teacher_force', action='store_false')
 parser.set_defaults(teacher_force=False)
@@ -77,6 +79,10 @@ def trajectory_avg_entropy(trajectory_logits):
             F.log_softmax(trajectory_logits, dim=-1) *
             torch.exp(F.log_softmax(trajectory_logits, dim=-1)),
             dim=-1), dim=-1)
+
+def path_weighted_success(success, num_agent_actions, num_expert_actions):
+    return float(success) * num_expert_actions / max(num_agent_actions,
+            num_expert_actions)
 
 def rollout_trajectory(fo, model, frame_stack=1, zero_fill_frame_stack=False,
         teacher_force=False, scene_name_or_num=None):
@@ -229,7 +235,8 @@ def actions_accuracy_f1(predicted_action_indexes, expert_action_indexes):
 
 def train_dataset(fo, model, optimizer, dataloaders, obj_type_to_index,
         dataset_transitions=False, batch_size=1, frame_stack=1,
-        zero_fill_frame_stack=False, eval_interval=100):
+        zero_fill_frame_stack=False, eval_episodes_seen=10,
+        eval_episodes_unseen=10, eval_interval=100):
     """
     Train a model by sampling from a torch dataloader.
 
@@ -240,9 +247,11 @@ def train_dataset(fo, model, optimizer, dataloaders, obj_type_to_index,
     train_iter = 0
     train_frames = 0
     train_trajectories = 0
-    last_losses = []
-    last_accuracies = []
-    last_f1s = []
+    last_metrics = {}
+    last_metrics['loss'] = []
+    last_metrics['accuracy'] = []
+    last_metrics['f1'] = []
+    last_metrics['entropy'] = []
 
     while True:
         for batch_samples in dataloaders['train']:
@@ -285,62 +294,36 @@ def train_dataset(fo, model, optimizer, dataloaders, obj_type_to_index,
             train_iter += 1
             train_frames += len(action_scores)
             train_trajectories += batch_size
-            last_losses.append(loss.item())
+            last_metrics['loss'].append(loss.item())
             accuracy, f1 = actions_accuracy_f1(torch.argmax(action_scores,
                 dim=1), flat_action_indexes)
-            last_accuracies.append(accuracy)
-            last_f1s.append(f1)
-
-            writer.add_scalar('train/loss', loss, train_iter)
-            writer.add_scalar('train/loss_frames', loss, train_frames)
-            writer.add_scalar('train/loss_trajectories', loss,
-                    train_trajectories)
-            writer.add_scalar('train/accuracy', accuracy, train_iter)
-            writer.add_scalar('train/accuracy_frames', accuracy, train_frames)
-            writer.add_scalar('train/accuracy_trajectories', accuracy,
-                    train_trajectories)
-            writer.add_scalar('train/f1', f1, train_iter)
-            writer.add_scalar('train/f1_frames', f1, train_frames)
-            writer.add_scalar('train/f1_trajectories', f1,
-                    train_trajectories)
+            last_metrics['accuracy'].append(accuracy)
+            last_metrics['f1'].append(f1)
             # Record average policy entropy over all trajectories/transitions
             with torch.no_grad():
                 entropy = trajectory_avg_entropy(action_scores)
-            writer.add_scalar('train/entropy', entropy, train_iter)
-            writer.add_scalar('train/entropy_frames', entropy, train_frames)
-            writer.add_scalar('train/entropy_trajectories', entropy,
-                    train_trajectories)
+            last_metrics['entropy'].append(entropy.item())
+
+            for metric in last_metrics.keys():
+                writer.add_scalar('train/' + metric, last_metrics[metric][-1],
+                        train_iter)
+                writer.add_scalar('train/frames_' + metric, last_metrics[metric][-1],
+                        train_frames)
+                writer.add_scalar('train/trajectories_' + metric,
+                        last_metrics[metric][-1], train_trajectories)
 
             if train_iter % eval_interval == 0:
-                last_losses_mean = np.mean(last_losses)
-                writer.add_scalar('train/avg_loss', last_losses_mean,
-                        train_iter)
-                writer.add_scalar('train/avg_loss_frames', last_losses_mean,
-                        train_frames)
-                writer.add_scalar('train/avg_loss_trajectories',
-                        last_losses_mean, train_trajectories)
-                last_accuracies_mean = np.mean(last_accuracies)
-                writer.add_scalar('train/avg_accuracy', last_accuracies_mean,
-                        train_iter)
-                writer.add_scalar('train/avg_accuracy_frames',
-                        last_accuracies_mean, train_frames)
-                writer.add_scalar('train/avg_accuracy_trajectories',
-                        last_accuracies_mean, train_trajectories)
-                last_f1s_mean = np.mean(last_f1s)
-                writer.add_scalar('train/avg_f1', last_f1s_mean, train_iter)
-                writer.add_scalar('train/avg_f1_frames', last_f1s_mean,
-                        train_frames)
-                writer.add_scalar('train/avg_f1_trajectories', last_f1s_mean,
-                        train_trajectories)
-
-                print('iteration %d frames %d trajectories %d avg loss %.6f \
-                        avg accuracy %.6f avg f1 %.6f' % (train_iter,
-                            train_frames, train_trajectories, last_losses_mean,
-                            last_accuracies_mean, last_f1s_mean))
-
-                last_losses = []
-                last_accuracies = []
-                last_f1s = []
+                print('iteration %d frames %d trajectories %d' % (train_iter,
+                    train_frames, train_trajectories))
+                for metric, values in last_metrics.items():
+                    mean = np.mean(values)
+                    writer.add_scalar('train_avg/' + metric, mean, train_iter)
+                    writer.add_scalar('train_avg/frames_' + metric, mean,
+                            train_frames)
+                    writer.add_scalar('train_avg/trajectories_' + metric, mean,
+                            train_trajectories)
+                    print('avg ' + metric + ' %.6f' % mean)
+                    last_metrics[metric] = []
 
                 # Evaluate on valid_seen and valid_unseen
                 results = eval_dataset(model, dataloaders, obj_type_to_index,
@@ -348,28 +331,24 @@ def train_dataset(fo, model, optimizer, dataloaders, obj_type_to_index,
                         frame_stack=frame_stack,
                         zero_fill_frame_stack=zero_fill_frame_stack)
                 for split in ['valid_seen', 'valid_unseen']:
-                    writer.add_scalar(split + '/accuracy',
-                            results[split]['accuracy'], train_iter)
-                    writer.add_scalar(split + '/accuracy_frames',
-                            results[split]['accuracy'], train_frames)
-                    writer.add_scalar(split + '/accuracy_trajectories',
-                            results[split]['accuracy'], train_trajectories)
-                    writer.add_scalar(split + '/f1',
-                            results[split]['f1'], train_iter)
-                    writer.add_scalar(split + '/f1_frames',
-                            results[split]['f1'], train_frames)
-                    writer.add_scalar(split + '/f1_trajectories',
-                            results[split]['f1'], train_trajectories)
+                    for metric in results[split].keys():
+                        writer.add_scalar(split + '/' + metric,
+                                results[split][metric], train_iter)
+                        writer.add_scalar(split + '/frames_' + metric,
+                                results[split][metric], train_frames)
+                        writer.add_scalar(split + '/trajectories_' + metric,
+                                results[split][metric], train_trajectories)
                     print(split + ' accuracy %.6f f1 %.6f' %
                             (results[split]['accuracy'],
                                 results[split]['f1']))
 
-                seen_results, unseen_results = eval_online(fo, model,
+                results = eval_online(fo, model,
                         frame_stack=frame_stack,
                         zero_fill_frame_stack=zero_fill_frame_stack,
-                        seen_episodes=10, unseen_episodes=10)
-                write_eval_results(writer, seen_results, unseen_results,
-                        train_iter, train_frames, train_trajectories)
+                        seen_episodes=eval_episodes_seen,
+                        unseen_episodes=eval_episodes_unseen)
+                write_eval_results(writer, results, train_iter, train_frames,
+                        train_trajectories)
 
 def eval_dataset(model, dataloaders, obj_type_to_index,
         dataset_transitions=False,frame_stack=1, zero_fill_frame_stack=False):
@@ -427,7 +406,8 @@ def eval_dataset(model, dataloaders, obj_type_to_index,
 
 
 def train(fo, model, optimizer, frame_stack=1, zero_fill_frame_stack=False,
-        teacher_force=False, eval_interval=1000):
+        teacher_force=False, eval_episodes_seen=10, eval_episodes_unseen=10,
+        eval_interval=1000):
     """
     Train a model by collecting a trajectory online, then training with correct
     action supervision.
@@ -435,12 +415,16 @@ def train(fo, model, optimizer, frame_stack=1, zero_fill_frame_stack=False,
     writer = SummaryWriter(log_dir='tensorboard_logs')
     train_iter = 0
     train_frames = 0
-    last_losses = []
-    last_successes = [] # tuples of (success, path_weighted_success)
-    # tuples of (crow_distance, walking_distance, actions_distance i.e. how
-    # many actions left in expert trajectory)
-    last_distances_to_goal = []
-    last_trajectory_lengths = []
+    last_metrics = {}
+    last_metrics['loss'] = []
+    last_metrics['success'] = []
+    last_metrics['path_weighted_success'] = []
+    last_metrics['crow_distance_to_goal'] = []
+    last_metrics['walking_distance_to_goal'] = []
+    last_metrics['action_distance_to_goal'] = []
+    last_metrics['trajectory_length'] = []
+    last_metrics['entropy'] = []
+
     # TODO: want a replay memory?
     while True:
         # Collect a trajectory
@@ -468,263 +452,112 @@ def train(fo, model, optimizer, frame_stack=1, zero_fill_frame_stack=False,
         # Compute and save some stats
         train_iter += 1
         train_frames += len(trajectory_results['frames'])
-        last_losses.append(loss.item())
-        last_successes.append((float(trajectory_results['success']),
-                float(trajectory_results['success']) *
-                len(fo.original_expert_actions) /
-                max(len(trajectory_results['frames']),
-                    len(fo.original_expert_actions))))
+        last_metrics['loss'].append(loss.item())
+        last_metrics['success'].append(float(trajectory_results['success']))
+        last_metrics['path_weighted_success'].append(
+                path_weighted_success(
+                    trajectory_results['success'],
+                    len(trajectory_results['frames']),
+                    len(fo.original_expert_actions)))
+
         final_expert_actions, final_expert_path = \
                 fo.get_current_expert_actions_path()
-        last_distances_to_goal.append((fo.crow_distance_to_goal(),
-            fo.walking_distance_to_goal(), len(final_expert_actions)))
-        last_trajectory_lengths.append(len(trajectory_results['frames']))
-
-        writer.add_scalar('train/loss', loss, train_iter)
-        writer.add_scalar('train/loss_frames', loss, train_frames)
+        last_metrics['crow_distance_to_goal'].append(
+                fo.crow_distance_to_goal())
+        last_metrics['walking_distance_to_goal'].append(
+                fo.walking_distance_to_goal())
+        last_metrics['action_distance_to_goal'].append(
+                len(final_expert_actions))
+        last_metrics['trajectory_length'].append(
+                len(trajectory_results['frames']))
         # Record average policy entropy over an episode
         with torch.no_grad():
             entropy = trajectory_avg_entropy(all_action_scores)
-        writer.add_scalar('train/entropy', entropy, train_iter)
-        writer.add_scalar('train/entropy_frames', entropy, train_frames)
+        last_metrics['entropy'].append(entropy.item())
 
-        print('train_iter: ' + str(train_iter))
+        for metric in last_metrics.keys():
+            writer.add_scalar('train/' + metric, last_metrics[metric][-1],
+                    train_iter)
+            writer.add_scalar('train/frames_' + metric, last_metrics[metric][-1],
+                    train_frames)
+
         # Evaluate and save checkpoint every N trajectories, collect/print stats
         if train_iter % eval_interval == 0:
-            last_losses_mean = np.mean(last_losses)
-            writer.add_scalar('train/avg_loss', last_losses_mean, train_iter)
-            writer.add_scalar('train/avg_loss_frames', last_losses_mean,
-                    train_frames)
-
-            last_successes_mean = np.mean([x[0] for x in last_successes])
-            last_path_weighted_successes_mean = np.mean([x[1] for x in
-                last_successes])
-            writer.add_scalar('train/avg_success', last_successes_mean,
-                    train_iter)
-            writer.add_scalar('train/avg_success_frames', last_successes_mean,
-                    train_frames)
-            writer.add_scalar('train/avg_path_weighted_success',
-                    last_path_weighted_successes_mean, train_iter)
-            writer.add_scalar('train/avg_path_weighted_success_frames',
-                    last_path_weighted_successes_mean, train_frames)
-
-            last_crow_distances_mean = np.mean([x[0] for x in
-                last_distances_to_goal])
-            last_walking_distances_mean = np.mean([x[1] for x in
-                last_distances_to_goal])
-            last_actions_distances_mean = np.mean([x[2] for x in
-                last_distances_to_goal])
-            writer.add_scalar('train/avg_crow_distance',
-                    last_crow_distances_mean, train_iter)
-            writer.add_scalar('train/avg_crow_distance_frames',
-                    last_crow_distances_mean, train_frames)
-            writer.add_scalar('train/avg_walking_distance',
-                    last_walking_distances_mean, train_iter)
-            writer.add_scalar('train/avg_walking_distance_frames',
-                    last_walking_distances_mean, train_frames)
-            writer.add_scalar('train/avg_actions_distance',
-                    last_actions_distances_mean, train_iter)
-            writer.add_scalar('train/avg_actions_distance_frames',
-                    last_actions_distances_mean, train_frames)
-
-            last_trajectory_lengths_mean = np.mean(last_trajectory_lengths)
-            writer.add_scalar('train/avg_trajectory_length',
-                    last_trajectory_lengths_mean, train_iter)
-            writer.add_scalar('train/avg_trajectory_length_frames',
-                    last_trajectory_lengths_mean, train_frames)
-
-            print('iteration %d frames %d avg loss %.6f' % (train_iter,
-                train_frames, last_losses_mean))
-            print('avg success %.6f avg path weighted success %.6f' %
-                    (last_successes_mean, last_path_weighted_successes_mean))
-            print('avg walking distance %.6f avg walking distance %.6f avg \
-                    actions distance %.6f' % (last_crow_distances_mean,
-                        last_walking_distances_mean,
-                        last_actions_distances_mean))
-
-            last_losses = []
-            last_successes = []
-            last_distances_to_goal = []
+            print('iteration %d frames %d' % (train_iter, train_frames))
+            for metric, values in last_metrics.items():
+                mean = np.mean(values)
+                writer.add_scalar('train_avg/' + metric, mean, train_iter)
+                writer.add_scalar('train_avg/frames_' + metric, mean,
+                        train_frames)
+                last_metrics[metric] = []
 
             # Collect validation statistics and write, print
-            seen_results, unseen_results = eval_online(fo, model,
-                    frame_stack=frame_stack,
-                    zero_fill_frame_stack=zero_fill_frame_stack)
+            results = eval_online(fo, model, frame_stack=frame_stack,
+                    zero_fill_frame_stack=zero_fill_frame_stack,
+                    seen_episodes=eval_episodes_seen,
+                    unseen_episodes=eval_episodes_unseen)
 
-            write_eval_results(writer, seen_results, unseen_results,
-                    train_iter, train_frames)
+            write_eval_results(writer, results, train_iter, train_frames)
 
-# TODO: don't repeat so much tensorboard code
-def write_eval_results(writer, seen_results, unseen_results, train_iter,
-        train_frames, train_trajectories=None):
-
-    seen_successes_mean = np.mean([x[0] for x in
-        seen_results['successes']])
-    seen_path_weighted_successes_mean = np.mean([x[1] for x in
-        seen_results['successes']])
-    unseen_successes_mean = np.mean([x[0] for x in
-        unseen_results['successes']])
-    unseen_path_weighted_successes_mean = np.mean([x[1] for x in
-        unseen_results['successes']])
-    writer.add_scalar('validation/seen/avg_success',
-            seen_successes_mean, train_iter)
-    writer.add_scalar('validation/seen/avg_success_frames',
-            seen_successes_mean, train_frames)
-    writer.add_scalar('validation/seen/avg_path_weighted_success',
-            seen_path_weighted_successes_mean, train_iter)
-    writer.add_scalar('validation/seen/avg_path_weighted_success_frames',
-            seen_path_weighted_successes_mean, train_frames)
-    writer.add_scalar('validation/unseen/avg_success',
-            unseen_successes_mean, train_iter)
-    writer.add_scalar('validation/unseen/avg_success_frames',
-            unseen_successes_mean, train_frames)
-    writer.add_scalar('validation/unseen/avg_path_weighted_success',
-            unseen_path_weighted_successes_mean, train_iter)
-    writer.add_scalar(
-            'validation/unseen/avg_path_weighted_success_frames',
-            unseen_path_weighted_successes_mean, train_frames)
-    if train_trajectories is not None:
-        writer.add_scalar('validation/seen/avg_success_trajectories',
-                seen_successes_mean, train_trajectories)
-        writer.add_scalar(
-                'validation/seen/avg_path_weighted_success_trajectories',
-                seen_path_weighted_successes_mean, train_trajectories)
-        writer.add_scalar('validation/unseen/avg_success_trajectories',
-                unseen_successes_mean, train_trajectories)
-        writer.add_scalar(
-                'validation/unseen/avg_path_weighted_success_trajectories',
-                unseen_path_weighted_successes_mean, train_trajectories)
-
-    # Mean actions left before goal
-    seen_actions_distances_mean = np.mean([x[2] for x in
-        seen_results['distances_to_goal']])
-    unseen_actions_distances_mean = np.mean([x[2] for x in
-        unseen_results['distances_to_goal']])
-    writer.add_scalar('validation/seen/avg_actions_distance',
-            seen_actions_distances_mean, train_iter)
-    writer.add_scalar('validation/seen/avg_actions_distance_frames',
-            seen_actions_distances_mean, train_frames)
-    writer.add_scalar('validation/unseen/avg_actions_distance',
-            unseen_actions_distances_mean, train_iter)
-    writer.add_scalar('validation/unseen/avg_actions_distance_frames',
-            unseen_actions_distances_mean, train_frames)
-    if train_trajectories is not None:
-        writer.add_scalar('validation/seen/avg_actions_distance_trajectories',
-                seen_actions_distances_mean, train_trajectories)
-        writer.add_scalar(
-                'validation/unseen/avg_actions_distance_trajectories',
-                unseen_actions_distances_mean, train_trajectories)
-
-    # Mean over trajectories of mean entropy per trajectory
-    seen_entropys_mean = torch.mean(torch.tensor(
-        seen_results['entropys'], device=device))
-    unseen_entropys_mean = torch.mean(torch.tensor(
-        unseen_results['entropys'], device=device))
-    writer.add_scalar('validation/seen/avg_trajectory_entropy',
-            seen_entropys_mean, train_iter)
-    writer.add_scalar('validation/seen/avg_trajectory_entropy_frames',
-            seen_entropys_mean, train_frames)
-    writer.add_scalar('validation/unseen/avg_trajectory_entropy',
-            unseen_entropys_mean, train_iter)
-    writer.add_scalar('validation/unseen/avg_trajectory_entropy_frames',
-            unseen_entropys_mean, train_frames)
-    if train_trajectories is not None:
-        writer.add_scalar(
-                'validation/seen/avg_trajectory_entropy_trajectories',
-                seen_entropys_mean, train_trajectories)
-        writer.add_scalar(
-                'validation/unseen/avg_trajectory_entropy_trajectories',
-                unseen_entropys_mean, train_trajectories)
-
-    # Mean over trajectories of mean entropy per trajectory
-    seen_trajectory_lengths_mean = torch.mean(torch.tensor(
-        seen_results['trajectory_lengths'], device=device))
-    unseen_trajectory_lengths_mean = torch.mean(torch.tensor(
-        unseen_results['entropys'], device=device))
-    writer.add_scalar('validation/seen/avg_trajectory_length',
-            seen_trajectory_lengths_mean, train_iter)
-    writer.add_scalar('validation/seen/avg_trajectory_length_frames',
-            seen_trajectory_lengths_mean, train_frames)
-    writer.add_scalar('validation/unseen/avg_trajectory_length',
-            unseen_trajectory_lengths_mean, train_iter)
-    writer.add_scalar('validation/unseen/avg_trajectory_length_frames',
-            unseen_trajectory_lengths_mean, train_frames)
-    if train_trajectories is not None:
-        writer.add_scalar(
-                'validation/seen/avg_trajectory_length_trajectories',
-                seen_trajectory_lengths_mean, train_trajectories)
-        writer.add_scalar(
-                'validation/unseen/avg_trajectory_length_trajectories',
-                unseen_trajectory_lengths_mean, train_trajectories)
-
+def write_eval_results(writer, results, train_iter, train_frames,
+        train_trajectories=None):
+    for split in results.keys():
+        for metric, values in results[split].items():
+            mean = np.mean(values)
+            writer.add_scalar('validation_online_avg/' + split + '/' + metric,
+                    mean, train_iter)
+            writer.add_scalar('validation_online_avg/' + split + '/frames' +
+                    metric, mean, train_frames)
+            if train_trajectories is not None:
+                writer.add_scalar('validation_online_avg/' + split +
+                        '/trajectories' + metric, mean, train_trajectories)
 
 def eval_online(fo, model, frame_stack=1, zero_fill_frame_stack=False,
         seen_episodes=1, unseen_episodes=1):
     model.eval()
-    successes = [] # tuples of (success, path_weighted_success)
-    # tuples of (crow_distance, walking_distance, actions_distance i.e. how
-    # many actions left in expert trajectory)
-    distances_to_goal = []
-    entropys = []
-    trajectory_lengths = []
-    # Evaluate on training (seen) scenes
-    for i in range(seen_episodes):
-        with torch.no_grad():
-            trajectory_results = rollout_trajectory(fo, model,
-                    frame_stack=frame_stack,
-                    zero_fill_frame_stack=zero_fill_frame_stack,
-                    scene_name_or_num=random.choice(TRAIN_SCENE_NUMBERS))
-        successes.append((float(trajectory_results['success']),
-                float(trajectory_results['success']) *
-                len(fo.original_expert_actions) /
-                max(len(trajectory_results['frames']),
-                    len(fo.original_expert_actions))))
-        final_expert_actions, final_expert_path = \
-                fo.get_current_expert_actions_path()
-        distances_to_goal.append((fo.crow_distance_to_goal(),
-            fo.walking_distance_to_goal(), len(final_expert_actions)))
-        entropys.append(trajectory_avg_entropy(torch.cat(
-            trajectory_results['all_action_scores'])))
-        trajectory_lengths.append(float(len(trajectory_results['frames'])))
-
-    seen_results = {}
-    seen_results['successes'] = successes
-    seen_results['distances_to_goal'] = distances_to_goal
-    seen_results['entropys'] = entropys
-    seen_results['trajectory_lengths'] = trajectory_lengths
-
-    # Evaluate on validation (unseen) scenes
-    successes = []
-    distances_to_goal = []
-    entropys = []
-    trajectory_lengths = []
-    for i in range(unseen_episodes):
-        with torch.no_grad():
-            trajectory_results = rollout_trajectory(fo, model,
-                    frame_stack=frame_stack,
-                    zero_fill_frame_stack=zero_fill_frame_stack,
-                    scene_name_or_num=random.choice(VALID_UNSEEN_SCENE_NUMBERS))
-        successes.append((float(trajectory_results['success']),
-                float(trajectory_results['success']) *
-                len(fo.original_expert_actions) /
-                max(len(trajectory_results['frames']),
-                    len(fo.original_expert_actions))))
-        final_expert_actions, final_expert_path = \
-                fo.get_current_expert_actions_path()
-        distances_to_goal.append((fo.crow_distance_to_goal(),
-            fo.walking_distance_to_goal(), len(final_expert_actions)))
-        entropys.append(trajectory_avg_entropy(torch.cat(
-            trajectory_results['all_action_scores'])))
-        trajectory_lengths.append(float(len(trajectory_results['frames'])))
-    unseen_results = {}
-    unseen_results['successes'] = successes
-    unseen_results['distances_to_goal'] = distances_to_goal
-    unseen_results['entropys'] = entropys
-    unseen_results['trajectory_lengths'] = trajectory_lengths
+    metrics = {}
+    for split in ['seen', 'unseen']:
+        metrics[split] = {}
+        metrics[split]['success'] = []
+        metrics[split]['path_weighted_success'] = []
+        metrics[split]['crow_distance_to_goal'] = []
+        metrics[split]['walking_distance_to_goal'] = []
+        metrics[split]['action_distance_to_goal'] = []
+        metrics[split]['entropy'] = []
+        metrics[split]['trajectory_length'] = []
+        episodes = seen_episodes if split == 'seen' else unseen_episodes
+        for i in range(episodes):
+            with torch.no_grad():
+                trajectory_results = rollout_trajectory(fo, model,
+                        frame_stack=frame_stack,
+                        zero_fill_frame_stack=zero_fill_frame_stack,
+                        scene_name_or_num=random.choice(TRAIN_SCENE_NUMBERS if
+                            split == 'seen' else VALID_UNSEEN_SCENE_NUMBERS))
+            metrics[split]['success'].append(
+                    float(trajectory_results['success']))
+            metrics[split]['path_weighted_success'].append(
+                    path_weighted_success(
+                        trajectory_results['success'],
+                        len(trajectory_results['frames']),
+                        len(fo.original_expert_actions)))
+            final_expert_actions, final_expert_path = \
+                    fo.get_current_expert_actions_path()
+            metrics[split]['crow_distance_to_goal'].append(
+                    fo.crow_distance_to_goal())
+            metrics[split]['walking_distance_to_goal'].append(
+                    fo.walking_distance_to_goal())
+            metrics[split]['action_distance_to_goal'].append(
+                    len(final_expert_actions))
+            with torch.no_grad():
+                entropy = trajectory_avg_entropy(torch.cat(
+                    trajectory_results['all_action_scores']))
+            metrics[split]['entropy'].append(entropy.item())
+            metrics[split]['trajectory_length'].append(
+                    float(len(trajectory_results['frames'])))
 
     model.train()
 
-    return seen_results, unseen_results
+    return metrics
 
 if __name__ == '__main__':
     args = parser.parse_args()
@@ -762,10 +595,14 @@ if __name__ == '__main__':
                 dataset_transitions=args.dataset_transitions,
                 batch_size=args.batch_size, frame_stack=args.frame_stack,
                 zero_fill_frame_stack=args.zero_fill_frame_stack,
+                eval_episodes_seen=args.eval_episodes_seen,
+                eval_episodes_unseen=args.eval_episodes_unseen,
                 eval_interval=args.eval_interval)
     else:
         train(fo, model, optimizer, frame_stack=args.frame_stack,
                 zero_fill_frame_stack=args.zero_fill_frame_stack,
                 teacher_force=args.teacher_force,
+                eval_episodes_seen=args.eval_episodes_seen,
+                eval_episodes_unseen=args.eval_episodes_unseen,
                 eval_interval=args.eval_interval)
 
