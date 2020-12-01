@@ -160,6 +160,18 @@ def rollout_trajectory(fo, model, frame_stack=1, zero_fill_frame_stack=False,
 
 def flatten_trajectories(batch_samples, frame_stack=1,
         zero_fill_frame_stack=False):
+    """
+    Given batch_samples, a dict where keys are attributes of trajectories and
+    the values are lists containing the attributes for each trajectory,
+    assemble a dict where keys are attributes of transitions and the values are
+    lists containing the attributes for each transition.
+
+    I.e. batch_samples['target'] contains one element for every trajectory
+    while batch_samples['images'] contains a list (one element for every
+    transition) for every trajectory. flat_batch_samples['target'] contains one
+    element for every transition, and flat_batch_samples['images'] contains one
+    element for every transition.
+    """
     flat_targets = []
     flat_actions = []
     for i in range(len(batch_samples['target'])):
@@ -180,7 +192,7 @@ def flatten_trajectories(batch_samples, frame_stack=1,
                             frame in batch_samples['images'][i][:j+1]])
                 else:
                     # Repeat first frame
-                    frames = torch.cat( [batch_samples['images'][i][0].permute(
+                    frames = torch.cat([batch_samples['images'][i][0].permute(
                         2, 0, 1) for _ in range(frame_stack
                                     - j - 1)] + [frame.permute(2, 0, 1) for
                                         frame in batch_samples['images'][i][
@@ -203,6 +215,9 @@ def flatten_trajectories(batch_samples, frame_stack=1,
     return flat_batch_samples
 
 def actions_accuracy_f1(predicted_action_indexes, expert_action_indexes):
+    """
+    Calculate the accuracy and f1 (micro) of predicted actions.
+    """
     correct_preds = 0
     for i in range(len(expert_action_indexes)):
         if predicted_action_indexes[i] == expert_action_indexes[i]:
@@ -358,6 +373,10 @@ def train_dataset(fo, model, optimizer, dataloaders, obj_type_to_index,
 
 def eval_dataset(model, dataloaders, obj_type_to_index,
         dataset_transitions=False,frame_stack=1, zero_fill_frame_stack=False):
+    """
+    Evaluate a model on valid_seen and valid_unseen datasets given by
+    dataloaders.
+    """
     results = {}
 
     model.eval()
@@ -666,7 +685,7 @@ def eval_online(fo, model, frame_stack=1, zero_fill_frame_stack=False,
             fo.walking_distance_to_goal(), len(final_expert_actions)))
         entropys.append(trajectory_avg_entropy(torch.cat(
             trajectory_results['all_action_scores'])))
-        trajectory_lengths.append(len(trajectory_results['frames']))
+        trajectory_lengths.append(float(len(trajectory_results['frames'])))
 
     seen_results = {}
     seen_results['successes'] = successes
@@ -696,6 +715,7 @@ def eval_online(fo, model, frame_stack=1, zero_fill_frame_stack=False,
             fo.walking_distance_to_goal(), len(final_expert_actions)))
         entropys.append(trajectory_avg_entropy(torch.cat(
             trajectory_results['all_action_scores'])))
+        trajectory_lengths.append(float(len(trajectory_results['frames'])))
     unseen_results = {}
     unseen_results['successes'] = successes
     unseen_results['distances_to_goal'] = distances_to_goal
