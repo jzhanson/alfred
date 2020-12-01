@@ -328,7 +328,7 @@ def train_dataset(fo, model, optimizer, dataloaders, obj_type_to_index,
                 last_f1s = []
 
                 # Evaluate on valid_seen and valid_unseen
-                results = test_dataset(model, dataloaders, obj_type_to_index,
+                results = eval_dataset(model, dataloaders, obj_type_to_index,
                         dataset_transitions=dataset_transitions,
                         frame_stack=frame_stack,
                         zero_fill_frame_stack=zero_fill_frame_stack)
@@ -349,15 +349,14 @@ def train_dataset(fo, model, optimizer, dataloaders, obj_type_to_index,
                             (results[split]['accuracy'],
                                 results[split]['f1']))
 
-                seen_results, unseen_results = test(fo, model,
+                seen_results, unseen_results = eval_online(fo, model,
                         frame_stack=frame_stack,
                         zero_fill_frame_stack=zero_fill_frame_stack,
                         seen_episodes=10, unseen_episodes=10)
-                write_test_results(writer, seen_results, unseen_results,
+                write_eval_results(writer, seen_results, unseen_results,
                         train_iter, train_frames, train_trajectories)
 
-# TODO maybe don't call these functions test
-def test_dataset(model, dataloaders, obj_type_to_index,
+def eval_dataset(model, dataloaders, obj_type_to_index,
         dataset_transitions=False,frame_stack=1, zero_fill_frame_stack=False):
     results = {}
 
@@ -516,15 +515,15 @@ def train(fo, model, optimizer, frame_stack=1, zero_fill_frame_stack=False,
             last_successes = []
             last_distances_to_goal = []
 
-            # Collect test statistics and write, print
-            seen_results, unseen_results = test(fo, model,
+            # Collect validation statistics and write, print
+            seen_results, unseen_results = eval_online(fo, model,
                     frame_stack=frame_stack,
                     zero_fill_frame_stack=zero_fill_frame_stack)
 
-            write_test_results(writer, seen_results, unseen_results,
+            write_eval_results(writer, seen_results, unseen_results,
                     train_iter, train_frames)
 
-def write_test_results(writer, seen_results, unseen_results, train_iter,
+def write_eval_results(writer, seen_results, unseen_results, train_iter,
         train_frames, train_trajectories=None):
 
     seen_successes_mean = np.mean([x[0] for x in
@@ -605,7 +604,7 @@ def write_test_results(writer, seen_results, unseen_results, train_iter,
                 'validation/unseen/avg_trajectory_entropy_trajectories',
                 unseen_entropys_mean, train_trajectories)
 
-def test(fo, model, frame_stack=1, zero_fill_frame_stack=False,
+def eval_online(fo, model, frame_stack=1, zero_fill_frame_stack=False,
         seen_episodes=1, unseen_episodes=1):
     model.eval()
     successes = [] # tuples of (success, path_weighted_success)
