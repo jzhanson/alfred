@@ -340,28 +340,29 @@ def train_dataset(fo, model, optimizer, dataloaders, obj_type_to_index,
                     last_metrics[metric] = []
 
                 # Evaluate on valid_seen and valid_unseen
-                results = eval_dataset(model, dataloaders, obj_type_to_index,
+                results_dataset = eval_dataset(model, dataloaders,
+                        obj_type_to_index,
                         dataset_transitions=dataset_transitions,
                         frame_stack=frame_stack,
                         zero_fill_frame_stack=zero_fill_frame_stack)
                 for split in ['valid_seen', 'valid_unseen']:
-                    for metric in results[split].keys():
+                    for metric in results_dataset[split].keys():
                         writer.add_scalar(split + '/' + metric,
-                                results[split][metric], train_iter)
+                                results_dataset[split][metric], train_iter)
                         writer.add_scalar(split + '/frames_' + metric,
-                                results[split][metric], train_frames)
+                                results_dataset[split][metric], train_frames)
                         writer.add_scalar(split + '/trajectories_' + metric,
-                                results[split][metric], train_trajectories)
+                                results_dataset[split][metric], train_trajectories)
                     print(split + ' accuracy %.6f f1 %.6f' %
-                            (results[split]['accuracy'],
-                                results[split]['f1']))
+                            (results_dataset[split]['accuracy'],
+                                results_dataset[split]['f1']))
 
-                results = eval_online(fo, model,
+                results_online = eval_online(fo, model,
                         frame_stack=frame_stack,
                         zero_fill_frame_stack=zero_fill_frame_stack,
                         seen_episodes=eval_episodes_seen,
                         unseen_episodes=eval_episodes_unseen)
-                write_eval_results(writer, results, train_iter, train_frames,
+                write_eval_results(writer, results_online, train_iter, train_frames,
                         train_trajectories)
 
                 if save_path is not None:
