@@ -48,7 +48,9 @@ parser.add_argument('-ndt', '--dataset-trajectories', dest='dataset_transitions'
 parser.set_defaults(dataset_transitions=False)
 parser.add_argument('-bs', '--batch-size', type=int, default=1, help='batch size of training trajectories or transitions if dataset-transitions is set')
 parser.add_argument('-sp', '--save-path', type=str, default=None, help='path (directory) to save models and tensorboard stats')
-parser.add_argument('-si', '--save-intermediate', type=bool, default=False, help='whether to save intermediate checkpoints')
+parser.add_argument('-si', '--save-intermediate', dest='save_intermediate', action='store_true', help='save intermediate checkpoints (once per eval interval)')
+parser.add_argument('-nsi', '--no-save-intermediate', dest='save_intermediate', action='store_false', help='don\'t save intermediate checkpoints (once per eval interval)')
+parser.set_defaults(save_intermediate=False)
 parser.add_argument('-lp', '--load-path', type=str, default=None, help='path (.pth) to load model checkpoint from')
 
 '''
