@@ -47,6 +47,9 @@ parser.add_argument('-dt', '--dataset-transitions', dest='dataset_transitions', 
 parser.add_argument('-ndt', '--dataset-trajectories', dest='dataset_transitions', action='store_false')
 parser.set_defaults(dataset_transitions=False)
 parser.add_argument('-bs', '--batch-size', type=int, default=1, help='batch size of training trajectories or transitions if dataset-transitions is set')
+parser.add_argument('-sp', '--save-path', type=str, default=None, help='path (directory) to save models and tensorboard stats')
+parser.add_argument('-si', '--save-intermediate', type=bool, default=False, help='whether to save intermediate checkpoints')
+parser.add_argument('-lp', '--load-path', type=str, default=None, help='path (.pth) to load model checkpoint from')
 
 '''
 parser.add_argument('-do', '--dropout', type=float, default=0.02, help='dropout prob')
@@ -236,17 +239,28 @@ def actions_accuracy_f1(predicted_action_indexes, expert_action_indexes):
 def train_dataset(fo, model, optimizer, dataloaders, obj_type_to_index,
         dataset_transitions=False, batch_size=1, frame_stack=1,
         zero_fill_frame_stack=False, eval_episodes_seen=10,
-        eval_episodes_unseen=10, eval_interval=100):
+        eval_episodes_unseen=10, eval_interval=100, save_path=None,
+        save_intermediate=False, load_path=None):
     """
     Train a model by sampling from a torch dataloader.
 
     dataloaders is a dict with 'train', 'valid_seen', 'valid_unseen' as keys
     and values of those dataloaders.
     """
-    writer = SummaryWriter(log_dir='tensorboard_logs')
-    train_iter = 0
-    train_frames = 0
-    train_trajectories = 0
+    writer = SummaryWriter(log_dir='tensorboard_logs' if save_path is None
+            else os.path.join(save_path, 'tensorboard_logs'))
+    if load_path is not None:
+        checkpoint = torch.load(load_path)
+        train_iter = checkpoint['train_iter']
+        train_frames = checkpoint['train_frames']
+        train_trajectories = checkpoint['train_trajectories']
+        model.load_state_dict(checkpoint['model_state_dict'])
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        print('loading from ' + load_path + ' iteration ' + str(train_iter))
+    else:
+        train_iter = 0
+        train_frames = 0
+        train_trajectories = 0
     last_metrics = {}
     last_metrics['loss'] = []
     last_metrics['accuracy'] = []
@@ -350,6 +364,21 @@ def train_dataset(fo, model, optimizer, dataloaders, obj_type_to_index,
                 write_eval_results(writer, results, train_iter, train_frames,
                         train_trajectories)
 
+                if save_path is not None:
+                    if save_intermediate:
+                        checkpoint_save_path = os.path.join(save_path, 'model_' +
+                                str(train_iter) + '.pth')
+                    else:
+                        checkpoint_save_path = os.path.join(save_path, 'model.pth')
+                    print('saving to ' + checkpoint_save_path)
+                    torch.save({
+                        'train_iter' : train_iter,
+                        'train_frames' : train_frames,
+                        'train_trajectories' : train_trajectories,
+                        'model_state_dict' : model.state_dict(),
+                        'optimizer_state_dict' : optimizer.state_dict(),
+                    }, checkpoint_save_path)
+
 def eval_dataset(model, dataloaders, obj_type_to_index,
         dataset_transitions=False,frame_stack=1, zero_fill_frame_stack=False):
     """
@@ -407,14 +436,26 @@ def eval_dataset(model, dataloaders, obj_type_to_index,
 
 def train(fo, model, optimizer, frame_stack=1, zero_fill_frame_stack=False,
         teacher_force=False, eval_episodes_seen=10, eval_episodes_unseen=10,
-        eval_interval=1000):
+        eval_interval=1000, save_path=None, save_intermediate=False,
+        load_path=None):
     """
     Train a model by collecting a trajectory online, then training with correct
-    action supervision.
+    action supervision. Loads model from checkpoint if load_path is not None.
     """
-    writer = SummaryWriter(log_dir='tensorboard_logs')
-    train_iter = 0
-    train_frames = 0
+    writer = SummaryWriter(log_dir='tensorboard_logs' if save_path is None
+            else os.path.join(save_path, 'tensorboard_logs'))
+    if load_path is not None:
+        checkpoint = torch.load(load_path)
+        train_iter = checkpoint['train_iter']
+        train_frames = checkpoint['train_frames']
+        model.load_state_dict(checkpoint['model_state_dict'])
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        print('loading from ' + load_path + ' iteration ' + str(train_iter))
+    else:
+        train_iter = 0
+        train_frames = 0
+    # TODO: save/load metrics instead of relying on tensorboard and make metric
+    # loading work well with tensorboard
     last_metrics = {}
     last_metrics['loss'] = []
     last_metrics['success'] = []
@@ -499,6 +540,22 @@ def train(fo, model, optimizer, frame_stack=1, zero_fill_frame_stack=False,
 
             write_eval_results(writer, results, train_iter, train_frames)
 
+            if save_path is not None:
+                if save_intermediate:
+                    checkpoint_save_path = os.path.join(save_path, 'model_' +
+                            str(train_iter) + '.pth')
+                else:
+                    checkpoint_save_path = os.path.join(save_path, 'model.pth')
+                print('saving to ' + checkpoint_save_path)
+                torch.save({
+                    'train_iter' : train_iter,
+                    'train_frames' : train_frames,
+                    # Save train_trajectories to be compatible with train_dataset
+                    'train_trajectories' : train_iter,
+                    'model_state_dict' : model.state_dict(),
+                    'optimizer_state_dict' : optimizer.state_dict(),
+                }, checkpoint_save_path)
+
 def write_eval_results(writer, results, train_iter, train_frames,
         train_trajectories=None):
     for split in results.keys():
@@ -562,6 +619,14 @@ def eval_online(fo, model, frame_stack=1, zero_fill_frame_stack=False,
 if __name__ == '__main__':
     args = parser.parse_args()
 
+    if args.load_path is not None and not os.path.isfile(args.load_path):
+        print('load_path not found: ' + args.load_path)
+        exit()
+
+    if args.save_path is not None and not os.path.isdir(args.save_path):
+        print('making save_path: ' + args.save_path)
+        os.makedirs(args.save_path)
+
     env = ThorEnv()
 
     obj_type_to_index_path = os.path.join(os.environ['ALFRED_ROOT'], 'env',
@@ -597,12 +662,16 @@ if __name__ == '__main__':
                 zero_fill_frame_stack=args.zero_fill_frame_stack,
                 eval_episodes_seen=args.eval_episodes_seen,
                 eval_episodes_unseen=args.eval_episodes_unseen,
-                eval_interval=args.eval_interval)
+                eval_interval=args.eval_interval, save_path=args.save_path,
+                save_intermediate=args.save_intermediate,
+                load_path=args.load_path)
     else:
         train(fo, model, optimizer, frame_stack=args.frame_stack,
                 zero_fill_frame_stack=args.zero_fill_frame_stack,
                 teacher_force=args.teacher_force,
                 eval_episodes_seen=args.eval_episodes_seen,
                 eval_episodes_unseen=args.eval_episodes_unseen,
-                eval_interval=args.eval_interval)
+                eval_interval=args.eval_interval, save_path=args.save_path,
+                save_intermediate=args.save_intermediate,
+                load_path=args.load_path)
 
