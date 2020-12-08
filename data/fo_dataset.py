@@ -26,6 +26,8 @@ AUGMENT_SUBGOALS = ['PickupObject', 'SliceObject', 'ToggleObject',
 def trajectories_from_high_pddl_dicts(high_pddl_dict, next_high_pddl_dict,
         path):
     trajectories = []
+    # Keep track of the objects and times objects appear
+    targets = []
     if high_pddl_dict['discrete_action']['action'] == 'GotoLocation':
         trajectory = {}
         trajectory['path'] = path
@@ -38,6 +40,7 @@ def trajectories_from_high_pddl_dicts(high_pddl_dict, next_high_pddl_dict,
         trajectory['images'] = []
         trajectory['features'] = []
         trajectories.append(trajectory)
+        targets.append(high_pddl_dict['discrete_action']['args'][0])
 
         # Do find replacements (advanced parsing) where if a GotoLocation is
         # followed by a, say, PickupObject, the trajectory is also saved with
@@ -61,11 +64,14 @@ def trajectories_from_high_pddl_dicts(high_pddl_dict, next_high_pddl_dict,
                 augmented_trajectory['images'] = []
                 augmented_trajectory['features'] = []
                 trajectories.append(augmented_trajectory)
+                targets.append(next_high_pddl_dict['discrete_action']['args']
+                        [-1])
 
-    return trajectories
+    return trajectories, targets
 
 def get_trajectories(paths, find_parsing=False):
     trajectories = []
+    target_occurrences = {}
     # Iterate through jsons
     for path in paths:
         with open(os.path.join(path, 'traj_data.json')) as jsonfile:
@@ -83,11 +89,13 @@ def get_trajectories(paths, find_parsing=False):
                 if find_parsing and \
                         i < len(traj_dict['plan']['high_pddl']) - 1:
                     next_high_pddl_dict = traj_dict['plan']['high_pddl'][i+1]
-                    current_trajectories = trajectories_from_high_pddl_dicts(
-                                    high_pddl_dict, next_high_pddl_dict, path)
+                    current_trajectories, current_targets = \
+                            trajectories_from_high_pddl_dicts(high_pddl_dict,
+                                    next_high_pddl_dict, path)
                 else:
-                    current_trajectories = trajectories_from_high_pddl_dicts(
-                            high_pddl_dict, None, path)
+                    current_trajectories, current_targets = \
+                            trajectories_from_high_pddl_dicts(high_pddl_dict,
+                                    None, path)
 
                 if len(current_trajectories) > 0:
                     path_high_idxs_to_trajectory_indexes[
@@ -95,6 +103,11 @@ def get_trajectories(paths, find_parsing=False):
                                     [len(path_trajectories) + i for i in \
                                     range(len(current_trajectories))]
                     path_trajectories.extend(current_trajectories)
+                    for target in current_targets:
+                        if target in target_occurrences:
+                            target_occurrences[target] += 1
+                        else:
+                            target_occurrences[target] = 1
 
             # Iterate through once to get all the low_actions and images
             # corresponding to each GotoLocation and ResNet features.
@@ -180,7 +193,7 @@ def get_trajectories(paths, find_parsing=False):
                 print("trajectories not annotated with Done action: " +
                         str(len(trajectory_index_to_last_low_idx)))
             trajectories.extend(path_trajectories)
-    return trajectories
+    return trajectories, target_occurrences
 
 def make_fo_dataset(find_parsing=False, save_path=None):
     splits_path = os.path.join(os.environ['ALFRED_ROOT'], "data/splits/oct21.json")
@@ -196,12 +209,13 @@ def make_fo_dataset(find_parsing=False, save_path=None):
     validation_unseen_paths = [os.path.join(task_repo, 'valid_unseen', \
             item['task']) for item in split_tasks['valid_unseen']]
 
-    training_trajectories = get_trajectories(training_paths,
-            find_parsing=find_parsing)
-    validation_seen_trajectories = get_trajectories(validation_seen_paths,
-            find_parsing=find_parsing)
-    validation_unseen_trajectories = get_trajectories(validation_unseen_paths,
-            find_parsing=find_parsing)
+    training_trajectories, training_target_occurrences = get_trajectories(
+            training_paths, find_parsing=find_parsing)
+    validation_seen_trajectories, validation_seen_target_occurrences = \
+            get_trajectories(validation_seen_paths, find_parsing=find_parsing)
+    validation_unseen_trajectories, validation_unseen_target_occurrences =  \
+            get_trajectories(validation_unseen_paths,
+                    find_parsing=find_parsing)
     print('training trajectories: ' + str(len(training_trajectories)))
     print('validation seen trajectories: ' + str(len(
         validation_seen_trajectories)))
@@ -221,6 +235,43 @@ def make_fo_dataset(find_parsing=False, save_path=None):
     with open(validation_unseen_outfile_path, 'w') as outfile:
         json.dump(validation_unseen_trajectories, outfile, sort_keys=True,
                 indent=4)
+
+    # Print target occurrences and save as obj_type_to_index files
+    print('train \ valid_seen ' + str(len([k for k in
+        training_target_occurrences.keys() if k not in
+        validation_seen_target_occurrences])))
+    print('train \ valid_unseen ' + str(len([k for k in
+        training_target_occurrences.keys() if k not in
+        validation_unseen_target_occurrences])))
+    print('valid_seen \ train ' + str(len([k for k in
+        validation_seen_target_occurrences.keys() if k not in
+        training_target_occurrences])))
+    print('valid_unseen \ train ' + str(len([k for k in
+        validation_unseen_target_occurrences.keys() if k not in
+        training_target_occurrences])))
+    # Print target occurrences from most common to least common
+    print('num target types: ' + str(len(training_target_occurrences)))
+    print('training_target_occurrences: ' +
+            str(sorted(training_target_occurrences.items(),
+                key=lambda x: x[1], reverse=True)))
+    print('validation_seen_target_occurrences: ' +
+            str(sorted(validation_seen_target_occurrences.items(),
+                key=lambda x: x[1], reverse=True)))
+    print('validation_unseen_target_occurrences: ' +
+            str(sorted(validation_unseen_target_occurrences.items(),
+                key=lambda x: x[1], reverse=True)))
+
+    # There are 110 object types in ALFRED, but only 81 targets in objects over
+    # train, valid_seen, and valid_unseen
+    unique_targets = set(list(training_target_occurrences.keys()) +
+            list(validation_seen_target_occurrences.keys()) +
+            list(validation_unseen_target_occurrences.keys()))
+    obj_type_to_index = {obj:i for i, obj in enumerate(unique_targets)}
+
+    obj_type_to_index_outfile_path = os.path.join(save_path,
+            "obj_type_to_index.json")
+    with open(obj_type_to_index_outfile_path, 'w') as outfile:
+        json.dump(obj_type_to_index, outfile)
 
 class FindOneDataset(Dataset):
     """
