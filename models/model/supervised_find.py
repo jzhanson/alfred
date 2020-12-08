@@ -40,9 +40,7 @@ parser.add_argument('-eeu', '--eval-episodes-unseen', type=int, default=10, help
 parser.add_argument('-tf', '--teacher-force', dest='teacher_force', action='store_true')
 parser.add_argument('-ntf', '--no-teacher-force', dest='teacher_force', action='store_false')
 parser.set_defaults(teacher_force=False)
-parser.add_argument('-ud', '--use-dataset', dest='use_dataset', action='store_true')
-parser.add_argument('-nud', '--no-use-dataset', dest='use_dataset', action='store_false')
-parser.set_defaults(use_dataset=True)
+parser.add_argument('-dp', '--dataset-path', type=str, default=None, help='path (directory) to dataset indexes of trajectories and obj_type_to_index, if using')
 parser.add_argument('-dt', '--dataset-transitions', dest='dataset_transitions', action='store_true')
 parser.add_argument('-ndt', '--dataset-trajectories', dest='dataset_transitions', action='store_false')
 parser.set_defaults(dataset_transitions=False)
@@ -646,7 +644,7 @@ if __name__ == '__main__':
 
     fo = FindOne(env, obj_type_to_index)
 
-    if args.use_dataset:
+    if args.dataset_path is not None:
         # Frame stacking models only make sense if you're sampling trajectories
         # from a dataset, not transitions
         if args.dataset_transitions and args.frame_stack > 1:
@@ -658,7 +656,7 @@ if __name__ == '__main__':
             object_embedding_dim=args.object_embedding_dim).to(device)
     optimizer = optim.SGD(model.parameters(), lr=args.lr)
 
-    if args.use_dataset:
+    if args.dataset_path is not None:
         train_dataset(fo, model, optimizer, dataloaders, obj_type_to_index,
                 dataset_transitions=args.dataset_transitions,
                 batch_size=args.batch_size, frame_stack=args.frame_stack,
