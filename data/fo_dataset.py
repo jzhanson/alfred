@@ -11,19 +11,33 @@ import cv2
 
 from env.find_one import ACTIONS_DONE
 
-def get_trajectories(paths):
+import argparse
+parser = argparse.ArgumentParser()
+
+parser.add_argument('-fp', '--find-parsing', dest='find_parsing', action='store_true', help='whether to do advanced parsing of gotolocation + other subgoals into \'finds\'')
+parser.add_argument('-nfp', '--no-find-parsing', dest='find_parsing', action='store_false', help='whether to do advanced parsing of gotolocation + other subgoals into \'finds\'')
+parser.set_defaults(find_parsing=False)
+parser.add_argument('-sp', '--save-path', type=str, default=None, help='path (directory) to save index files')
+
+
+AUGMENT_SUBGOALS = ['PickupObject', 'SliceObject', 'ToggleObject',
+        'HeatObject', 'CoolObject', 'CleanObject', 'PutObject']
+
+def get_trajectories(paths, find_parsing=False):
     trajectories = []
     # Iterate through jsons
     for path in paths:
         with open(os.path.join(path, 'traj_data.json')) as jsonfile:
             traj_dict = json.load(jsonfile)
             current_trajectories = []
-            current_high_idxs = []
+            # Keep a dict mapping high subgoal indexes to trajectories, since a
+            # high subgoal can map to multiple trajectories (i.e GotoLocation
+            # with "Find" replacement)
+            current_high_idxs_to_trajectory_indexes = {}
             # Iterate through high_pddls (subgoals) and collect all relevant
             # GotoLocations
-            for high_pddl_dict in traj_dict['plan']['high_pddl']:
-                # TODO: also add the different types of Find replacements to
-                # augment
+            for i in range(len(traj_dict['plan']['high_pddl'])):
+                high_pddl_dict = traj_dict['plan']['high_pddl'][i]
                 if high_pddl_dict['discrete_action']['action'] == \
                         'GotoLocation':
                     current_trajectory = {}
@@ -31,14 +45,49 @@ def get_trajectories(paths):
                     # Only one argument for GotoLocation
                     current_trajectory['target'] = \
                             high_pddl_dict['discrete_action']['args'][0]
-                    current_trajectory['high_idx'] = high_pddl_dict['high_idx']
+                    current_trajectory['high_idx'] = [high_pddl_dict['high_idx']]
                     # Iterate through low_actions and images once later on and
                     # fill these in later
                     current_trajectory['low_actions'] = []
                     current_trajectory['images'] = []
                     current_trajectory['features'] = []
+                    current_high_idxs_to_trajectory_indexes[
+                            high_pddl_dict['high_idx']] = \
+                                    [len(current_trajectories)]
                     current_trajectories.append(current_trajectory)
-                    current_high_idxs.append(high_pddl_dict['high_idx'])
+
+                    # Do find replacements (advanced parsing) where if a
+                    # GotoLocation is followed by a, say, PickupObject, the
+                    # trajectory is also saved with the target of the
+                    # PickupObject if the target of the PickupObject is
+                    # differen
+                    if find_parsing and i < \
+                            len(traj_dict['plan']['high_pddl']) - 1:
+                        next_high_pddl_dict = traj_dict['plan']['high_pddl'] \
+                                [i+1]
+                        if next_high_pddl_dict['discrete_action']['action'] \
+                                in AUGMENT_SUBGOALS and  \
+                                next_high_pddl_dict['discrete_action'] \
+                                ['args'][-1] != \
+                                high_pddl_dict['discrete_action']['args'][0]:
+                            current_trajectory = {}
+                            current_trajectory['path'] = path
+                            # Always take last argument (PutObject is the only
+                            # one that has two arguments and the last one is
+                            # the relevant one)
+                            current_trajectory['target'] = \
+                                    next_high_pddl_dict['discrete_action']['args'][-1]
+                            current_trajectory['high_idx'] = [high_pddl_dict['high_idx']]
+                            current_trajectory['low_actions'] = []
+                            current_trajectory['images'] = []
+                            current_trajectory['features'] = []
+                            # Only append because we know from the above code
+                            # block that the list of key
+                            # high_pddl_dict['high_idx'] already exists
+                            current_high_idxs_to_trajectory_indexes[
+                                    high_pddl_dict['high_idx']].append(
+                                            len(current_trajectories))
+                            current_trajectories.append(current_trajectory)
 
             # Iterate through once to get all the low_actions and images
             # corresponding to each GotoLocation and ResNet features.
@@ -46,11 +95,13 @@ def get_trajectories(paths):
             # There are 10 more ResNet features (i.e. of shape [N+10, 512, 7,
             # 7]) than there are images, for some reason
             for low_action in traj_dict['plan']['low_actions']:
-                if low_action['high_idx'] in current_high_idxs:
-                    trajectory_index = \
-                            current_high_idxs.index(low_action['high_idx'])
-                    current_trajectories[trajectory_index]['low_actions'] \
-                            .append(low_action['api_action']['action'])
+                if low_action['high_idx'] in \
+                        current_high_idxs_to_trajectory_indexes:
+                    for trajectory_index in \
+                            current_high_idxs_to_trajectory_indexes[
+                                    low_action['high_idx']]:
+                        current_trajectories[trajectory_index]['low_actions'] \
+                                .append(low_action['api_action']['action'])
 
             # Iterate through images once and grab the images that correspond
             # to a high_idx, one per low action
@@ -60,25 +111,28 @@ def get_trajectories(paths):
                 image = traj_dict['images'][i]
                 # Only save one image per low action, only for the low actions
                 # that we care about
-                if image['high_idx'] in current_high_idxs and \
+                if image['high_idx'] in \
+                        current_high_idxs_to_trajectory_indexes and \
                         image['low_idx'] not in seen_low_idxs:
-                    trajectory_index = \
-                            current_high_idxs.index(image['high_idx'])
-                    # Images in traj_data.json are .png where in reality they
-                    # are .jpg
-                    image_name = image['image_name'].split('.')[0] + '.jpg'
-                    current_trajectories[trajectory_index]['images'] \
-                            .append(image_name)
-                    # Supposedly 10 extra features are at the end and don't
-                    # matter --- see models/model/seq2seq_im_mask.py
-                    current_trajectories[trajectory_index]['features'] \
-                            .append(i)
-                    # Also record the high_idx and the low_idx so we can get
-                    # the image and feature immediately after the high_pddl
-                    # for annotating with the 'Done' action
-                    trajectory_index_to_last_low_idx[trajectory_index] = \
-                            image['low_idx']
+                    for trajectory_index in \
+                            current_high_idxs_to_trajectory_indexes[
+                                    image['high_idx']]:
+                        # Images in traj_data.json are .png where in reality
+                        # they are .jpg
+                        image_name = image['image_name'].split('.')[0] + '.jpg'
+                        current_trajectories[trajectory_index]['images'] \
+                                .append(image_name)
+                        # Supposedly 10 extra features are at the end and don't
+                        # matter --- see models/model/seq2seq_im_mask.py
+                        current_trajectories[trajectory_index]['features'] \
+                                .append(i)
+                        # Also record the high_idx and the low_idx so we can get
+                        # the image and feature immediately after the high_pddl
+                        # for annotating with the 'Done' action
+                        trajectory_index_to_last_low_idx[trajectory_index] = \
+                                image['low_idx']
                     seen_low_idxs.append(image['low_idx'])
+
             # Iterate through one last time and grab the last images and
             # features. Sort by high_idx so we only have to iterate through
             # images once, instead of len(images) *
@@ -92,15 +146,21 @@ def get_trajectories(paths):
                     # Keep going until we reach the first low_idx after the
                     # last low_idx in the current high_idx
                     continue
-                trajectory_index = trajectory_index_to_last_low_idx[0][0]
-                image_name = image['image_name'].split('.')[0] + '.jpg'
-                current_trajectories[trajectory_index]['images'].append(
-                        image_name)
-                current_trajectories[trajectory_index]['features'].append(
-                        i)
-                current_trajectories[trajectory_index]['low_actions'].append(
-                        ACTIONS_DONE)
-                trajectory_index_to_last_low_idx.pop(0)
+                # Append this image for every trajectory (there will be either
+                # one or two) that needs it
+                while image['low_idx'] == \
+                        trajectory_index_to_last_low_idx[0][1] + 1:
+                    trajectory_index = trajectory_index_to_last_low_idx[0][0]
+                    image_name = image['image_name'].split('.')[0] + '.jpg'
+                    current_trajectories[trajectory_index]['images'].append(
+                            image_name)
+                    current_trajectories[trajectory_index]['features'].append(
+                            i)
+                    current_trajectories[trajectory_index]['low_actions'].append(
+                            ACTIONS_DONE)
+                    trajectory_index_to_last_low_idx.pop(0)
+                    if len(trajectory_index_to_last_low_idx) == 0:
+                        break
                 if len(trajectory_index_to_last_low_idx) == 0:
                     break
             # There may be an edge case where the high_pddl is at the very end
@@ -114,7 +174,7 @@ def get_trajectories(paths):
             trajectories.extend(current_trajectories)
     return trajectories
 
-def make_fo_dataset():
+def make_fo_dataset(find_parsing=False, save_path=None):
     splits_path = os.path.join(os.environ['ALFRED_ROOT'], "data/splits/oct21.json")
     task_repo = os.path.join(os.environ['ALFRED_ROOT'], "data/full_2.1.0")
 
@@ -128,32 +188,28 @@ def make_fo_dataset():
     validation_unseen_paths = [os.path.join(task_repo, 'valid_unseen', \
             item['task']) for item in split_tasks['valid_unseen']]
 
-    training_trajectories = get_trajectories(training_paths)
-    validation_seen_trajectories = get_trajectories(validation_seen_paths)
-    validation_unseen_trajectories = get_trajectories(validation_unseen_paths)
+    training_trajectories = get_trajectories(training_paths,
+            find_parsing=find_parsing)
+    validation_seen_trajectories = get_trajectories(validation_seen_paths,
+            find_parsing=find_parsing)
+    validation_unseen_trajectories = get_trajectories(validation_unseen_paths,
+            find_parsing=find_parsing)
     print('training trajectories: ' + str(len(training_trajectories)))
     print('validation seen trajectories: ' + str(len(
         validation_seen_trajectories)))
     print('validation unseen trajectories: ' + str(len(
         validation_unseen_trajectories)))
     # Save training trajectories as JSON
-    if not os.path.isdir(os.path.join(os.environ['ALFRED_ROOT'],
-        "data/find_one")):
-        os.mkdir(os.path.join(os.environ['ALFRED_ROOT'], "data/find_one"))
-
-    training_outfile_path = os.path.join(os.environ['ALFRED_ROOT'],
-            "data/find_one/train.json")
+    training_outfile_path = os.path.join(save_path, "train.json")
     with open(training_outfile_path, 'w') as outfile:
         json.dump(training_trajectories, outfile, sort_keys=True, indent=4)
 
-    validation_seen_outfile_path = os.path.join(os.environ['ALFRED_ROOT'],
-            "data/find_one/valid_seen.json")
+    validation_seen_outfile_path = os.path.join(save_path, "valid_seen.json")
     with open(validation_seen_outfile_path, 'w') as outfile:
         json.dump(validation_seen_trajectories, outfile, sort_keys=True,
                 indent=4)
 
-    validation_unseen_outfile_path = os.path.join(os.environ['ALFRED_ROOT'],
-            "data/find_one/valid_unseen.json")
+    validation_unseen_outfile_path = os.path.join(save_path, "valid_unseen.json")
     with open(validation_unseen_outfile_path, 'w') as outfile:
         json.dump(validation_unseen_trajectories, outfile, sort_keys=True,
                 indent=4)
@@ -267,11 +323,12 @@ def collate_trajectories(samples):
             new_samples[k].append(sample[k])
     return new_samples
 
-def get_dataloaders(batch_size=1, transitions=False):
+def get_dataloaders(batch_size=1, transitions=False, path=None):
     dataloaders = {}
+    if path is None:
+        path = os.path.join(os.environ['ALFRED_ROOT'], "data/find_one")
     for split in ['train', 'valid_seen', 'valid_unseen']:
-        fo_dataset = FindOneDataset(os.path.join(
-            os.environ['ALFRED_ROOT'], "data/find_one/" + split + ".json"),
+        fo_dataset = FindOneDataset(os.path.join(path, split + ".json"),
             transitions=transitions)
         # Some weird torch 1.1.0 doesn't like me passing collate_fn=None
         if transitions:
@@ -285,9 +342,18 @@ def get_dataloaders(batch_size=1, transitions=False):
     return dataloaders
 
 if __name__ == '__main__':
-    make_fo_dataset()
+    args = parser.parse_args()
+    if args.save_path is None:
+        save_path = os.path.join(os.environ['ALFRED_ROOT'],
+            "data/find_one")
+    else:
+        save_path = args.save_path
+    if not os.path.isdir(save_path):
+        os.makedirs(save_path)
 
-    dataloaders = get_dataloaders(batch_size=4, transitions=True)
+    make_fo_dataset(find_parsing=args.find_parsing, save_path=save_path)
+
+    dataloaders = get_dataloaders(batch_size=4, transitions=True, path=save_path)
     for sample_batched in dataloaders['train']:
         print(len(sample_batched['low_actions']),
                 len(sample_batched['images']), len(sample_batched['features']),
