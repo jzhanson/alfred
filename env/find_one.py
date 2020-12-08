@@ -61,12 +61,17 @@ class FindOne(object):
             scene_name_or_num = random.choice(AVAILABLE_SCENE_NUMBERS)
         event = self.env.reset(scene_name_or_num) # Returns ai2thor.server.Event
 
-        # Pick an interactable object in the scene to go find
+        # Pick an interactable object in the scene to go find that also resides
+        # in obj_type_to_index
         instance_ids = [obj['objectId'] for obj in event.metadata['objects']]
         interactable_instance_ids = self.env.prune_by_any_interaction(
                 instance_ids)
         self.target_instance_id = random.choice(interactable_instance_ids)
         target_object = event.get_object(self.target_instance_id)
+        while target_object['objectType'] not in self.obj_type_to_index:
+            self.target_instance_id = random.choice(interactable_instance_ids)
+            target_object = event.get_object(self.target_instance_id)
+
         self.target_instance_index = self.obj_type_to_index[target_object[
             'objectType']]
 
