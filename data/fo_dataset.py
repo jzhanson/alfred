@@ -10,6 +10,7 @@ from torch.utils.data import Dataset, DataLoader
 import cv2
 
 from env.find_one import ACTIONS_DONE
+import gen.constants as constants
 
 import argparse
 parser = argparse.ArgumentParser()
@@ -47,11 +48,15 @@ def trajectories_from_high_pddl_dicts(high_pddl_dict, next_high_pddl_dict,
         # the target of the PickupObject if the target of the PickupObject is
         # different
         if next_high_pddl_dict is not None:
+            # There are three HeatObject using microwave with an empty
+            # argument, but since all their previous GotoLocations are
+            # go to microwave, we can skip those
             if next_high_pddl_dict['discrete_action']['action'] \
                     in AUGMENT_SUBGOALS and  \
                     next_high_pddl_dict['discrete_action'] \
                     ['args'][-1] != \
-                    high_pddl_dict['discrete_action']['args'][0]:
+                    high_pddl_dict['discrete_action']['args'][0] and  \
+                    next_high_pddl_dict['discrete_action']['args'][-1] != '':
                 augmented_trajectory = {}
                 augmented_trajectory['path'] = path
                 # Always take last argument (PutObject is the only
@@ -266,7 +271,8 @@ def make_fo_dataset(find_parsing=False, save_path=None):
     unique_targets = set(list(training_target_occurrences.keys()) +
             list(validation_seen_target_occurrences.keys()) +
             list(validation_unseen_target_occurrences.keys()))
-    obj_type_to_index = {obj:i for i, obj in enumerate(unique_targets)}
+    obj_type_to_index = {constants.OBJECTS_LOWER_TO_UPPER[obj]:i for i, obj \
+            in enumerate(unique_targets)}
 
     obj_type_to_index_outfile_path = os.path.join(save_path,
             "obj_type_to_index.json")
