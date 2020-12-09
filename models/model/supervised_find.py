@@ -630,15 +630,19 @@ if __name__ == '__main__':
 
     env = ThorEnv()
 
-    obj_type_to_index_path = os.path.join(os.environ['ALFRED_ROOT'], 'env',
-            'obj_type_to_index.json')
-    if not os.path.isfile(obj_type_to_index_path):
-        obj_type_to_index = index_all_items(env)
-        with open(obj_type_to_index_path, 'w') as jsonfile:
-            json.dump(obj_type_to_index, jsonfile)
+    if args.dataset_path is None:
+        obj_type_to_index_path = os.path.join(os.environ['ALFRED_ROOT'], 'env',
+                'obj_type_to_index.json')
+        if not os.path.isfile(obj_type_to_index_path):
+            obj_type_to_index = index_all_items(env)
+            with open(obj_type_to_index_path, 'w') as jsonfile:
+                json.dump(obj_type_to_index, jsonfile)
     else:
-        with open(obj_type_to_index_path, 'r') as jsonfile:
-            obj_type_to_index = json.load(jsonfile)
+        obj_type_to_index_path = os.path.join(args.dataset_path,
+                'obj_type_to_index.json')
+
+    with open(obj_type_to_index_path, 'r') as jsonfile:
+        obj_type_to_index = json.load(jsonfile)
     print(obj_type_to_index)
     index_to_obj_type = {i: ot for ot, i in obj_type_to_index.items()}
 
