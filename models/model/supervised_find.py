@@ -34,7 +34,7 @@ parser.add_argument('-fs', '--frame-stack', type=int, default=3, help='number of
 parser.add_argument('-zffs', '--zero-fill-frame-stack', dest='zero_fill_frame_stack', action='store_true', help='fill frames with zeros when frame stacking on early steps')
 parser.add_argument('-fffs', '--first-fill-frame-stack', dest='zero_fill_frame_stack', action='store_false', help='replicate first frame when frame stacking on early steps')
 parser.set_defaults(zero_fill_frame_stack=False)
-parser.add_argument('-ei', '--eval-interval', type=int, default=100, help='number of training trajectories between evaluation trajectories')
+parser.add_argument('-ei', '--eval-interval', type=int, default=100, help='number of training trajectories (or epochs, if using dataset) between evaluation trajectories')
 parser.add_argument('-ees', '--eval-episodes-seen', type=int, default=10, help='number of episodes to evaluate live on seen scenes')
 parser.add_argument('-eeu', '--eval-episodes-unseen', type=int, default=10, help='number of episodes to evaluate live on unseen scenes')
 parser.add_argument('-tf', '--teacher-force', dest='teacher_force', action='store_true')
@@ -251,16 +251,18 @@ def train_dataset(fo, model, optimizer, dataloaders, obj_type_to_index,
             else os.path.join(save_path, 'tensorboard_logs'))
     if load_path is not None:
         checkpoint = torch.load(load_path)
-        train_iter = checkpoint['train_iter']
+        train_steps = checkpoint['train_steps']
         train_frames = checkpoint['train_frames']
         train_trajectories = checkpoint['train_trajectories']
+        train_epochs = checkpoint['train_epochs']
         model.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        print('loading from ' + load_path + ' iteration ' + str(train_iter))
+        print('loading from ' + load_path + ' epoch ' + str(train_epochs))
     else:
-        train_iter = 0
+        train_steps = 0
         train_frames = 0
         train_trajectories = 0
+        train_epochs = 0
     last_metrics = {}
     last_metrics['loss'] = []
     last_metrics['accuracy'] = []
@@ -305,7 +307,7 @@ def train_dataset(fo, model, optimizer, dataloaders, obj_type_to_index,
             # TODO: may want to clamp gradients
             optimizer.step()
 
-            train_iter += 1
+            train_steps += 1
             train_frames += len(action_scores)
             train_trajectories += batch_size
             last_metrics['loss'].append(loss.item())
@@ -319,66 +321,73 @@ def train_dataset(fo, model, optimizer, dataloaders, obj_type_to_index,
             last_metrics['entropy'].append(entropy.item())
 
             for metric in last_metrics.keys():
-                writer.add_scalar('train/' + metric, last_metrics[metric][-1],
-                        train_iter)
+                writer.add_scalar('train/steps_' + metric, last_metrics[metric][-1],
+                        train_steps)
                 writer.add_scalar('train/frames_' + metric, last_metrics[metric][-1],
                         train_frames)
                 writer.add_scalar('train/trajectories_' + metric,
                         last_metrics[metric][-1], train_trajectories)
 
-            if train_iter % eval_interval == 0:
-                print('iteration %d frames %d trajectories %d' % (train_iter,
-                    train_frames, train_trajectories))
-                for metric, values in last_metrics.items():
-                    mean = np.mean(values)
-                    writer.add_scalar('train_avg/' + metric, mean, train_iter)
-                    writer.add_scalar('train_avg/frames_' + metric, mean,
-                            train_frames)
-                    writer.add_scalar('train_avg/trajectories_' + metric, mean,
-                            train_trajectories)
-                    print('avg ' + metric + ' %.6f' % mean)
-                    last_metrics[metric] = []
-
-                # Evaluate on valid_seen and valid_unseen
-                results_dataset = eval_dataset(model, dataloaders,
-                        obj_type_to_index,
-                        dataset_transitions=dataset_transitions,
-                        frame_stack=frame_stack,
-                        zero_fill_frame_stack=zero_fill_frame_stack)
-                for split in ['valid_seen', 'valid_unseen']:
-                    for metric in results_dataset[split].keys():
-                        writer.add_scalar(split + '/' + metric,
-                                results_dataset[split][metric], train_iter)
-                        writer.add_scalar(split + '/frames_' + metric,
-                                results_dataset[split][metric], train_frames)
-                        writer.add_scalar(split + '/trajectories_' + metric,
-                                results_dataset[split][metric], train_trajectories)
-                    print(split + ' accuracy %.6f f1 %.6f' %
-                            (results_dataset[split]['accuracy'],
-                                results_dataset[split]['f1']))
-
-                results_online = eval_online(fo, model,
-                        frame_stack=frame_stack,
-                        zero_fill_frame_stack=zero_fill_frame_stack,
-                        seen_episodes=eval_episodes_seen,
-                        unseen_episodes=eval_episodes_unseen)
-                write_eval_results(writer, results_online, train_iter, train_frames,
+        if train_epochs % eval_interval == 0:
+            print('epoch %d steps %d frames %d trajectories %d' %
+                    (train_epochs, train_steps, train_frames,
+                        train_trajectories))
+            for metric, values in last_metrics.items():
+                mean = np.mean(values)
+                writer.add_scalar('train_avg/steps_' + metric, mean, train_steps)
+                writer.add_scalar('train_avg/frames_' + metric, mean,
+                        train_frames)
+                writer.add_scalar('train_avg/trajectories_' + metric, mean,
                         train_trajectories)
+                writer.add_scalar('train_avg/epochs_' + metric, mean, train_epochs)
+                print('avg ' + metric + ' %.6f' % mean)
+                last_metrics[metric] = []
 
-                if save_path is not None:
-                    if save_intermediate:
-                        checkpoint_save_path = os.path.join(save_path, 'model_' +
-                                str(train_iter) + '.pth')
-                    else:
-                        checkpoint_save_path = os.path.join(save_path, 'model.pth')
-                    print('saving to ' + checkpoint_save_path)
-                    torch.save({
-                        'train_iter' : train_iter,
-                        'train_frames' : train_frames,
-                        'train_trajectories' : train_trajectories,
-                        'model_state_dict' : model.state_dict(),
-                        'optimizer_state_dict' : optimizer.state_dict(),
-                    }, checkpoint_save_path)
+            # Evaluate on valid_seen and valid_unseen
+            results_dataset = eval_dataset(model, dataloaders,
+                    obj_type_to_index,
+                    dataset_transitions=dataset_transitions,
+                    frame_stack=frame_stack,
+                    zero_fill_frame_stack=zero_fill_frame_stack)
+            for split in ['valid_seen', 'valid_unseen']:
+                for metric in results_dataset[split].keys():
+                    writer.add_scalar(split + '/steps_' + metric,
+                            results_dataset[split][metric], train_steps)
+                    writer.add_scalar(split + '/frames_' + metric,
+                            results_dataset[split][metric], train_frames)
+                    writer.add_scalar(split + '/trajectories_' + metric,
+                            results_dataset[split][metric], train_trajectories)
+                    writer.add_scalar(split + '/epochs_' + metric,
+                            results_dataset[split][metric], train_epochs)
+                print(split + ' accuracy %.6f f1 %.6f' %
+                        (results_dataset[split]['accuracy'],
+                            results_dataset[split]['f1']))
+
+            results_online = eval_online(fo, model,
+                    frame_stack=frame_stack,
+                    zero_fill_frame_stack=zero_fill_frame_stack,
+                    seen_episodes=eval_episodes_seen,
+                    unseen_episodes=eval_episodes_unseen)
+            write_eval_results(writer, results_online, train_steps, train_frames,
+                    train_trajectories, train_epochs)
+
+            if save_path is not None:
+                if save_intermediate:
+                    checkpoint_save_path = os.path.join(save_path, 'model_' +
+                            str(train_epochs) + '.pth')
+                else:
+                    checkpoint_save_path = os.path.join(save_path, 'model.pth')
+                print('saving to ' + checkpoint_save_path)
+                torch.save({
+                    'train_steps' : train_steps,
+                    'train_frames' : train_frames,
+                    'train_trajectories' : train_trajectories,
+                    'train_epochs' : train_epochs,
+                    'model_state_dict' : model.state_dict(),
+                    'optimizer_state_dict' : optimizer.state_dict(),
+                }, checkpoint_save_path)
+
+        train_epochs += 1
 
 def eval_dataset(model, dataloaders, obj_type_to_index,
         dataset_transitions=False,frame_stack=1, zero_fill_frame_stack=False):
@@ -435,7 +444,7 @@ def eval_dataset(model, dataloaders, obj_type_to_index,
     return results
 
 
-def train(fo, model, optimizer, frame_stack=1, zero_fill_frame_stack=False,
+def train_online(fo, model, optimizer, frame_stack=1, zero_fill_frame_stack=False,
         teacher_force=False, eval_episodes_seen=10, eval_episodes_unseen=10,
         eval_interval=1000, save_path=None, save_intermediate=False,
         load_path=None):
@@ -447,13 +456,13 @@ def train(fo, model, optimizer, frame_stack=1, zero_fill_frame_stack=False,
             else os.path.join(save_path, 'tensorboard_logs'))
     if load_path is not None:
         checkpoint = torch.load(load_path)
-        train_iter = checkpoint['train_iter']
+        train_steps = checkpoint['train_steps']
         train_frames = checkpoint['train_frames']
         model.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        print('loading from ' + load_path + ' iteration ' + str(train_iter))
+        print('loading from ' + load_path + ' iteration ' + str(train_steps))
     else:
-        train_iter = 0
+        train_steps = 0
         train_frames = 0
     # TODO: save/load metrics instead of relying on tensorboard and make metric
     # loading work well with tensorboard
@@ -492,7 +501,7 @@ def train(fo, model, optimizer, frame_stack=1, zero_fill_frame_stack=False,
         optimizer.step()
 
         # Compute and save some stats
-        train_iter += 1
+        train_steps += 1
         train_frames += len(trajectory_results['frames'])
         last_metrics['loss'].append(loss.item())
         last_metrics['success'].append(float(trajectory_results['success']))
@@ -518,17 +527,17 @@ def train(fo, model, optimizer, frame_stack=1, zero_fill_frame_stack=False,
         last_metrics['entropy'].append(entropy.item())
 
         for metric in last_metrics.keys():
-            writer.add_scalar('train/' + metric, last_metrics[metric][-1],
-                    train_iter)
+            writer.add_scalar('train/steps_' + metric, last_metrics[metric][-1],
+                    train_steps)
             writer.add_scalar('train/frames_' + metric, last_metrics[metric][-1],
                     train_frames)
 
         # Evaluate and save checkpoint every N trajectories, collect/print stats
-        if train_iter % eval_interval == 0:
-            print('iteration %d frames %d' % (train_iter, train_frames))
+        if train_steps % eval_interval == 0:
+            print('steps %d frames %d' % (train_steps, train_frames))
             for metric, values in last_metrics.items():
                 mean = np.mean(values)
-                writer.add_scalar('train_avg/' + metric, mean, train_iter)
+                writer.add_scalar('train_avg/steps_' + metric, mean, train_steps)
                 writer.add_scalar('train_avg/frames_' + metric, mean,
                         train_frames)
                 last_metrics[metric] = []
@@ -539,36 +548,41 @@ def train(fo, model, optimizer, frame_stack=1, zero_fill_frame_stack=False,
                     seen_episodes=eval_episodes_seen,
                     unseen_episodes=eval_episodes_unseen)
 
-            write_eval_results(writer, results, train_iter, train_frames)
+            write_eval_results(writer, results, train_steps, train_frames)
 
             if save_path is not None:
                 if save_intermediate:
                     checkpoint_save_path = os.path.join(save_path, 'model_' +
-                            str(train_iter) + '.pth')
+                            str(train_steps) + '.pth')
                 else:
                     checkpoint_save_path = os.path.join(save_path, 'model.pth')
                 print('saving to ' + checkpoint_save_path)
                 torch.save({
-                    'train_iter' : train_iter,
+                    'train_steps' : train_steps,
                     'train_frames' : train_frames,
-                    # Save train_trajectories to be compatible with train_dataset
-                    'train_trajectories' : train_iter,
+                    # Save train_trajectories and train_epoch to be compatible
+                    # with train_dataset
+                    'train_trajectories' : train_steps,
+                    'train_epochs' : train_steps,
                     'model_state_dict' : model.state_dict(),
                     'optimizer_state_dict' : optimizer.state_dict(),
                 }, checkpoint_save_path)
 
-def write_eval_results(writer, results, train_iter, train_frames,
-        train_trajectories=None):
+def write_eval_results(writer, results, train_steps, train_frames,
+        train_trajectories=None, train_epochs=None):
     for split in results.keys():
         for metric, values in results[split].items():
             mean = np.mean(values)
-            writer.add_scalar('validation_online_avg/' + split + '/' + metric,
-                    mean, train_iter)
-            writer.add_scalar('validation_online_avg/' + split + '/frames' +
+            writer.add_scalar('validation_online_avg/' + split + '/steps_' +
+                    metric, mean, train_steps)
+            writer.add_scalar('validation_online_avg/' + split + '/frames_' +
                     metric, mean, train_frames)
             if train_trajectories is not None:
                 writer.add_scalar('validation_online_avg/' + split +
-                        '/trajectories' + metric, mean, train_trajectories)
+                        '/trajectories_' + metric, mean, train_trajectories)
+            if train_epochs is not None:
+                writer.add_scalar('validation_online_avg/' + split +
+                        '/epochs_' + metric, mean, train_epochs)
 
 def eval_online(fo, model, frame_stack=1, zero_fill_frame_stack=False,
         seen_episodes=1, unseen_episodes=1):
@@ -671,7 +685,7 @@ if __name__ == '__main__':
                 save_intermediate=args.save_intermediate,
                 load_path=args.load_path)
     else:
-        train(fo, model, optimizer, frame_stack=args.frame_stack,
+        train_online(fo, model, optimizer, frame_stack=args.frame_stack,
                 zero_fill_frame_stack=args.zero_fill_frame_stack,
                 teacher_force=args.teacher_force,
                 eval_episodes_seen=args.eval_episodes_seen,
