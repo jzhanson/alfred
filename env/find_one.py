@@ -67,12 +67,12 @@ class FindOne(object):
         interactable_instance_ids = self.env.prune_by_any_interaction(
                 instance_ids)
         self.target_instance_id = random.choice(interactable_instance_ids)
-        target_object = event.get_object(self.target_instance_id)
-        while target_object['objectType'] not in self.obj_type_to_index:
+        self.target_object = event.get_object(self.target_instance_id)
+        while self.target_object['objectType'] not in self.obj_type_to_index:
             self.target_instance_id = random.choice(interactable_instance_ids)
-            target_object = event.get_object(self.target_instance_id)
+            self.target_object = event.get_object(self.target_instance_id)
 
-        self.target_instance_index = self.obj_type_to_index[target_object[
+        self.target_instance_index = self.obj_type_to_index[self.target_object[
             'objectType']]
 
         # Build scene graph
@@ -155,14 +155,13 @@ class FindOne(object):
         Get the end pose and the index of the ending point in the navigation
         graph (self.graph) corresponding to self.target_instance_id
         """
-        target_object = self.env.last_event.get_object(self.target_instance_id)
         agent_height = self.env.last_event.metadata['agent']['position']['y']
         distances_to_target = []
         for point in self.graph.points:
-            delta_x = target_object['position']['x'] - \
+            delta_x = self.target_object['position']['x'] - \
                     point[0]*constants.AGENT_STEP_SIZE
-            delta_y = target_object['position']['y'] - agent_height
-            delta_z = target_object['position']['z'] - \
+            delta_y = self.target_object['position']['y'] - agent_height
+            delta_z = self.target_object['position']['z'] - \
                     point[1]*constants.AGENT_STEP_SIZE
             distances_to_target.append(np.sqrt(delta_x**2 + delta_y**2 +
                 delta_z**2))
@@ -171,9 +170,9 @@ class FindOne(object):
 
         end_point = self.graph.points[end_point_index]
         delta_x = end_point[0]*constants.AGENT_STEP_SIZE - \
-                target_object['position']['x']
+                self.target_object['position']['x']
         delta_z = end_point[1]*constants.AGENT_STEP_SIZE - \
-                target_object['position']['z']
+                self.target_object['position']['z']
         '''
                 z
           \     |     /
@@ -228,15 +227,41 @@ class FindOne(object):
         return self.current_expert_actions, self.current_expert_path
 
     def crow_distance_to_goal(self):
-        agent_x, agent_y, _, _ = self.env.last_event.pose_discrete
-        end_x, end_y, _, _ = self.end_pose
+        delta_x = self.target_object['position']['x'] - \
+            self.env.last_event.metadata['agent']['position']['x']
+        delta_y = self.target_object['position']['y'] - \
+            self.env.last_event.metadata['agent']['position']['y']
+        delta_z = self.target_object['position']['z'] - \
+            self.env.last_event.metadata['agent']['position']['z']
+
         # Does not account for obstructions, rotation, or looking up/down
-        return abs(agent_x - end_x) + abs(agent_y - end_y)
+        return delta_x**2 + delta_y**2 + delta_z**2
 
     def walking_distance_to_goal(self):
         actions, path = self.get_current_expert_actions_path()
         return len([a for a in actions if a['action'] ==
             'MoveAhead'])
+
+    def target_visible(self):
+        """
+        Returns 1 if the target is visible from the current pose, 0 otherwise.
+        """
+        instance_segs = self.env.last_event.instance_segmentation_frame
+        color_to_object_id = self.env.last_event.color_to_object_id
+
+        scene_object_ids = [obj['objectId'] for obj in
+                self.env.last_event.metadata['objects']]
+
+        visible_object_ids = set()
+        for i in range(instance_segs.shape[0]):
+            for j in range(instance_segs.shape[1]):
+                object_id = color_to_object_id[tuple(instance_segs[i, j])]
+                # Some segmentations correspond to object types? For example
+                # some are 'Sink|-01.99|+01.14|-00.98|SinkBasin', 'SinkBasin',
+                # 'Sink', 'Sink|-01.99|+01.14|-00.98'
+                if object_id in scene_object_ids:
+                    visible_object_ids.add(object_id)
+        return int(self.target_object['objectId'] in visible_object_ids)
 
 if __name__ == '__main__':
     env = ThorEnv()
