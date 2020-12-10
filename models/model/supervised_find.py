@@ -473,6 +473,7 @@ def train_online(fo, model, optimizer, frame_stack=1, zero_fill_frame_stack=Fals
     last_metrics['crow_distance_to_goal'] = []
     last_metrics['walking_distance_to_goal'] = []
     last_metrics['action_distance_to_goal'] = []
+    last_metrics['target_visible'] = []
     last_metrics['trajectory_length'] = []
     last_metrics['entropy'] = []
 
@@ -519,6 +520,7 @@ def train_online(fo, model, optimizer, frame_stack=1, zero_fill_frame_stack=Fals
                 fo.walking_distance_to_goal())
         last_metrics['action_distance_to_goal'].append(
                 len(final_expert_actions))
+        last_metrics['target_visible'].append(fo.target_visible())
         last_metrics['trajectory_length'].append(
                 len(trajectory_results['frames']))
         # Record average policy entropy over an episode
@@ -595,6 +597,7 @@ def eval_online(fo, model, frame_stack=1, zero_fill_frame_stack=False,
         metrics[split]['crow_distance_to_goal'] = []
         metrics[split]['walking_distance_to_goal'] = []
         metrics[split]['action_distance_to_goal'] = []
+        metrics[split]['target_visible'] = []
         metrics[split]['entropy'] = []
         metrics[split]['trajectory_length'] = []
         episodes = seen_episodes if split == 'seen' else unseen_episodes
@@ -620,6 +623,7 @@ def eval_online(fo, model, frame_stack=1, zero_fill_frame_stack=False,
                     fo.walking_distance_to_goal())
             metrics[split]['action_distance_to_goal'].append(
                     len(final_expert_actions))
+            metrics[split]['target_visible'].append(fo.target_visible())
             with torch.no_grad():
                 entropy = trajectory_avg_entropy(torch.cat(
                     trajectory_results['all_action_scores']))
