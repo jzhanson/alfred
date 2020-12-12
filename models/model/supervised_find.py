@@ -22,6 +22,9 @@ import gen.constants as constants
 from gen.graph.graph_obj import Graph
 from data.fo_dataset import get_dataloaders
 from models.utils.metric import compute_actions_f1
+from utils.video_util import VideoSaver
+
+video_saver = VideoSaver()
 
 from tensorboardX import SummaryWriter
 
@@ -49,6 +52,9 @@ parser.add_argument('-sp', '--save-path', type=str, default=None, help='path (di
 parser.add_argument('-si', '--save-intermediate', dest='save_intermediate', action='store_true', help='save intermediate checkpoints (once per eval interval)')
 parser.add_argument('-nsi', '--no-save-intermediate', dest='save_intermediate', action='store_false', help='don\'t save intermediate checkpoints (once per eval interval)')
 parser.set_defaults(save_intermediate=False)
+parser.add_argument('-sv', '--save-images-video', dest='save_images_video', action='store_true', help='save images and video (for trajectories, every eval interval)')
+parser.add_argument('-nsv', '--no-save-images-video', dest='save_images_video', action='store_false', help='don\'t save images and video (for trajectories, every eval interval)')
+parser.set_defaults(save_images_video=False)
 parser.add_argument('-lp', '--load-path', type=str, default=None, help='path (.pth) to load model checkpoint from')
 
 '''
@@ -159,6 +165,8 @@ def rollout_trajectory(fo, model, frame_stack=1, zero_fill_frame_stack=False,
     print('trajectory len: ' + str(len(all_action_scores)))
 
     trajectory_results = {}
+    trajectory_results['scene_name_or_num'] = fo.scene_name_or_num
+    trajectory_results['target'] = fo.target_instance_id
     trajectory_results['frames'] = frames
     trajectory_results['all_action_scores'] = all_action_scores
     trajectory_results['pred_action_indexes'] = pred_action_indexes
@@ -236,11 +244,48 @@ def actions_accuracy_f1(predicted_action_indexes, expert_action_indexes):
             expert_action_indexes).item()
     return accuracy, f1
 
+def write_images_video(results_online, train_epochs, save_path):
+    for split in results_online.keys():
+        for trajectory_index in range(len(results_online[split]['frames'])):
+            trajectory_images = results_online[split] \
+                    ['frames'][trajectory_index]
+            target = results_online[split]['target'][trajectory_index]
+            scene_name_or_num = str(results_online[split]['scene_name_or_num']
+                    [trajectory_index])
+            success_or_failure = 'success' if results_online[split] \
+                    ['success'][trajectory_index] else 'failure'
+            crow_distance = str(results_online[split]['crow_distance_to_goal']
+                    [trajectory_index])
+            action_distance = str(results_online[split]
+                    ['action_distance_to_goal'][trajectory_index])
+            target_visible = 'target_visible' if results_online[split] \
+                    ['target_visible'][trajectory_index] else \
+                    'target_not_visible'
+            trajectory_length = str(results_online[split]['trajectory_length']
+                    [trajectory_index])
+            images_save_path =  os.path.join(save_path, 'images_video',
+                    str(train_epochs), split, str(trajectory_index) + '_' +
+                    target + '_' + 'scene' + scene_name_or_num + '_' +
+                    success_or_failure + '_' + 'crowdist' + crow_distance + '_'
+                    + 'actiondist' + action_distance + '_' + target_visible +
+                    '_' + 'trajectorylen' + trajectory_length)
+            if not os.path.isdir(images_save_path):
+                os.makedirs(images_save_path)
+
+            for image_index in range(len(trajectory_images)):
+                image_save_path = os.path.join(images_save_path, '%09d.png' %
+                        int(image_index))
+                cv2.imwrite(image_save_path, trajectory_images[image_index])
+            video_save_path = os.path.join(images_save_path,
+                    'video.mp4')
+            video_saver.save(os.path.join(images_save_path,
+                '*.png'), video_save_path)
+
 def train_dataset(fo, model, optimizer, dataloaders, obj_type_to_index,
         dataset_transitions=False, batch_size=1, frame_stack=1,
         zero_fill_frame_stack=False, eval_episodes_seen=10,
         eval_episodes_unseen=10, eval_interval=100, save_path=None,
-        save_intermediate=False, load_path=None):
+        save_intermediate=False, save_images_video=False, load_path=None):
     """
     Train a model by sampling from a torch dataloader.
 
@@ -387,6 +432,9 @@ def train_dataset(fo, model, optimizer, dataloaders, obj_type_to_index,
                     'optimizer_state_dict' : optimizer.state_dict(),
                 }, checkpoint_save_path)
 
+                if save_images_video:
+                    write_images_video(results_online, train_epochs, save_path)
+
         train_epochs += 1
 
 def eval_dataset(model, dataloaders, obj_type_to_index,
@@ -447,7 +495,7 @@ def eval_dataset(model, dataloaders, obj_type_to_index,
 def train_online(fo, model, optimizer, frame_stack=1, zero_fill_frame_stack=False,
         teacher_force=False, eval_episodes_seen=10, eval_episodes_unseen=10,
         eval_interval=1000, save_path=None, save_intermediate=False,
-        load_path=None):
+        save_images_video=False,  load_path=None):
     """
     Train a model by collecting a trajectory online, then training with correct
     action supervision. Loads model from checkpoint if load_path is not None.
@@ -562,7 +610,7 @@ def train_online(fo, model, optimizer, frame_stack=1, zero_fill_frame_stack=Fals
                 torch.save({
                     'train_steps' : train_steps,
                     'train_frames' : train_frames,
-                    # Save train_trajectories and train_epoch to be compatible
+                    # Save train_trajectories and train_epochs to be compatible
                     # with train_dataset
                     'train_trajectories' : train_steps,
                     'train_epochs' : train_steps,
@@ -570,10 +618,15 @@ def train_online(fo, model, optimizer, frame_stack=1, zero_fill_frame_stack=Fals
                     'optimizer_state_dict' : optimizer.state_dict(),
                 }, checkpoint_save_path)
 
+                if save_images_video:
+                    write_images_video(results, train_steps, save_path)
+
 def write_eval_results(writer, results, train_steps, train_frames,
         train_trajectories=None, train_epochs=None):
     for split in results.keys():
         for metric, values in results[split].items():
+            if metric == 'frames' or metric == 'target' or metric == \
+                    'target_scene_name_or_num': continue
             mean = np.mean(values)
             writer.add_scalar('validation_online_avg/' + split + '/steps_' +
                     metric, mean, train_steps)
@@ -592,6 +645,7 @@ def eval_online(fo, model, frame_stack=1, zero_fill_frame_stack=False,
     metrics = {}
     for split in ['seen', 'unseen']:
         metrics[split] = {}
+        metrics[split]['target'] = []
         metrics[split]['success'] = []
         metrics[split]['path_weighted_success'] = []
         metrics[split]['crow_distance_to_goal'] = []
@@ -600,6 +654,8 @@ def eval_online(fo, model, frame_stack=1, zero_fill_frame_stack=False,
         metrics[split]['target_visible'] = []
         metrics[split]['entropy'] = []
         metrics[split]['trajectory_length'] = []
+        metrics[split]['frames'] = []
+        metrics[split]['scene_name_or_num'] = []
         episodes = seen_episodes if split == 'seen' else unseen_episodes
         for i in range(episodes):
             with torch.no_grad():
@@ -608,6 +664,7 @@ def eval_online(fo, model, frame_stack=1, zero_fill_frame_stack=False,
                         zero_fill_frame_stack=zero_fill_frame_stack,
                         scene_name_or_num=random.choice(TRAIN_SCENE_NUMBERS if
                             split == 'seen' else VALID_UNSEEN_SCENE_NUMBERS))
+            metrics[split]['target'].append(trajectory_results['target'])
             metrics[split]['success'].append(
                     float(trajectory_results['success']))
             metrics[split]['path_weighted_success'].append(
@@ -630,6 +687,7 @@ def eval_online(fo, model, frame_stack=1, zero_fill_frame_stack=False,
             metrics[split]['entropy'].append(entropy.item())
             metrics[split]['trajectory_length'].append(
                     float(len(trajectory_results['frames'])))
+            metrics[split]['frames'].append(trajectory_results['frames'])
 
     model.train()
 
@@ -645,6 +703,9 @@ if __name__ == '__main__':
     if args.save_path is not None and not os.path.isdir(args.save_path):
         print('making save_path: ' + args.save_path)
         os.makedirs(args.save_path)
+        images_video_save_path = os.path.join(args.save_path, 'images_video')
+        if args.save_images_video and not os.path.isdir(images_video_save_path):
+            os.makedirs(images_video_save_path)
 
     env = ThorEnv()
 
@@ -687,6 +748,7 @@ if __name__ == '__main__':
                 eval_episodes_unseen=args.eval_episodes_unseen,
                 eval_interval=args.eval_interval, save_path=args.save_path,
                 save_intermediate=args.save_intermediate,
+                save_images_video=args.save_images_video,
                 load_path=args.load_path)
     else:
         train_online(fo, model, optimizer, frame_stack=args.frame_stack,
@@ -696,5 +758,6 @@ if __name__ == '__main__':
                 eval_episodes_unseen=args.eval_episodes_unseen,
                 eval_interval=args.eval_interval, save_path=args.save_path,
                 save_intermediate=args.save_intermediate,
+                save_images_video=args.save_images_video,
                 load_path=args.load_path)
 
