@@ -56,6 +56,7 @@ parser.add_argument('-sv', '--save-images-video', dest='save_images_video', acti
 parser.add_argument('-nsv', '--no-save-images-video', dest='save_images_video', action='store_false', help='don\'t save images and video (for trajectories, every eval interval)')
 parser.set_defaults(save_images_video=False)
 parser.add_argument('-lp', '--load-path', type=str, default=None, help='path (.pth) to load model checkpoint from')
+parser.add_argument('-gi', '--gpu-index', type=int, default=3, help='GPU to run model on')
 
 '''
 parser.add_argument('-do', '--dropout', type=float, default=0.02, help='dropout prob')
@@ -64,6 +65,7 @@ parser.add_argument('-sn', '--save-name', type=str, default='model', help='model
 parser.add_argument('-id', '--model-id', type=str, default='model', help='model id')
 '''
 
+args = parser.parse_args()
 
 # NOTE: THCudaCheck FAIL file=/pytorch/aten/src/THC/THCGeneral.cpp line=383 error=11 : invalid argument
 # is due to CUDA 9.0 instead of a more advanced CUDA
@@ -81,7 +83,7 @@ VALID_UNSEEN_SCENE_NUMBERS = [10, 219, 308, 424]
 TEST_SCENE_NUMBERS = [9, 29, 215, 226, 315, 325, 404, 425]
 
 # TODO: clean up moving model to CUDA
-device = torch.device('cuda:3')
+device = torch.device('cuda:' + str(args.gpu_index))
 
 def trajectory_avg_entropy(trajectory_logits):
     return -torch.mean(torch.sum(
@@ -688,14 +690,14 @@ def eval_online(fo, model, frame_stack=1, zero_fill_frame_stack=False,
             metrics[split]['trajectory_length'].append(
                     float(len(trajectory_results['frames'])))
             metrics[split]['frames'].append(trajectory_results['frames'])
+            metrics[split]['scene_name_or_num'].append(
+                    trajectory_results['scene_name_or_num'])
 
     model.train()
 
     return metrics
 
 if __name__ == '__main__':
-    args = parser.parse_args()
-
     if args.load_path is not None and not os.path.isfile(args.load_path):
         print('load_path not found: ' + args.load_path)
         exit()
