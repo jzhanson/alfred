@@ -46,6 +46,20 @@ def index_all_items(env):
 
     return obj_type_to_index
 
+def crow_distance(a, b):
+    """
+    Returns "as the crow flies" distance between two points a and b,
+    specified by dicts with keys 'x', 'y', and 'z'.
+
+    Order of a and b does not matter.
+    """
+    delta_x = b['x'] - a['x']
+    delta_y = b['y'] - a['y']
+    delta_z = b['z'] - a['z']
+
+    # Does not account for obstructions, rotation, or looking up/down
+    return np.sqrt(delta_x**2 + delta_y**2 + delta_z**2)
+
 
 class FindOne(object):
     """Task is to find an instance of a specified object in a scene"""
@@ -62,33 +76,44 @@ class FindOne(object):
         self.scene_name_or_num = scene_name_or_num
         event = self.env.reset(scene_name_or_num) # Returns ai2thor.server.Event
 
-        # Pick an interactable object in the scene to go find that also resides
-        # in obj_type_to_index
+        # First, pick an object type that's present in the scene and
+        # interactable
         instance_ids = [obj['objectId'] for obj in event.metadata['objects']]
         interactable_instance_ids = self.env.prune_by_any_interaction(
                 instance_ids)
-        self.target_instance_id = random.choice(interactable_instance_ids)
-        self.target_object = event.get_object(self.target_instance_id)
-        while self.target_object['objectType'] not in self.obj_type_to_index:
-            self.target_instance_id = random.choice(interactable_instance_ids)
-            self.target_object = event.get_object(self.target_instance_id)
+        interactable_objects = [event.get_object(instance_id) for instance_id
+                in interactable_instance_ids]
+        # Use a set to remove duplicates and avoid bias by number of objects in
+        # scene
+        interactable_object_types = list(set([obj['objectType'] for obj in
+            interactable_objects]))
+        self.target_object_type = random.choice(interactable_object_types)
+        # Next, make sure it's present in obj_type_to_index
+        while self.target_object_type not in self.obj_type_to_index:
+            self.target_object_type = random.choice(interactable_object_types)
+        # Finally, keep track of all objects in the scene of that type
+        self.target_objects = [obj for obj in interactable_objects if
+                obj['objectType'] == self.target_object_type]
+        self.target_instance_ids = [obj['objectId'] for obj in
+                self.target_objects]
 
-        self.target_instance_index = self.obj_type_to_index[self.target_object[
-            'objectType']]
+        self.target_object_type_index = self.obj_type_to_index[
+                self.target_object_type]
 
         # Build scene graph
         self.graph = Graph(use_gt=True, construct_graph=True,
                 scene_id=scene_name_or_num)
 
         agent_height = event.metadata['agent']['position']['y']
-        # Find out which graph point is closest to the object and which way the
-        # agent should face
-        self.end_pose, end_point_index = self.get_end_pose_point_index()
+        # Find out which graph points are closest to the object and the ending
+        # positions+rotations
+        self.end_poses, self.end_point_indexes = \
+                self.get_end_poses_point_indexes()
 
         # Randomly initialize agent position
         # len(self.graph.points) - 1 because randint is inclusive
         start_point_index = random.randint(0, len(self.graph.points) - 1)
-        while start_point_index == end_point_index:
+        while start_point_index in self.end_point_indexes:
             start_point_index = random.randint(0, len(self.graph.points) - 1)
         start_point = self.graph.points[start_point_index]
         start_pose = (start_point[0], start_point[1], random.randint(0, 3), 0)
@@ -107,8 +132,9 @@ class FindOne(object):
         self.original_expert_actions = self.current_expert_actions
         self.steps_taken = 0
         self.done = False
+        self.success = False
 
-        return (event.frame, self.target_instance_index)
+        return (event.frame, self.target_object_type_index)
 
     def step(self, action):
         """
@@ -121,25 +147,29 @@ class FindOne(object):
         if self.done:
             # Return None instead of last event and best action, and action
             # unsuccessful
-            return (None, self.target_instance_index), reward, self.done, \
+            return (None, self.target_object_type), reward, self.done, \
                     (False, None, None)
         if action == best_action:
             reward = self.rewards['correct_action']
 
         if action == ACTIONS_DONE or self.steps_taken == self.max_steps:
             self.done = True
-            if action == ACTIONS_DONE and best_action == ACTIONS_DONE:
+            # TODO: make this success condition better
+            if self.env.last_event.pose_discrete in self.end_poses:
+            #if action == ACTIONS_DONE and best_action == ACTIONS_DONE:
                 reward = self.rewards['success']
+                self.success = True
             else:
                 reward = self.rewards['failure']
+                self.success = False
 
             self.update_expert_actions_path()
             # Currently, return None instead of the last event and action
             # successful
-            return (None, self.target_instance_index), reward, self.done, \
+            return (None, self.target_object_type), reward, self.done, \
                     (True, None, best_action)
 
-        # Returns success, event, target_instance_id ('' if none),
+        # Returns success, event, target_object_type ('' if none),
         # event.metadata['errorMessage'] ('' if none), api_action (action dict
         # with forceAction and action)
         success, event, _, _, _ = self.env.va_interact(action)
@@ -148,70 +178,85 @@ class FindOne(object):
 
         self.steps_taken += 1
 
-        return (event.frame, self.target_instance_index), reward, self.done, \
+        return (event.frame, self.target_object_type), reward, self.done, \
             (success, event, best_action) #obs, rew, done, info
 
-    def get_end_pose_point_index(self):
+    def get_end_poses_point_indexes(self):
         """
-        Get the end pose and the index of the ending point in the navigation
-        graph (self.graph) corresponding to self.target_instance_id
+        Get the end poses and the indexes of the ending point in the navigation
+        graph (self.graph) corresponding to self.target_instance_ids
         """
         agent_height = self.env.last_event.metadata['agent']['position']['y']
-        distances_to_target = []
-        for point in self.graph.points:
-            delta_x = self.target_object['position']['x'] - \
-                    point[0]*constants.AGENT_STEP_SIZE
-            delta_y = self.target_object['position']['y'] - agent_height
-            delta_z = self.target_object['position']['z'] - \
-                    point[1]*constants.AGENT_STEP_SIZE
-            distances_to_target.append(np.sqrt(delta_x**2 + delta_y**2 +
-                delta_z**2))
+        end_poses = []
+        end_point_indexes = []
+        for target_object in self.target_objects:
+            distances_to_target = []
+            for point in self.graph.points:
+                point_xyz = {
+                        'x' : point[0]*constants.AGENT_STEP_SIZE,
+                        'y' : agent_height,
+                        'z' : point[1]*constants.AGENT_STEP_SIZE
+                }
+                distances_to_target.append(crow_distance(
+                    target_object['position'], point_xyz))
 
-        end_point_index = np.argmin(distances_to_target)
+            end_point_index = np.argmin(distances_to_target)
 
-        end_point = self.graph.points[end_point_index]
-        delta_x = end_point[0]*constants.AGENT_STEP_SIZE - \
-                self.target_object['position']['x']
-        delta_z = end_point[1]*constants.AGENT_STEP_SIZE - \
-                self.target_object['position']['z']
-        '''
-                z
-          \     |     /
-           \  0 | 0  /
-            \   |   /
-             \  |  /
-           3  \ | /  1
-               \|/
-        ---------------- x
-               /|\
-           3  / | \  1
-             /  |  \
-            /   |   \
-           /  2 | 2  \
-          /     |     \
+            end_point = self.graph.points[end_point_index]
+            delta_x = end_point[0]*constants.AGENT_STEP_SIZE - \
+                    target_object['position']['x']
+            delta_z = end_point[1]*constants.AGENT_STEP_SIZE - \
+                    target_object['position']['z']
+            '''
+                    z
+              \     |     /
+               \  0 | 0  /
+                \   |   /
+                 \  |  /
+               3  \ | /  1
+                   \|/
+            ---------------- x
+                   /|\
+               3  / | \  1
+                 /  |  \
+                /   |   \
+               /  2 | 2  \
+              /     |     \
 
-        '''
-        if np.abs(delta_x) < np.abs(delta_z) and delta_z >= 0:
-            end_rotation = 0
-        elif np.abs(delta_x) < np.abs(delta_z) and delta_z < 0:
-            end_rotation = 2
-        elif np.abs(delta_x) >= np.abs(delta_z) and delta_x >= 0:
-            end_rotation = 1
-        elif np.abs(delta_x) >= np.abs(delta_z) and delta_x < 0:
-            end_rotation = 3
-        # TODO: figure up ending look up/down?
-        #constants.VISIBILITY_DISTANCE
-        end_pose = (end_point[0], end_point[1], end_rotation, 0)
+            '''
+            if np.abs(delta_x) < np.abs(delta_z) and delta_z >= 0:
+                end_rotation = 0
+            elif np.abs(delta_x) < np.abs(delta_z) and delta_z < 0:
+                end_rotation = 2
+            elif np.abs(delta_x) >= np.abs(delta_z) and delta_x >= 0:
+                end_rotation = 1
+            elif np.abs(delta_x) >= np.abs(delta_z) and delta_x < 0:
+                end_rotation = 3
+            # TODO: figure up ending look up/down?
+            #constants.VISIBILITY_DISTANCE
+            end_pose = (end_point[0], end_point[1], end_rotation, 0)
+            end_poses.append(end_pose)
+            end_point_indexes.append(end_point_index)
 
-        return end_pose, end_point_index
+        return end_poses, end_point_indexes
 
     def update_expert_actions_path(self):
         """
         Updates self.current_expert_actions and self.current_expert_path based
-        on current agent position.
+        on current agent position and closest target object (by crow's
+        distance).
         """
+        target_object_distances_to_agent = [crow_distance(
+            target_object['position'],
+            self.env.last_event.metadata['agent']['position'])
+            for target_object in self.target_objects]
+
+        closest_target_object_end_pose = self.end_poses[np.argmin(
+            target_object_distances_to_agent)]
+
         actions, path = self.graph.get_shortest_path(
-                self.env.last_event.pose_discrete, self.end_pose)
+                self.env.last_event.pose_discrete,
+                closest_target_object_end_pose)
         # If there are no expert actions left and the environment is done, then
         # ACTIONS_DONE was taken and should not be appended
         if not (len(actions) == 0 and self.done):
@@ -227,16 +272,25 @@ class FindOne(object):
         """
         return self.current_expert_actions, self.current_expert_path
 
-    def crow_distance_to_goal(self):
-        delta_x = self.target_object['position']['x'] - \
-            self.env.last_event.metadata['agent']['position']['x']
-        delta_y = self.target_object['position']['y'] - \
-            self.env.last_event.metadata['agent']['position']['y']
-        delta_z = self.target_object['position']['z'] - \
-            self.env.last_event.metadata['agent']['position']['z']
+    def get_original_expert_actions(self):
+        return self.original_expert_actions
 
-        # Does not account for obstructions, rotation, or looking up/down
-        return delta_x**2 + delta_y**2 + delta_z**2
+    def get_scene_name_or_num(self):
+        return self.scene_name_or_num
+
+    def get_target_object_type(self):
+        return self.target_object_type
+
+    def get_success(self):
+        return self.success
+
+    def crow_distance_to_goal(self):
+        target_object_distances_to_agent = [crow_distance(
+            target_object['position'],
+            self.env.last_event.metadata['agent']['position'])
+            for target_object in self.target_objects]
+
+        return min(target_object_distances_to_agent)
 
     def walking_distance_to_goal(self):
         actions, path = self.get_current_expert_actions_path()
@@ -245,24 +299,23 @@ class FindOne(object):
 
     def target_visible(self):
         """
-        Returns 1 if the target is visible from the current pose, 0 otherwise.
+        Returns 1 if a target is visible from the current pose, 0 otherwise.
         """
         instance_segs = self.env.last_event.instance_segmentation_frame
         color_to_object_id = self.env.last_event.color_to_object_id
 
-        scene_object_ids = [obj['objectId'] for obj in
-                self.env.last_event.metadata['objects']]
+        # Some segmentations correspond to object types? For example
+        # some are 'Sink|-01.99|+01.14|-00.98|SinkBasin', 'SinkBasin',
+        # 'Sink', 'Sink|-01.99|+01.14|-00.98'
+        #scene_object_ids = [obj['objectId'] for obj in
+        #        self.env.last_event.metadata['objects']]
 
-        visible_object_ids = set()
         for i in range(instance_segs.shape[0]):
             for j in range(instance_segs.shape[1]):
                 object_id = color_to_object_id[tuple(instance_segs[i, j])]
-                # Some segmentations correspond to object types? For example
-                # some are 'Sink|-01.99|+01.14|-00.98|SinkBasin', 'SinkBasin',
-                # 'Sink', 'Sink|-01.99|+01.14|-00.98'
-                if object_id in scene_object_ids:
-                    visible_object_ids.add(object_id)
-        return int(self.target_object['objectId'] in visible_object_ids)
+                if object_id in self.target_instance_ids:
+                    return True
+        return False
 
 if __name__ == '__main__':
     env = ThorEnv()
