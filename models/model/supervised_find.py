@@ -135,7 +135,7 @@ def rollout_trajectory(fo, model, frame_stack=1, zero_fill_frame_stack=False,
         action_scores = model(stacked_frames,
                 torch.tensor([target_object_index], device=device))
         # Sorted in increasing order (rightmost is highest scoring action)
-        sorted_scores, top_indices = torch.sort(action_scores)
+        sorted_scores, top_indices = torch.sort(action_scores, descending=True)
         top_indices = top_indices.flatten()
         # Try each action until success
         pred_action_index = None
