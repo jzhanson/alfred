@@ -101,7 +101,7 @@ def rollout_trajectory(fo, model, frame_stack=1, zero_fill_frame_stack=False,
     all_action_scores = []
     pred_action_indexes = []
     expert_action_indexes = []
-    frame, target_object_index = fo.reset(scene_name_or_num)
+    frame, target_object_type_index = fo.reset(scene_name_or_num)
     done = False
     while not done:
         frames.append(frame)
@@ -133,7 +133,7 @@ def rollout_trajectory(fo, model, frame_stack=1, zero_fill_frame_stack=False,
         stacked_frames = torch.unsqueeze(stacked_frames, dim=0)
 
         action_scores = model(stacked_frames,
-                torch.tensor([target_object_index], device=device))
+                torch.tensor([target_object_type_index], device=device))
         # Sorted in increasing order (rightmost is highest scoring action)
         sorted_scores, top_indices = torch.sort(action_scores, descending=True)
         top_indices = top_indices.flatten()
@@ -155,26 +155,17 @@ def rollout_trajectory(fo, model, frame_stack=1, zero_fill_frame_stack=False,
         all_action_scores.append(action_scores)
         pred_action_indexes.append(pred_action_index)
         expert_action_indexes.append(ACTION_TO_INDEX[expert_action])
-        # Episode was successful if agent predicted ACTIONS_DONE (ending the
-        # episode) and the expert action is also ACTIONS_DONE
-        #
-        # success is less meaningful if teacher forcing
-        if pred_action_index == ACTION_TO_INDEX[ACTIONS_DONE] and \
-                pred_action_index == ACTION_TO_INDEX[expert_action]:
-            success = True
-        else:
-            success = False
     print('trajectory len: ' + str(len(all_action_scores)))
 
     trajectory_results = {}
-    trajectory_results['scene_name_or_num'] = fo.scene_name_or_num
-    trajectory_results['target'] = fo.target_instance_id
+    trajectory_results['scene_name_or_num'] = fo.get_scene_name_or_num()
+    trajectory_results['target'] = fo.get_target_object_type()
     trajectory_results['frames'] = frames
     trajectory_results['all_action_scores'] = all_action_scores
     trajectory_results['pred_action_indexes'] = pred_action_indexes
     trajectory_results['expert_action_indexes'] = expert_action_indexes
-    trajectory_results['success'] = success
-    trajectory_results['expert_actions'] = fo.original_expert_actions
+    trajectory_results['success'] = fo.get_success()
+    trajectory_results['expert_actions'] = fo.get_original_expert_actions()
     return trajectory_results
 
 def flatten_trajectories(batch_samples, frame_stack=1,
@@ -560,7 +551,7 @@ def train_online(fo, model, optimizer, frame_stack=1, zero_fill_frame_stack=Fals
                 path_weighted_success(
                     trajectory_results['success'],
                     len(trajectory_results['frames']),
-                    len(fo.original_expert_actions)))
+                    len(fo.get_original_expert_actions())))
 
         final_expert_actions, final_expert_path = \
                 fo.get_current_expert_actions_path()
