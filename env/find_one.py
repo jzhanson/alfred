@@ -59,6 +59,7 @@ class FindOne(object):
         if scene_name_or_num is None:
             # Randomly choose a scene if none specified
             scene_name_or_num = random.choice(AVAILABLE_SCENE_NUMBERS)
+        self.scene_name_or_num = scene_name_or_num
         event = self.env.reset(scene_name_or_num) # Returns ai2thor.server.Event
 
         # Pick an interactable object in the scene to go find that also resides
