@@ -358,28 +358,26 @@ def train_dataset(fo, model, optimizer, dataloaders, obj_type_to_index,
                 entropy = trajectory_avg_entropy(action_scores)
             last_metrics['entropy'].append(entropy.item())
 
+            results = {}
+            results['train'] = {}
             for metric in last_metrics.keys():
-                writer.add_scalar('train/steps_' + metric, last_metrics[metric][-1],
-                        train_steps)
-                writer.add_scalar('train/frames_' + metric, last_metrics[metric][-1],
-                        train_frames)
-                writer.add_scalar('train/trajectories_' + metric,
-                        last_metrics[metric][-1], train_trajectories)
+                results['train'][metric] = last_metrics[metric][-1]
+            write_results(writer, results, train_steps, train_frames,
+                    train_trajectories=train_trajectories, method='dataset')
 
         if train_epochs % eval_interval == 0:
             print('epoch %d steps %d frames %d trajectories %d' %
                     (train_epochs, train_steps, train_frames,
                         train_trajectories))
+            results = {}
+            results['train'] = {}
             for metric, values in last_metrics.items():
-                mean = np.mean(values)
-                writer.add_scalar('train_avg/steps_' + metric, mean, train_steps)
-                writer.add_scalar('train_avg/frames_' + metric, mean,
-                        train_frames)
-                writer.add_scalar('train_avg/trajectories_' + metric, mean,
-                        train_trajectories)
-                writer.add_scalar('train_avg/epochs_' + metric, mean, train_epochs)
+                results['train']['avg/' + metric] = values
                 print('avg ' + metric + ' %.6f' % mean)
                 last_metrics[metric] = []
+            write_results(writer, results, train_steps, train_frames,
+                    train_trajectories=train_trajectories,
+                    train_epochs=train_epochs, method='dataset')
 
             # Evaluate on valid_seen and valid_unseen
             results_dataset = eval_dataset(model, dataloaders,
@@ -387,26 +385,19 @@ def train_dataset(fo, model, optimizer, dataloaders, obj_type_to_index,
                     dataset_transitions=dataset_transitions,
                     frame_stack=frame_stack,
                     zero_fill_frame_stack=zero_fill_frame_stack)
-            for split in ['valid_seen', 'valid_unseen']:
-                for metric in results_dataset[split].keys():
-                    writer.add_scalar(split + '/steps_' + metric,
-                            results_dataset[split][metric], train_steps)
-                    writer.add_scalar(split + '/frames_' + metric,
-                            results_dataset[split][metric], train_frames)
-                    writer.add_scalar(split + '/trajectories_' + metric,
-                            results_dataset[split][metric], train_trajectories)
-                    writer.add_scalar(split + '/epochs_' + metric,
-                            results_dataset[split][metric], train_epochs)
-                print(split + ' accuracy %.6f f1 %.6f' %
-                        (results_dataset[split]['accuracy'],
-                            results_dataset[split]['f1']))
+            write_results(writer, results_dataset, train_steps, train_frames,
+                    train_trajectories=train_trajectories,
+                    train_epochs=train_epochs, method='dataset')
+            print(split + ' accuracy %.6f f1 %.6f' %
+                    (results_dataset[split]['accuracy'],
+                        results_dataset[split]['f1']))
 
             results_online = eval_online(fo, model,
                     frame_stack=frame_stack,
                     zero_fill_frame_stack=zero_fill_frame_stack,
                     seen_episodes=eval_episodes_seen,
                     unseen_episodes=eval_episodes_unseen)
-            write_eval_results(writer, results_online, train_steps, train_frames,
+            write_results(writer, results_online, train_steps, train_frames,
                     train_trajectories, train_epochs)
 
             if save_path is not None:
@@ -569,21 +560,24 @@ def train_online(fo, model, optimizer, frame_stack=1, zero_fill_frame_stack=Fals
             entropy = trajectory_avg_entropy(all_action_scores)
         last_metrics['entropy'].append(entropy.item())
 
+        results = {}
+        results['train'] = {}
         for metric in last_metrics.keys():
-            writer.add_scalar('train/steps_' + metric, last_metrics[metric][-1],
-                    train_steps)
-            writer.add_scalar('train/frames_' + metric, last_metrics[metric][-1],
-                    train_frames)
+            results['train'][metric] = last_metrics[metric][-1]
+        write_results(writer, results, train_steps, train_frames,
+                method='online')
 
-        # Evaluate and save checkpoint every N trajectories, collect/print stats
+        # Evaluate and save checkpoint every N trajectories, collect/print
+        # stats
         if train_steps % eval_interval == 0:
             print('steps %d frames %d' % (train_steps, train_frames))
+            results = {}
+            results['train'] = {}
             for metric, values in last_metrics.items():
-                mean = np.mean(values)
-                writer.add_scalar('train_avg/steps_' + metric, mean, train_steps)
-                writer.add_scalar('train_avg/frames_' + metric, mean,
-                        train_frames)
+                results['train']['avg/' + metric] = values
                 last_metrics[metric] = []
+            write_results(writer, results, train_steps, train_frames,
+                    method='online')
 
             # Collect validation statistics and write, print
             results = eval_online(fo, model, frame_stack=frame_stack,
@@ -591,7 +585,7 @@ def train_online(fo, model, optimizer, frame_stack=1, zero_fill_frame_stack=Fals
                     seen_episodes=eval_episodes_seen,
                     unseen_episodes=eval_episodes_unseen)
 
-            write_eval_results(writer, results, train_steps, train_frames)
+            write_results(writer, results, train_steps, train_frames)
 
             if save_path is not None:
                 if save_intermediate:
@@ -614,23 +608,29 @@ def train_online(fo, model, optimizer, frame_stack=1, zero_fill_frame_stack=Fals
                 if save_images_video:
                     write_images_video(results, train_steps, save_path)
 
-def write_eval_results(writer, results, train_steps, train_frames,
-        train_trajectories=None, train_epochs=None):
+def write_results(writer, results, train_steps, train_frames,
+        train_trajectories=None, train_epochs=None, method='dataset'):
+    """
+    Write results to SummaryWriter. Method is either "dataset" or "online"
+    depending on whether the metrics were acquired in a traditional
+    supervised-learning method or are from unrolling (with expert trajectories)
+    in the environment.
+    """
     for split in results.keys():
         for metric, values in results[split].items():
             if metric == 'frames' or metric == 'target' or metric == \
                     'target_scene_name_or_num': continue
             mean = np.mean(values)
-            writer.add_scalar('validation_online_avg/' + split + '/steps_' +
-                    metric, mean, train_steps)
-            writer.add_scalar('validation_online_avg/' + split + '/frames_' +
-                    metric, mean, train_frames)
+            writer.add_scalar('steps/' + split + '/' + method + '/' + metric,
+                    mean, train_steps)
+            writer.add_scalar('frames/' + split + '/' + method + '/' + metric,
+                    mean, train_frames)
             if train_trajectories is not None:
-                writer.add_scalar('validation_online_avg/' + split +
-                        '/trajectories_' + metric, mean, train_trajectories)
+                writer.add_scalar('trajectories/' + split + '/' + method + '/'
+                        + metric, mean, train_trajectories)
             if train_epochs is not None:
-                writer.add_scalar('validation_online_avg/' + split +
-                        '/epochs_' + metric, mean, train_epochs)
+                writer.add_scalar('epochs/' + split + '/' + method + '/' +
+                        metric, mean, train_epochs)
 
 def eval_online(fo, model, frame_stack=1, zero_fill_frame_stack=False,
         seen_episodes=1, unseen_episodes=1):
