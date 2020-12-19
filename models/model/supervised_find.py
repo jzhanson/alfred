@@ -233,8 +233,9 @@ def actions_accuracy_f1(predicted_action_indexes, expert_action_indexes):
         if predicted_action_indexes[i] == expert_action_indexes[i]:
             correct_preds += 1
     accuracy = correct_preds / len(predicted_action_indexes)
-    f1 = compute_actions_f1(predicted_action_indexes,
-            expert_action_indexes).item()
+    f1 = compute_actions_f1(
+            torch.Tensor(predicted_action_indexes),
+            torch.Tensor(expert_action_indexes)).item()
     return accuracy, f1
 
 def write_images_video(results_online, train_epochs, save_path):
@@ -636,9 +637,11 @@ def eval_online(fo, model, frame_stack=1, zero_fill_frame_stack=False,
         seen_episodes=1, unseen_episodes=1):
     model.eval()
     metrics = {}
-    for split in ['seen', 'unseen']:
+    for split in ['valid_seen', 'valid_unseen']:
         metrics[split] = {}
         metrics[split]['target'] = []
+        metrics[split]['accuracy'] = []
+        metrics[split]['f1'] = []
         metrics[split]['success'] = []
         metrics[split]['path_weighted_success'] = []
         metrics[split]['crow_distance_to_goal'] = []
@@ -649,15 +652,21 @@ def eval_online(fo, model, frame_stack=1, zero_fill_frame_stack=False,
         metrics[split]['trajectory_length'] = []
         metrics[split]['frames'] = []
         metrics[split]['scene_name_or_num'] = []
-        episodes = seen_episodes if split == 'seen' else unseen_episodes
+        episodes = seen_episodes if split == 'valid_seen' else unseen_episodes
         for i in range(episodes):
             with torch.no_grad():
                 trajectory_results = rollout_trajectory(fo, model,
                         frame_stack=frame_stack,
                         zero_fill_frame_stack=zero_fill_frame_stack,
-                        scene_name_or_num=random.choice(TRAIN_SCENE_NUMBERS if
-                            split == 'seen' else VALID_UNSEEN_SCENE_NUMBERS))
+                        scene_name_or_num=random.choice(VALID_SEEN_SCENE_NUMBERS
+                            if split == 'valid_seen' else
+                            VALID_UNSEEN_SCENE_NUMBERS))
             metrics[split]['target'].append(trajectory_results['target'])
+            accuracy, f1 = actions_accuracy_f1(
+                    trajectory_results['pred_action_indexes'],
+                    trajectory_results['expert_action_indexes'])
+            metrics[split]['accuracy'].append(accuracy)
+            metrics[split]['f1'].append(f1)
             metrics[split]['success'].append(
                     float(trajectory_results['success']))
             metrics[split]['path_weighted_success'].append(
