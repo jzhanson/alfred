@@ -69,6 +69,84 @@ class FindOne(object):
         self.max_steps = max_steps
         self.rewards = REWARDS
 
+    def load_from_traj_data(self, traj_data, high_idx=None):
+        if high_idx is None:
+            high_idx = 0
+
+        self.scene_name_or_num = traj_data['scene']['scene_num']
+
+        # From models/eval/eval.py
+        object_poses = traj_data['scene']['object_poses']
+        dirty_and_empty = traj_data['scene']['dirty_and_empty']
+        object_toggles = traj_data['scene']['object_toggles']
+
+        scene_name = 'FloorPlan%d' % self.scene_name_or_num
+        self.env.reset(scene_name)
+        self.env.restore_scene(object_poses, object_toggles, dirty_and_empty)
+
+        # initialize to start position
+        self.env.step(dict(traj_data['scene']['init_action']))
+
+        # From models/eval/eval_subgoals.py
+        expert_init_actions = [a['discrete_action'] for a in
+                traj_data['plan']['low_actions'] if a['high_idx'] < high_idx]
+
+        frames = [self.env.last_event.frame]
+        for i in range(len(expert_init_actions)):
+            action = expert_init_actions[i]
+             # get expert action
+            compressed_mask = action['args']['mask'] if 'mask' in \
+                    action['args'] else None
+            mask = self.env.decompress_mask(compressed_mask) if \
+                    compressed_mask is not None else None
+
+            # execute expert action
+            success, _, _, err, _ = self.env.va_interact(action['action'],
+                    interact_mask=mask)
+            if not success:
+                print ("expert initialization failed, error " + err)
+                break
+
+            frames.append(self.env.last_event.frame)
+
+        self.target_object_type = constants.OBJECTS_LOWER_TO_UPPER[
+                traj_data['plan']['high_pddl'][high_idx]
+                ['discrete_action']['args'][-1]
+        ]
+        if self.target_object_type not in self.obj_type_to_index:
+            print('Target object type (' + self.target_object_type +
+                    ') of trajectory not in obj_type_to_index')
+        instance_ids = [obj['objectId'] for obj in
+                self.env.last_event.metadata['objects']]
+        interactable_instance_ids = self.env.prune_by_any_interaction(
+                instance_ids)
+        interactable_objects = [self.env.last_event.get_object(instance_id)
+                for instance_id in interactable_instance_ids]
+        self.target_objects = [obj for obj in interactable_objects if
+                obj['objectType'] == self.target_object_type]
+        self.target_instance_ids = [obj['objectId'] for obj in
+                self.target_objects]
+        self.target_object_type_index = self.obj_type_to_index[
+                self.target_object_type]
+
+        # Build scene graph
+        self.graph = Graph(use_gt=True, construct_graph=True,
+                scene_id=self.scene_name_or_num)
+        # Find out which graph points are closest to the object and the ending
+        # positions+rotations
+        self.end_poses, self.end_point_indexes = \
+                self.get_end_poses_point_indexes()
+
+        self.update_expert_actions_path()
+        # Expert actions need not be the same as those in traj_data but they
+        # almost certainly will be
+        self.original_expert_actions = self.current_expert_actions
+        self.steps_taken = 0
+        self.done = False
+        self.success = False
+
+        return frames, self.target_object_type_index
+
     def reset(self, scene_name_or_num=None):
         if scene_name_or_num is None:
             # Randomly choose a scene if none specified
