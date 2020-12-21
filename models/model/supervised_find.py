@@ -96,16 +96,20 @@ def path_weighted_success(success, num_agent_actions, num_expert_actions):
             num_expert_actions)
 
 def rollout_trajectory(fo, model, frame_stack=1, zero_fill_frame_stack=False,
-        teacher_force=False, scene_name_or_num=None):
+        teacher_force=False, scene_name_or_num=None, traj_data=None,
+        traj_high_idx=None):
     frames = []
     all_action_scores = []
     pred_action_indexes = []
     expert_action_indexes = []
-    frame, target_object_type_index = fo.reset(scene_name_or_num)
+    if traj_data is not None:
+        frames, target_object_type_index = fo.load_from_traj_data(traj_data,
+                high_idx=traj_high_idx)
+    else:
+        frame, target_object_type_index = fo.reset(scene_name_or_num)
+        frames.append(frame)
     done = False
     while not done:
-        frames.append(frame)
-
         # Most recent frames are last/later channels
         if len(frames) < frame_stack:
             # A frame is shape (300, 300, 3). Use transpose instead of reshape
@@ -152,9 +156,11 @@ def rollout_trajectory(fo, model, frame_stack=1, zero_fill_frame_stack=False,
                 # TODO: consider penalizing failed actions more
                 break
         assert pred_action_index is not None
+        frames.append(frame)
         all_action_scores.append(action_scores)
         pred_action_indexes.append(pred_action_index)
         expert_action_indexes.append(ACTION_TO_INDEX[expert_action])
+
     print('trajectory len: ' + str(len(all_action_scores)))
 
     trajectory_results = {}
@@ -423,7 +429,7 @@ def train_dataset(fo, model, optimizer, dataloaders, obj_type_to_index,
         train_epochs += 1
 
 def eval_dataset(model, dataloaders, obj_type_to_index,
-        dataset_transitions=False,frame_stack=1, zero_fill_frame_stack=False):
+        dataset_transitions=False, frame_stack=1, zero_fill_frame_stack=False):
     """
     Evaluate a model on valid_seen and valid_unseen datasets given by
     dataloaders.
