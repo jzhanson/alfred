@@ -20,7 +20,7 @@ from env.find_one import FindOne, index_all_items, ACTIONS, NUM_ACTIONS, \
 from models.nn.fo import NatureCNN
 import gen.constants as constants
 from gen.graph.graph_obj import Graph
-from data.fo_dataset import get_dataloaders
+from data.fo_dataset import get_datasets_dataloaders
 from models.utils.metric import compute_actions_f1
 from utils.video_util import VideoSaver
 
@@ -38,8 +38,9 @@ parser.add_argument('-zffs', '--zero-fill-frame-stack', dest='zero_fill_frame_st
 parser.add_argument('-fffs', '--first-fill-frame-stack', dest='zero_fill_frame_stack', action='store_false', help='replicate first frame when frame stacking on early steps')
 parser.set_defaults(zero_fill_frame_stack=False)
 parser.add_argument('-ei', '--eval-interval', type=int, default=100, help='number of training trajectories (or epochs, if using dataset) between evaluation trajectories')
-parser.add_argument('-ees', '--eval-episodes-seen', type=int, default=10, help='number of episodes to evaluate live on seen scenes')
-parser.add_argument('-eeu', '--eval-episodes-unseen', type=int, default=10, help='number of episodes to evaluate live on unseen scenes')
+parser.add_argument('-te', '--train-episodes', type=int, default=10, help='number of episodes to evaluate live on train seen scenes and trajectories')
+parser.add_argument('-vse', '--valid-seen-episodes', type=int, default=10, help='number of episodes to evaluate live on validation seen scenes and trajectories')
+parser.add_argument('-vue', '--valid-unseen-episodes', type=int, default=10, help='number of episodes to evaluate live on validation unseen scenes and trajectories')
 parser.add_argument('-tf', '--teacher-force', dest='teacher_force', action='store_true')
 parser.add_argument('-ntf', '--no-teacher-force', dest='teacher_force', action='store_false')
 parser.set_defaults(teacher_force=False)
@@ -97,14 +98,14 @@ def path_weighted_success(success, num_agent_actions, num_expert_actions):
 
 def rollout_trajectory(fo, model, frame_stack=1, zero_fill_frame_stack=False,
         teacher_force=False, scene_name_or_num=None, traj_data=None,
-        traj_high_idx=None):
+        high_idx=None):
     frames = []
     all_action_scores = []
     pred_action_indexes = []
     expert_action_indexes = []
     if traj_data is not None:
         frames, target_object_type_index = fo.load_from_traj_data(traj_data,
-                high_idx=traj_high_idx)
+                high_idx=high_idx)
     else:
         frame, target_object_type_index = fo.reset(scene_name_or_num)
         frames.append(frame)
@@ -240,8 +241,8 @@ def actions_accuracy_f1(predicted_action_indexes, expert_action_indexes):
             correct_preds += 1
     accuracy = correct_preds / len(predicted_action_indexes)
     f1 = compute_actions_f1(
-            torch.Tensor(predicted_action_indexes),
-            torch.Tensor(expert_action_indexes)).item()
+            predicted_action_indexes,
+            expert_action_indexes).item()
     return accuracy, f1
 
 def write_images_video(results_online, train_epochs, save_path):
@@ -281,11 +282,12 @@ def write_images_video(results_online, train_epochs, save_path):
             video_saver.save(os.path.join(images_save_path,
                 '*.png'), video_save_path)
 
-def train_dataset(fo, model, optimizer, dataloaders, obj_type_to_index,
-        dataset_transitions=False, batch_size=1, frame_stack=1,
-        zero_fill_frame_stack=False, eval_episodes_seen=10,
-        eval_episodes_unseen=10, eval_interval=100, save_path=None,
-        save_intermediate=False, save_images_video=False, load_path=None):
+def train_dataset(fo, model, optimizer, datasets, dataloaders,
+        obj_type_to_index, dataset_transitions=False, batch_size=1,
+        frame_stack=1, zero_fill_frame_stack=False, train_episodes=10,
+        valid_seen_episodes=10, valid_unseen_episodes=10, eval_interval=100,
+        save_path=None, save_intermediate=False, save_images_video=False,
+        load_path=None):
     """
     Train a model by sampling from a torch dataloader.
 
@@ -372,59 +374,76 @@ def train_dataset(fo, model, optimizer, dataloaders, obj_type_to_index,
             write_results(writer, results, train_steps, train_frames,
                     train_trajectories=train_trajectories, method='dataset')
 
-        if train_epochs % eval_interval == 0:
-            print('epoch %d steps %d frames %d trajectories %d' %
-                    (train_epochs, train_steps, train_frames,
-                        train_trajectories))
-            results = {}
-            results['train'] = {}
-            for metric, values in last_metrics.items():
-                results['train']['avg/' + metric] = values
-                print('avg ' + metric + ' %.6f' % mean)
-                last_metrics[metric] = []
-            write_results(writer, results, train_steps, train_frames,
-                    train_trajectories=train_trajectories,
-                    train_epochs=train_epochs, method='dataset')
+        # XXX: change back
+            if True:
+        #if train_epochs % eval_interval == 0:
+                print('epoch %d steps %d frames %d trajectories %d' %
+                        (train_epochs, train_steps, train_frames,
+                            train_trajectories))
+                results = {}
+                results['train'] = {}
+                for metric, values in last_metrics.items():
+                    results['train']['avg/' + metric] = values
+                    print('avg ' + metric + ' %.6f' % np.mean(values))
+                    last_metrics[metric] = []
+                write_results(writer, results, train_steps, train_frames,
+                        train_trajectories=train_trajectories,
+                        train_epochs=train_epochs, method='dataset')
 
-            # Evaluate on valid_seen and valid_unseen
-            results_dataset = eval_dataset(model, dataloaders,
-                    obj_type_to_index,
-                    dataset_transitions=dataset_transitions,
-                    frame_stack=frame_stack,
-                    zero_fill_frame_stack=zero_fill_frame_stack)
-            write_results(writer, results_dataset, train_steps, train_frames,
-                    train_trajectories=train_trajectories,
-                    train_epochs=train_epochs, method='dataset')
-            print(split + ' accuracy %.6f f1 %.6f' %
-                    (results_dataset[split]['accuracy'],
-                        results_dataset[split]['f1']))
+                # Evaluate on valid_seen and valid_unseen
+                results_dataset = eval_dataset(model, dataloaders,
+                        obj_type_to_index,
+                        dataset_transitions=dataset_transitions,
+                        frame_stack=frame_stack,
+                        zero_fill_frame_stack=zero_fill_frame_stack)
+                write_results(writer, results_dataset, train_steps, train_frames,
+                        train_trajectories=train_trajectories,
+                        train_epochs=train_epochs, method='dataset')
+                for split in ['valid_seen', 'valid_unseen']:
+                    print(split + ' accuracy %.6f f1 %.6f' %
+                            (results_dataset[split]['accuracy'],
+                                results_dataset[split]['f1']))
 
-            results_online = eval_online(fo, model,
-                    frame_stack=frame_stack,
-                    zero_fill_frame_stack=zero_fill_frame_stack,
-                    seen_episodes=eval_episodes_seen,
-                    unseen_episodes=eval_episodes_unseen)
-            write_results(writer, results_online, train_steps, train_frames,
-                    train_trajectories, train_epochs)
+                # Evaluate online in environment but load training trajectories
+                # from datasets
+                results_trajectory = eval_online(fo, model,
+                        frame_stack=frame_stack,
+                        zero_fill_frame_stack=zero_fill_frame_stack,
+                        train_episodes=train_episodes,
+                        valid_seen_episodes=valid_seen_episodes,
+                        valid_unseen_episodes=valid_unseen_episodes,
+                        datasets=datasets)
+                write_results(writer, results_trajectory, train_steps,
+                        train_frames, train_trajectories, train_epochs,
+                        method='trajectory')
 
-            if save_path is not None:
-                if save_intermediate:
-                    checkpoint_save_path = os.path.join(save_path, 'model_' +
-                            str(train_epochs) + '.pth')
-                else:
-                    checkpoint_save_path = os.path.join(save_path, 'model.pth')
-                print('saving to ' + checkpoint_save_path)
-                torch.save({
-                    'train_steps' : train_steps,
-                    'train_frames' : train_frames,
-                    'train_trajectories' : train_trajectories,
-                    'train_epochs' : train_epochs,
-                    'model_state_dict' : model.state_dict(),
-                    'optimizer_state_dict' : optimizer.state_dict(),
-                }, checkpoint_save_path)
+                results_online = eval_online(fo, model,
+                        frame_stack=frame_stack,
+                        zero_fill_frame_stack=zero_fill_frame_stack,
+                        train_episodes=train_episodes,
+                        valid_seen_episodes=valid_seen_episodes,
+                        valid_unseen_episodes=valid_unseen_episodes)
+                write_results(writer, results_online, train_steps, train_frames,
+                        train_trajectories, train_epochs, method='online')
 
-                if save_images_video:
-                    write_images_video(results_online, train_epochs, save_path)
+                if save_path is not None:
+                    if save_intermediate:
+                        checkpoint_save_path = os.path.join(save_path, 'model_' +
+                                str(train_epochs) + '.pth')
+                    else:
+                        checkpoint_save_path = os.path.join(save_path, 'model.pth')
+                    print('saving to ' + checkpoint_save_path)
+                    torch.save({
+                        'train_steps' : train_steps,
+                        'train_frames' : train_frames,
+                        'train_trajectories' : train_trajectories,
+                        'train_epochs' : train_epochs,
+                        'model_state_dict' : model.state_dict(),
+                        'optimizer_state_dict' : optimizer.state_dict(),
+                    }, checkpoint_save_path)
+
+                    if save_images_video:
+                        write_images_video(results_online, train_epochs, save_path)
 
         train_epochs += 1
 
@@ -484,9 +503,9 @@ def eval_dataset(model, dataloaders, obj_type_to_index,
 
 
 def train_online(fo, model, optimizer, frame_stack=1, zero_fill_frame_stack=False,
-        teacher_force=False, eval_episodes_seen=10, eval_episodes_unseen=10,
-        eval_interval=1000, save_path=None, save_intermediate=False,
-        save_images_video=False,  load_path=None):
+        teacher_force=False, train_episodes=10, valid_seen_episodes=10,
+        valid_unseen_episodes=10, eval_interval=1000, save_path=None,
+        save_intermediate=False, save_images_video=False, load_path=None):
     """
     Train a model by collecting a trajectory online, then training with correct
     action supervision. Loads model from checkpoint if load_path is not None.
@@ -589,8 +608,9 @@ def train_online(fo, model, optimizer, frame_stack=1, zero_fill_frame_stack=Fals
             # Collect validation statistics and write, print
             results = eval_online(fo, model, frame_stack=frame_stack,
                     zero_fill_frame_stack=zero_fill_frame_stack,
-                    seen_episodes=eval_episodes_seen,
-                    unseen_episodes=eval_episodes_unseen)
+                    train_episodes=train_episodes,
+                    valid_seen_episodes=valid_seen_episodes,
+                    valid_unseen_episodes=valid_unseen_episodes)
 
             write_results(writer, results, train_steps, train_frames)
 
@@ -625,8 +645,9 @@ def write_results(writer, results, train_steps, train_frames,
     """
     for split in results.keys():
         for metric, values in results[split].items():
-            if metric == 'frames' or metric == 'target' or metric == \
-                    'target_scene_name_or_num': continue
+            if metric in ['frames', 'target', 'scene_name_or_num',
+                    'trajectory_index']:
+                continue
             mean = np.mean(values)
             writer.add_scalar('steps/' + split + '/' + method + '/' + metric,
                     mean, train_steps)
@@ -640,10 +661,20 @@ def write_results(writer, results, train_steps, train_frames,
                         metric, mean, train_epochs)
 
 def eval_online(fo, model, frame_stack=1, zero_fill_frame_stack=False,
-        seen_episodes=1, unseen_episodes=1):
+        train_episodes=1, valid_seen_episodes=1, valid_unseen_episodes=1,
+        datasets=None):
+    """
+    Evaluate by gathering live rollouts in the environment. If dataloaders is
+    not None, will sample trajectories from the provided dict of datasets
+    ('train', 'valid_seen', and 'valid_unseen') and set the scene to those.
+    """
     model.eval()
     metrics = {}
-    for split in ['valid_seen', 'valid_unseen']:
+    for split, episodes, scene_numbers in zip(
+            ['train', 'valid_seen', 'valid_unseen'],
+            [train_episodes, valid_seen_episodes, valid_unseen_episodes],
+            [TRAIN_SCENE_NUMBERS, VALID_SEEN_SCENE_NUMBERS,
+                VALID_UNSEEN_SCENE_NUMBERS]):
         metrics[split] = {}
         metrics[split]['target'] = []
         metrics[split]['accuracy'] = []
@@ -658,19 +689,31 @@ def eval_online(fo, model, frame_stack=1, zero_fill_frame_stack=False,
         metrics[split]['trajectory_length'] = []
         metrics[split]['frames'] = []
         metrics[split]['scene_name_or_num'] = []
-        episodes = seen_episodes if split == 'valid_seen' else unseen_episodes
+        if dataloaders is not None:
+            metrics[split]['trajectory_index'] = []
         for i in range(episodes):
             with torch.no_grad():
-                trajectory_results = rollout_trajectory(fo, model,
-                        frame_stack=frame_stack,
-                        zero_fill_frame_stack=zero_fill_frame_stack,
-                        scene_name_or_num=random.choice(VALID_SEEN_SCENE_NUMBERS
-                            if split == 'valid_seen' else
-                            VALID_UNSEEN_SCENE_NUMBERS))
+                if datasets is not None:
+                    # Sample a trajectory
+                    trajectory_index = random.randint(0, len(datasets[split]))
+                    trajectory = datasets[split].trajectories[trajectory_index]
+                    with open(os.path.join(trajectory['path'],
+                        'traj_data.json'), 'r') as jsonfile:
+                        traj_data = json.load(jsonfile)
+                    trajectory_results = rollout_trajectory(fo, model,
+                            frame_stack=frame_stack,
+                            zero_fill_frame_stack=zero_fill_frame_stack,
+                            traj_data=traj_data,
+                            high_idx=trajectory['high_idx'][0])
+                else:
+                    trajectory_results = rollout_trajectory(fo, model,
+                            frame_stack=frame_stack,
+                            zero_fill_frame_stack=zero_fill_frame_stack,
+                            scene_name_or_num=random.choice(scene_numbers))
             metrics[split]['target'].append(trajectory_results['target'])
             accuracy, f1 = actions_accuracy_f1(
-                    trajectory_results['pred_action_indexes'],
-                    trajectory_results['expert_action_indexes'])
+                    torch.Tensor(trajectory_results['pred_action_indexes']),
+                    torch.Tensor(trajectory_results['expert_action_indexes']))
             metrics[split]['accuracy'].append(accuracy)
             metrics[split]['f1'].append(f1)
             metrics[split]['success'].append(
@@ -698,6 +741,8 @@ def eval_online(fo, model, frame_stack=1, zero_fill_frame_stack=False,
             metrics[split]['frames'].append(trajectory_results['frames'])
             metrics[split]['scene_name_or_num'].append(
                     trajectory_results['scene_name_or_num'])
+            if datasets is not None:
+                metrics[split]['trajectory_index'].append(trajectory_index)
 
     model.train()
 
@@ -740,7 +785,8 @@ if __name__ == '__main__':
         # from a dataset, not transitions
         if args.dataset_transitions and args.frame_stack > 1:
             args.frame_stack = 1
-        dataloaders = get_dataloaders(batch_size=args.batch_size,
+        datasets, dataloaders = get_datasets_dataloaders(
+                batch_size=args.batch_size,
                 transitions=args.dataset_transitions)
     model = NatureCNN(len(obj_type_to_index), NUM_ACTIONS,
             frame_stack=args.frame_stack,
@@ -748,12 +794,14 @@ if __name__ == '__main__':
     optimizer = optim.SGD(model.parameters(), lr=args.lr)
 
     if args.dataset_path is not None:
-        train_dataset(fo, model, optimizer, dataloaders, obj_type_to_index,
+        train_dataset(fo, model, optimizer, datasets, dataloaders,
+                obj_type_to_index,
                 dataset_transitions=args.dataset_transitions,
                 batch_size=args.batch_size, frame_stack=args.frame_stack,
                 zero_fill_frame_stack=args.zero_fill_frame_stack,
-                eval_episodes_seen=args.eval_episodes_seen,
-                eval_episodes_unseen=args.eval_episodes_unseen,
+                train_episodes=args.train_episodes,
+                valid_seen_episodes=args.valid_seen_episodes,
+                valid_unseen_episodes=args.valid_unseen_episodes,
                 eval_interval=args.eval_interval, save_path=args.save_path,
                 save_intermediate=args.save_intermediate,
                 save_images_video=args.save_images_video,
@@ -762,8 +810,9 @@ if __name__ == '__main__':
         train_online(fo, model, optimizer, frame_stack=args.frame_stack,
                 zero_fill_frame_stack=args.zero_fill_frame_stack,
                 teacher_force=args.teacher_force,
-                eval_episodes_seen=args.eval_episodes_seen,
-                eval_episodes_unseen=args.eval_episodes_unseen,
+                train_episodes=args.train_episodes,
+                valid_seen_episodes=args.valid_seen_episodes,
+                valid_unseen_episodes=args.valid_unseen_episodes,
                 eval_interval=args.eval_interval, save_path=args.save_path,
                 save_intermediate=args.save_intermediate,
                 save_images_video=args.save_images_video,
