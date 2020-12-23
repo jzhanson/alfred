@@ -388,7 +388,8 @@ def collate_trajectories(samples):
             new_samples[k].append(sample[k])
     return new_samples
 
-def get_dataloaders(batch_size=1, transitions=False, path=None):
+def get_datasets_dataloaders(batch_size=1, transitions=False, path=None):
+    datasets = {}
     dataloaders = {}
     if path is None:
         path = os.path.join(os.environ['ALFRED_ROOT'], "data/find_one")
@@ -403,8 +404,9 @@ def get_dataloaders(batch_size=1, transitions=False, path=None):
             dataloader = DataLoader(fo_dataset, batch_size=batch_size,
                     shuffle=True, num_workers=0,
                     collate_fn=collate_trajectories)
+        datasets[split] = fo_dataset
         dataloaders[split] = dataloader
-    return dataloaders
+    return datasets, dataloaders
 
 if __name__ == '__main__':
     args = parser.parse_args()
@@ -418,7 +420,8 @@ if __name__ == '__main__':
 
     make_fo_dataset(find_parsing=args.find_parsing, save_path=save_path)
 
-    dataloaders = get_dataloaders(batch_size=4, transitions=True, path=save_path)
+    datasets, dataloaders = get_dataloaders(batch_size=4, transitions=True,
+            path=save_path)
     for sample_batched in dataloaders['train']:
         print(len(sample_batched['low_actions']),
                 len(sample_batched['images']), len(sample_batched['features']),
