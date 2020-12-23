@@ -390,9 +390,15 @@ class FindOne(object):
 
         for i in range(instance_segs.shape[0]):
             for j in range(instance_segs.shape[1]):
-                object_id = color_to_object_id[tuple(instance_segs[i, j])]
-                if object_id in self.target_instance_ids:
+                # Sometimes colors in instance_segs don't appear in
+                # color_to_object_id: specifically, (0, 0, 255)
+                color = tuple(instance_segs[i, j])
+                if color in color_to_object_id and color_to_object_id[color] \
+                        in self.target_instance_ids:
                     return True
+                elif color not in color_to_object_id:
+                    print('color %s not in color_to_object_id at (%d, %d)' %
+                            (str(color), i, j))
         return False
 
 if __name__ == '__main__':
