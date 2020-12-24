@@ -8,14 +8,16 @@ class Resnet18(object):
     pretrained Resnet18 from torchvision
     '''
 
-    def __init__(self, args, eval=True, share_memory=False, use_conv_feat=True):
+    def __init__(self, args, eval=True, share_memory=False, use_conv_feat=True,
+            device=torch.device('cuda')):
         self.model = models.resnet18(pretrained=True)
+        self.device=device
 
         if args.gpu:
             try:
-                self.model = self.model.to(torch.device('cuda'))
+                self.model = self.model.to(self.device)
             except:
-                self.model = self.model.to(torch.device('cuda'))
+                self.model = self.model.to(self.device)
 
         if eval:
             self.model = self.model.eval()
@@ -35,16 +37,18 @@ class MaskRCNN(object):
     pretrained MaskRCNN from torchvision
     '''
 
-    def __init__(self, args, eval=True, share_memory=False, min_size=224):
+    def __init__(self, args, eval=True, share_memory=False, min_size=224,
+            device=torch.device('cuda')):
         self.model = models.detection.maskrcnn_resnet50_fpn(pretrained=True, min_size=min_size)
         self.model = self.model.backbone.body
         self.feat_layer = 3
+        self.device = device
 
         if args.gpu:
             try:
-                self.model = self.model.to(torch.device('cuda'))
+                self.model = self.model.to(self.device)
             except:
-                self.model = self.model.to(torch.device('cuda'))
+                self.model = self.model.to(self.device)
 
         if eval:
             self.model = self.model.eval()
@@ -63,12 +67,23 @@ class Resnet(object):
     def __init__(self, args, eval=True, share_memory=False, use_conv_feat=True):
         self.model_type = args.visual_model
         self.gpu = args.gpu
+        if self.gpu:
+            if hasattr(args, 'gpu_index'):
+                self.device = torch.device('cuda:' + str(args.gpu_index))
+            else:
+                self.device = torch.device('cuda')
+        else:
+            self.device = torch.device('cpu')
 
         # choose model type
         if self.model_type == "maskrcnn":
-            self.resnet_model = MaskRCNN(args, eval, share_memory)
+            self.resnet_model = MaskRCNN(args, eval, share_memory,
+                    device=self.device)
+            self.output_size = 2048 * 7 * 7 # Specific to MaskRCNN
         else:
-            self.resnet_model = Resnet18(args, eval, share_memory, use_conv_feat=use_conv_feat)
+            self.resnet_model = Resnet18(args, eval, share_memory,
+                    use_conv_feat=use_conv_feat, device=self.device)
+            self.output_size = 512 * 7 * 7 # Specific to Resnet18
 
         # normalization transform
         self.transform = self.get_default_transform()
@@ -88,7 +103,7 @@ class Resnet(object):
     def featurize(self, images, batch=32):
         images_normalized = torch.stack([self.transform(i) for i in images], dim=0)
         if self.gpu:
-            images_normalized = images_normalized.to(torch.device('cuda'))
+            images_normalized = images_normalized.to(self.device)
 
         out = []
         with torch.set_grad_enabled(False):
