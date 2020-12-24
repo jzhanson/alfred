@@ -37,6 +37,7 @@ parser.add_argument('-fs', '--frame-stack', type=int, default=3, help='number of
 parser.add_argument('-zffs', '--zero-fill-frame-stack', dest='zero_fill_frame_stack', action='store_true', help='fill frames with zeros when frame stacking on early steps')
 parser.add_argument('-fffs', '--first-fill-frame-stack', dest='zero_fill_frame_stack', action='store_false', help='replicate first frame when frame stacking on early steps')
 parser.set_defaults(zero_fill_frame_stack=False)
+parser.add_argument('-fl', '--fc-layers', type=int, default=1, help='number of fc layers')
 parser.add_argument('-ei', '--eval-interval', type=int, default=100, help='number of training trajectories (or epochs, if using dataset) between evaluation trajectories')
 parser.add_argument('-te', '--train-episodes', type=int, default=10, help='number of episodes to evaluate live on train seen scenes and trajectories')
 parser.add_argument('-vse', '--valid-seen-episodes', type=int, default=10, help='number of episodes to evaluate live on validation seen scenes and trajectories')
@@ -792,7 +793,8 @@ if __name__ == '__main__':
     object_embeddings = ObjectEmbedding(len(obj_type_to_index),
             args.object_embedding_dim)
     policy_model = FCPolicy(visual_model.output_size +
-            args.object_embedding_dim, NUM_ACTIONS)
+            args.object_embedding_dim, NUM_ACTIONS,
+            num_fc_layers=args.fc_layers)
 
     model = LateFusion(visual_model, object_embeddings,
             policy_model).to(device)
