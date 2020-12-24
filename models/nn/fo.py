@@ -52,21 +52,33 @@ class NatureCNN(nn.Module):
         return x2
 
 class FCPolicy(nn.Module):
-    def __init__(self, input_size, num_actions):
+    def __init__(self, input_size, num_actions, num_fc_layers=1):
         super(FCPolicy, self).__init__()
         self.input_size = input_size
         self.num_actions = num_actions
-        self.fc1 = nn.Sequential(nn.Linear(in_features=self.input_size,
-            out_features=512, bias=True), nn.ReLU())
-        self.action_logits = nn.Sequential(nn.Linear(in_features=512,
-            out_features=self.num_actions, bias=True))
+        self.num_fc_layers = num_fc_layers
+        self.fc_units = [512, 256, 128, 64]
+        self.fc_layers = nn.ModuleList()
+        for i in range(num_fc_layers):
+            if i == 0:
+                in_features = self.input_size
+            else:
+                in_features = self.fc_units[i-1]
+            self.fc_layers.append(nn.Sequential(
+                nn.Linear(in_features=in_features,
+                    out_features=self.fc_units[i], bias=True), nn.ReLU()))
+        self.action_logits = nn.Sequential(
+                nn.Linear(in_features=self.fc_units[i],
+                    out_features=self.num_actions, bias=True))
 
     def forward(self, visual_output, object_embedding):
         # "Late Fusion"
-        # Reshape conv output to (N, -1) and concatenate object one hots
-        x1 = self.fc1(torch.cat([visual_output.view(visual_output.size(0), -1),
-            object_embedding], -1))
-        action_probs = self.action_logits(x1)
+        # Reshape conv output to (N, -1) and concatenate object embedding
+        x  = torch.cat([visual_output.view(visual_output.size(0), -1),
+            object_embedding], -1)
+        for fc_layer in self.fc_layers:
+            x = fc_layer(x)
+        action_probs = self.action_logits(x)
 
         return action_probs
 
