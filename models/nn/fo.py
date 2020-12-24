@@ -1,6 +1,11 @@
+from PIL import Image
+import numpy as np
+
 import torch
 from torch import nn, optim
 from torch.nn import functional as F
+
+from models.nn.resnet import Resnet
 
 # From https://pytorch.org/tutorials/intermediate/reinforcement_q_learning.html
 # Number of Linear input connections depends on output of conv2d layers
@@ -16,7 +21,16 @@ class LateFusion(nn.Module):
         self.policy_model = policy_model
 
     def forward(self, frames, object_index):
-        visual_output = self.visual_model(frames)
+        if isinstance(self.visual_model, Resnet):
+            # Need to turn tensors into PIL images
+            # Frames must not be stacked, and frames should be in RGB order.
+            # Cast to uint8 first to reduce amount of memory copied, and
+            # transpose to put RGB channels in the last dimension
+            frames = [Image.fromarray(frame.to(dtype=torch.uint8).cpu().numpy()
+                .transpose(1, 2, 0)) for frame in frames]
+            visual_output = self.visual_model.featurize(frames)
+        else:
+            visual_output = self.visual_model(frames)
         embedded_object = self.object_embeddings(object_index)
         return self.policy_model(visual_output, embedded_object)
 
