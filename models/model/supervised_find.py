@@ -17,6 +17,7 @@ import cv2
 from env.thor_env import ThorEnv
 from env.find_one import FindOne, index_all_items, ACTIONS, NUM_ACTIONS, \
         ACTION_TO_INDEX, ACTIONS_DONE
+from models.nn.resnet import Resnet
 from models.nn.fo import LateFusion, NatureCNN, FCPolicy, ObjectEmbedding
 import gen.constants as constants
 from gen.graph.graph_obj import Graph
@@ -37,7 +38,11 @@ parser.add_argument('-fs', '--frame-stack', type=int, default=3, help='number of
 parser.add_argument('-zffs', '--zero-fill-frame-stack', dest='zero_fill_frame_stack', action='store_true', help='fill frames with zeros when frame stacking on early steps')
 parser.add_argument('-fffs', '--first-fill-frame-stack', dest='zero_fill_frame_stack', action='store_false', help='replicate first frame when frame stacking on early steps')
 parser.set_defaults(zero_fill_frame_stack=False)
+parser.add_argument('-vm', '--visual-model', type=str, default='naturecnn', help='which visual model to use (\'naturecnn\', \'resnet\', or \'maskrcnn\')')
 parser.add_argument('-fl', '--fc-layers', type=int, default=1, help='number of fc layers')
+parser.add_argument('-rcf', '--resnet-conv-feat', dest='resnet_conv_feat', action='store_true', help='use conv feat (skip last two resnet-18 layers)')
+parser.add_argument('-rll', '--resnet-last-layers', dest='resnet_conv_feat', action='store_false', help='use last two resnet-18 layers')
+parser.set_defaults(resnet_conv_feat=True)
 parser.add_argument('-ei', '--eval-interval', type=int, default=100, help='number of training trajectories (or epochs, if using dataset) between evaluation trajectories')
 parser.add_argument('-te', '--train-episodes', type=int, default=10, help='number of episodes to evaluate live on train seen scenes and trajectories')
 parser.add_argument('-vse', '--valid-seen-episodes', type=int, default=10, help='number of episodes to evaluate live on validation seen scenes and trajectories')
@@ -789,7 +794,18 @@ if __name__ == '__main__':
         datasets, dataloaders = get_datasets_dataloaders(
                 batch_size=args.batch_size,
                 transitions=args.dataset_transitions)
-    visual_model = NatureCNN(frame_stack=args.frame_stack)
+    if args.visual_model.lower() == 'nature' or args.visual_model.lower() == \
+            'naturecnn':
+        visual_model = NatureCNN(frame_stack=args.frame_stack)
+    elif args.visual_model.lower() == 'resnet' or args.visual_model.lower() \
+            == 'resnet18' or args.visual_model.lower() == 'maskrcnn':
+        # Resnet class is object, not nn.Module
+        args.gpu = True
+        visual_model = Resnet(args, share_memory=True,
+                use_conv_feat=args.resnet_conv_feat)
+        if args.frame_stack > 1:
+            # TODO: modify Resnet class to featurize, then framestack
+            pass
     object_embeddings = ObjectEmbedding(len(obj_type_to_index),
             args.object_embedding_dim)
     policy_model = FCPolicy(visual_model.output_size +
