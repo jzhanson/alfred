@@ -22,13 +22,21 @@ class LateFusion(nn.Module):
 
     def forward(self, frames, object_index):
         if isinstance(self.visual_model, Resnet):
-            # Need to turn tensors into PIL images
-            # Frames must not be stacked, and frames should be in RGB order.
-            # Cast to uint8 first to reduce amount of memory copied, and
-            # transpose to put RGB channels in the last dimension
-            frames = [Image.fromarray(frame.to(dtype=torch.uint8).cpu().numpy()
-                .transpose(1, 2, 0)) for frame in frames]
-            visual_output = self.visual_model.featurize(frames)
+            unstacked_visual_outputs = []
+            for unstacked_frames in torch.split(frames,
+                    split_size_or_sections=3, dim=1):
+                # Need to turn tensors into PIL images
+                # Cast to uint8 first to reduce amount of memory copied, and
+                # transpose to put RGB channels in the last dimension
+                # Channels should be in RGB order
+                unstacked_frames = [Image.fromarray(frame.to(dtype=torch.uint8)
+                    .cpu().numpy().transpose(1, 2, 0)) for frame in
+                    unstacked_frames]
+                unstacked_visual_outputs.append(self.visual_model.featurize(
+                    unstacked_frames))
+            # unstacked_visual_outputs is now length frame_stack, each element
+            # is shape (batch_size, 3, 300, 300)
+            visual_output = torch.cat(unstacked_visual_outputs, dim=1)
         else:
             visual_output = self.visual_model(frames)
         embedded_object = self.object_embeddings(object_index)
@@ -88,6 +96,7 @@ class FCPolicy(nn.Module):
     def forward(self, visual_output, object_embedding):
         # "Late Fusion"
         # Reshape conv output to (N, -1) and concatenate object embedding
+        # This reshaping will also work for non-conv features
         x  = torch.cat([visual_output.view(visual_output.size(0), -1),
             object_embedding], -1)
         for fc_layer in self.fc_layers:
