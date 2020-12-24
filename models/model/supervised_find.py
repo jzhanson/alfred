@@ -17,7 +17,7 @@ import cv2
 from env.thor_env import ThorEnv
 from env.find_one import FindOne, index_all_items, ACTIONS, NUM_ACTIONS, \
         ACTION_TO_INDEX, ACTIONS_DONE
-from models.nn.fo import NatureCNN
+from models.nn.fo import LateFusion, NatureCNN, FCPolicy, ObjectEmbedding
 import gen.constants as constants
 from gen.graph.graph_obj import Graph
 from data.fo_dataset import get_datasets_dataloaders
@@ -788,9 +788,14 @@ if __name__ == '__main__':
         datasets, dataloaders = get_datasets_dataloaders(
                 batch_size=args.batch_size,
                 transitions=args.dataset_transitions)
-    model = NatureCNN(len(obj_type_to_index), NUM_ACTIONS,
-            frame_stack=args.frame_stack,
-            object_embedding_dim=args.object_embedding_dim).to(device)
+    visual_model = NatureCNN(frame_stack=args.frame_stack)
+    object_embeddings = ObjectEmbedding(len(obj_type_to_index),
+            args.object_embedding_dim)
+    policy_model = FCPolicy(visual_model.output_size +
+            args.object_embedding_dim, NUM_ACTIONS)
+
+    model = LateFusion(visual_model, object_embeddings,
+            policy_model).to(device)
     optimizer = optim.SGD(model.parameters(), lr=args.lr)
 
     if args.dataset_path is not None:
