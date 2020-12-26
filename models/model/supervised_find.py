@@ -18,7 +18,8 @@ from env.thor_env import ThorEnv
 from env.find_one import FindOne, index_all_items, ACTIONS, NUM_ACTIONS, \
         ACTION_TO_INDEX, ACTIONS_DONE
 from models.nn.resnet import Resnet
-from models.nn.fo import LateFusion, NatureCNN, FCPolicy, ObjectEmbedding
+from models.nn.fo import LateFusion, NatureCNN, FCPolicy, LSTMPolicy, \
+        ObjectEmbedding
 import gen.constants as constants
 from gen.graph.graph_obj import Graph
 from data.fo_dataset import get_datasets_dataloaders
@@ -39,7 +40,13 @@ parser.add_argument('-zffs', '--zero-fill-frame-stack', dest='zero_fill_frame_st
 parser.add_argument('-fffs', '--first-fill-frame-stack', dest='zero_fill_frame_stack', action='store_false', help='replicate first frame when frame stacking on early steps')
 parser.set_defaults(zero_fill_frame_stack=False)
 parser.add_argument('-vm', '--visual-model', type=str, default='naturecnn', help='which visual model to use (\'naturecnn\', \'resnet\', or \'maskrcnn\')')
+parser.add_argument('-pm', '--policy-model', type=str, default='fc', help='which policy model to use (\'fc\' or \'lstm\')')
 parser.add_argument('-fl', '--fc-layers', type=int, default=1, help='number of fc layers')
+parser.add_argument('-lhs', '--lstm-hidden-dim', type=int, default=64, help='hidden dimension of lstm layers (only used if not using object embedding as initial hidden state)')
+parser.add_argument('-ll', '--lstm-layers', type=int, default=1, help='number of lstm layers')
+parser.add_argument('-ilo', '--init-lstm-object', dest='init_lstm_object', action='store_true', help='use object embedding to initialize lstm hidden state')
+parser.add_argument('-ilz', '--init-lstm-zero', dest='init_lstm_object', action='store_false', help='initialize lstm hidden state to zeros')
+parser.set_defaults(init_lstm_object=False)
 parser.add_argument('-rcf', '--resnet-conv-feat', dest='resnet_conv_feat', action='store_true', help='use conv feat (skip last two resnet-18 layers)')
 parser.add_argument('-rll', '--resnet-last-layers', dest='resnet_conv_feat', action='store_false', help='use last two resnet-18 layers')
 parser.set_defaults(resnet_conv_feat=True)
@@ -55,6 +62,7 @@ parser.add_argument('-dt', '--dataset-transitions', dest='dataset_transitions', 
 parser.add_argument('-ndt', '--dataset-trajectories', dest='dataset_transitions', action='store_false')
 parser.set_defaults(dataset_transitions=False)
 parser.add_argument('-bs', '--batch-size', type=int, default=1, help='batch size of training trajectories or transitions if dataset-transitions is set')
+parser.add_argument('-do', '--dropout', type=float, default=0.0, help='dropout prob')
 parser.add_argument('-sp', '--save-path', type=str, default=None, help='path (directory) to save models and tensorboard stats')
 parser.add_argument('-si', '--save-intermediate', dest='save_intermediate', action='store_true', help='save intermediate checkpoints (once per eval interval)')
 parser.add_argument('-nsi', '--no-save-intermediate', dest='save_intermediate', action='store_false', help='don\'t save intermediate checkpoints (once per eval interval)')
@@ -64,7 +72,6 @@ parser.add_argument('-nsv', '--no-save-images-video', dest='save_images_video', 
 parser.set_defaults(save_images_video=False)
 parser.add_argument('-lp', '--load-path', type=str, default=None, help='path (.pth) to load model checkpoint from')
 parser.add_argument('-gi', '--gpu-index', type=int, default=3, help='GPU to run model on')
-
 '''
 parser.add_argument('-do', '--dropout', type=float, default=0.02, help='dropout prob')
 parser.add_argument('-n', '--n-epochs', type=float, default=10, help='training epochs')
@@ -809,11 +816,24 @@ if __name__ == '__main__':
         visual_output_size = visual_model.output_size * args.frame_stack
     object_embeddings = ObjectEmbedding(len(obj_type_to_index),
             args.object_embedding_dim)
-    policy_model = FCPolicy(visual_output_size + args.object_embedding_dim,
-            NUM_ACTIONS, num_fc_layers=args.fc_layers)
+    if args.policy_model.lower() == 'fc':
+        policy_model = FCPolicy(visual_output_size + args.object_embedding_dim,
+                NUM_ACTIONS, num_fc_layers=args.fc_layers)
+    elif args.policy_model.lower() == 'lstm':
+        policy_model = LSTMPolicy(visual_output_size +
+                args.object_embedding_dim, NUM_ACTIONS,
+                lstm_hidden_dim=args.object_embedding_dim if
+                args.init_lstm_object else args.lstm_hidden_dim,
+                num_lstm_layers=args.lstm_layers, dropout=args.dropout,
+                num_fc_layers=args.fc_layers,
+                init_lstm_object=args.init_lstm_object)
 
-    model = LateFusion(visual_model, object_embeddings,
-            policy_model).to(device)
+    try:
+        model = LateFusion(visual_model, object_embeddings,
+                policy_model).to(device)
+    except:
+        model = LateFusion(visual_model, object_embeddings,
+                policy_model).to(device)
     optimizer = optim.SGD(model.parameters(), lr=args.lr)
 
     if args.dataset_path is not None:
