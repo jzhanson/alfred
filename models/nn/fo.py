@@ -105,6 +105,60 @@ class FCPolicy(nn.Module):
 
         return action_probs
 
+class LSTMPolicy(nn.Module):
+    def __init__(self, input_size, num_actions, lstm_hidden_dim=64,
+            num_lstm_layers=1, dropout=0, num_fc_layers=0,
+            init_lstm_object=False):
+        super(LSTMPolicy, self).__init__()
+        self.input_size = input_size
+        self.num_actions = num_actions
+        self.lstm_hidden_dim = lstm_hidden_dim
+        self.num_lstm_layers = num_lstm_layers
+        self.dropout = dropout
+        self.num_fc_layers = num_fc_layers
+        self.init_lstm_object = init_lstm_object
+
+        self.lstm = nn.LSTM(input_size=self.input_size,
+                hidden_size=self.lstm_hidden_dim,
+                num_layers=self.num_lstm_layers, batch_first=True,
+                dropout=self.dropout)
+        self.fc_units = [512, 256, 128, 64]
+        self.fc_layers = nn.ModuleList()
+        for i in range(num_fc_layers):
+            if i == 0:
+                in_features = self.lstm_hidden_dim
+            else:
+                in_features = self.fc_units[i-1]
+            self.fc_layers.append(nn.Sequential(
+                nn.Linear(in_features=in_features,
+                    out_features=self.fc_units[i], bias=True), nn.ReLU()))
+        self.action_logits = nn.Sequential(
+                nn.Linear(in_features=self.fc_units[i] if num_fc_layers > 0
+                    else self.lstm_hidden_dim, out_features=self.num_actions,
+                    bias=True))
+
+    def forward(self, visual_output, object_embedding):
+        # Reshape conv output to (N, -1) and concatenate object embedding for
+        # each input step
+        # This reshaping will also work for non-conv features
+        x = torch.cat([visual_output.view(visual_output.size(0), -1),
+            object_embedding], -1)
+        # TODO make LSTM policy and supervised_find adapt to multiple
+        # trajectories (variable length sequence), currently only allows for
+        # one trajectory at a time
+        # Add batch dimension, for now
+        x = torch.unsqueeze(x, dim=0)
+        if self.init_lstm_object:
+            pass
+        x, _ = self.lstm(x)
+        # Remove batch dimension, for now
+        x = torch.squeeze(x, dim=0)
+        for fc_layer in self.fc_layers:
+            x = fc_layer(x)
+        action_probs = self.action_logits(x)
+
+        return action_probs
+
 class ObjectEmbedding(nn.Module):
     def __init__(self, num_objects, object_embedding_dim):
         super(ObjectEmbedding, self).__init__()
