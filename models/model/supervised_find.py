@@ -123,6 +123,7 @@ def rollout_trajectory(fo, model, frame_stack=1, zero_fill_frame_stack=False,
         frame, target_object_type_index = fo.reset(scene_name_or_num)
         frames.append(frame)
     done = False
+    model.reset_hidden(batch_size=1, device=device)
     while not done:
         # Most recent frames are last/later channels
         if len(frames) < frame_stack:
@@ -150,8 +151,9 @@ def rollout_trajectory(fo, model, frame_stack=1, zero_fill_frame_stack=False,
                 for f in frames[(len(frames) - frame_stack):]])
         stacked_frames = torch.unsqueeze(stacked_frames, dim=0)
 
-        action_scores = model(stacked_frames,
-                torch.tensor([target_object_type_index], device=device))
+        action_scores = model.predict(stacked_frames,
+                torch.tensor([target_object_type_index], device=device),
+                use_hidden=True)
         # Sorted in increasing order (rightmost is highest scoring action)
         sorted_scores, top_indices = torch.sort(action_scores, descending=True)
         top_indices = top_indices.flatten()
@@ -702,7 +704,7 @@ def eval_online(fo, model, frame_stack=1, zero_fill_frame_stack=False,
         metrics[split]['trajectory_length'] = []
         metrics[split]['frames'] = []
         metrics[split]['scene_name_or_num'] = []
-        if dataloaders is not None:
+        if datasets is not None:
             metrics[split]['trajectory_index'] = []
         for i in range(episodes):
             with torch.no_grad():
