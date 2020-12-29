@@ -14,13 +14,22 @@ def conv2d_size_out(size, kernel_size=8, stride=4):
     return (size - (kernel_size - 1) - 1) // stride  + 1
 
 class LateFusion(nn.Module):
+    """
+    Model class that combines a visual model, target object embeddings, and a
+    policy model.
+
+    Use predict to get a single action and preserve hidden states (if
+    applicable) and use forward for general training when hidden state is not
+    required.
+    """
     def __init__(self, visual_model, object_embeddings, policy_model):
         super(LateFusion, self).__init__()
         self.visual_model = visual_model
         self.object_embeddings = object_embeddings
         self.policy_model = policy_model
+        self.reset_hidden()
 
-    def forward(self, frames, object_index):
+    def predict(self, frames, object_index, use_hidden=True):
         if isinstance(self.visual_model, Resnet):
             unstacked_visual_outputs = []
             for unstacked_frames in torch.split(frames,
@@ -40,7 +49,22 @@ class LateFusion(nn.Module):
         else:
             visual_output = self.visual_model(frames)
         embedded_object = self.object_embeddings(object_index)
-        return self.policy_model(visual_output, embedded_object)
+        if use_hidden and isinstance(self.policy_model, LSTMPolicy):
+            output, self.hidden_state = self.policy_model(visual_output,
+                    embedded_object, hidden_state=self.hidden_state)
+        elif isinstance(self.policy_model, LSTMPolicy):
+            output, self.hidden_state = self.policy_model(visual_output,
+                    embedded_object)
+        else:
+            output = self.policy_model(visual_output, embedded_object)
+        return output
+
+    def forward(self, frames, object_index):
+        return self.predict(frames, object_index, use_hidden=False)
+
+    def reset_hidden(self, batch_size=1, device=torch.device('cuda')):
+        self.hidden_state = self.policy_model.init_hidden(
+                batch_size=batch_size, device=device)
 
 class NatureCNN(nn.Module):
     def __init__(self, frame_stack=1, frame_width=300, frame_height=300):
@@ -137,7 +161,7 @@ class LSTMPolicy(nn.Module):
                     else self.lstm_hidden_dim, out_features=self.num_actions,
                     bias=True))
 
-    def forward(self, visual_output, object_embedding):
+    def forward(self, visual_output, object_embedding, hidden_state=None):
         # Reshape conv output to (N, -1) and concatenate object embedding for
         # each input step
         # This reshaping will also work for non-conv features
@@ -150,14 +174,23 @@ class LSTMPolicy(nn.Module):
         x = torch.unsqueeze(x, dim=0)
         if self.init_lstm_object:
             pass
-        x, _ = self.lstm(x)
+        if hidden_state is None:
+            x, hidden_state = self.lstm(x)
+        else:
+            x, hidden_state = self.lstm(x, hidden_state)
         # Remove batch dimension, for now
         x = torch.squeeze(x, dim=0)
         for fc_layer in self.fc_layers:
             x = fc_layer(x)
         action_probs = self.action_logits(x)
 
-        return action_probs
+        return action_probs, hidden_state
+
+    def init_hidden(self, batch_size=1, device=torch.device('cuda')):
+        return torch.zeros(self.num_lstm_layers, batch_size,
+                self.lstm_hidden_dim, device=device), \
+                        torch.zeros(self.num_lstm_layers, batch_size,
+                                self.lstm_hidden_dim, device=device)
 
 class ObjectEmbedding(nn.Module):
     def __init__(self, num_objects, object_embedding_dim):
