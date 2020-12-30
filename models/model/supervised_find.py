@@ -50,7 +50,7 @@ parser.set_defaults(init_lstm_object=False)
 parser.add_argument('-rcf', '--resnet-conv-feat', dest='resnet_conv_feat', action='store_true', help='use conv feat (skip last two resnet-18 layers)')
 parser.add_argument('-rll', '--resnet-last-layers', dest='resnet_conv_feat', action='store_false', help='use last two resnet-18 layers')
 parser.set_defaults(resnet_conv_feat=True)
-parser.add_argument('-ei', '--eval-interval', type=int, default=100, help='number of training trajectories (or epochs, if using dataset) between evaluation trajectories')
+parser.add_argument('-ei', '--eval-interval', type=int, default=100, help='number of training steps between evaluations')
 parser.add_argument('-te', '--train-episodes', type=int, default=10, help='number of episodes to evaluate live on train seen scenes and trajectories')
 parser.add_argument('-vse', '--valid-seen-episodes', type=int, default=10, help='number of episodes to evaluate live on validation seen scenes and trajectories')
 parser.add_argument('-vue', '--valid-unseen-episodes', type=int, default=10, help='number of episodes to evaluate live on validation unseen scenes and trajectories')
@@ -62,6 +62,7 @@ parser.add_argument('-dt', '--dataset-transitions', dest='dataset_transitions', 
 parser.add_argument('-ndt', '--dataset-trajectories', dest='dataset_transitions', action='store_false')
 parser.set_defaults(dataset_transitions=False)
 parser.add_argument('-bs', '--batch-size', type=int, default=1, help='batch size of training trajectories or transitions if dataset-transitions is set')
+parser.add_argument('-ms', '--max-steps', type=float, default=100000, help='max training gradient steps')
 parser.add_argument('-do', '--dropout', type=float, default=0.0, help='dropout prob')
 parser.add_argument('-sp', '--save-path', type=str, default=None, help='path (directory) to save models and tensorboard stats')
 parser.add_argument('-si', '--save-intermediate', dest='save_intermediate', action='store_true', help='save intermediate checkpoints (once per eval interval)')
@@ -74,7 +75,6 @@ parser.add_argument('-lp', '--load-path', type=str, default=None, help='path (.p
 parser.add_argument('-gi', '--gpu-index', type=int, default=3, help='GPU to run model on')
 '''
 parser.add_argument('-do', '--dropout', type=float, default=0.02, help='dropout prob')
-parser.add_argument('-n', '--n-epochs', type=float, default=10, help='training epochs')
 parser.add_argument('-sn', '--save-name', type=str, default='model', help='model save name')
 parser.add_argument('-id', '--model-id', type=str, default='model', help='model id')
 '''
@@ -260,7 +260,7 @@ def actions_accuracy_f1(predicted_action_indexes, expert_action_indexes):
             expert_action_indexes).item()
     return accuracy, f1
 
-def write_images_video(results_online, train_epochs, save_path):
+def write_images_video(results_online, train_steps, save_path):
     for split in results_online.keys():
         for trajectory_index in range(len(results_online[split]['frames'])):
             trajectory_images = results_online[split] \
@@ -280,7 +280,7 @@ def write_images_video(results_online, train_epochs, save_path):
             trajectory_length = str(results_online[split]['trajectory_length']
                     [trajectory_index])
             images_save_path =  os.path.join(save_path, 'images_video',
-                    str(train_epochs), split, str(trajectory_index) + '_' +
+                    str(train_steps), split, str(trajectory_index) + '_' +
                     target + '_' + 'scene' + scene_name_or_num + '_' +
                     success_or_failure + '_' + 'crowdist' + crow_distance + '_'
                     + 'actiondist' + action_distance + '_' + target_visible +
@@ -301,8 +301,8 @@ def train_dataset(fo, model, optimizer, datasets, dataloaders,
         obj_type_to_index, dataset_transitions=False, batch_size=1,
         frame_stack=1, zero_fill_frame_stack=False, train_episodes=10,
         valid_seen_episodes=10, valid_unseen_episodes=10, eval_interval=100,
-        save_path=None, save_intermediate=False, save_images_video=False,
-        load_path=None):
+        max_steps=100000, save_path=None, save_intermediate=False,
+        save_images_video=False, load_path=None):
     """
     Train a model by sampling from a torch dataloader.
 
@@ -331,7 +331,7 @@ def train_dataset(fo, model, optimizer, datasets, dataloaders,
     last_metrics['f1'] = []
     last_metrics['entropy'] = []
 
-    while True:
+    while train_steps < max_steps:
         for batch_samples in dataloaders['train']:
             if dataset_transitions:
                 # TODO: test the transitions branch of the code
@@ -389,9 +389,8 @@ def train_dataset(fo, model, optimizer, datasets, dataloaders,
             write_results(writer, results, train_steps, train_frames,
                     train_trajectories=train_trajectories, method='dataset')
 
-        # XXX: change back
-            if True:
-        #if train_epochs % eval_interval == 0:
+            # Also run an evaluation if this is the last gradient step
+            if train_steps % eval_interval == 0 or train_steps == max_steps:
                 print('epoch %d steps %d frames %d trajectories %d' %
                         (train_epochs, train_steps, train_frames,
                             train_trajectories))
@@ -444,7 +443,7 @@ def train_dataset(fo, model, optimizer, datasets, dataloaders,
                 if save_path is not None:
                     if save_intermediate:
                         checkpoint_save_path = os.path.join(save_path, 'model_' +
-                                str(train_epochs) + '.pth')
+                                str(train_steps) + '.pth')
                     else:
                         checkpoint_save_path = os.path.join(save_path, 'model.pth')
                     print('saving to ' + checkpoint_save_path)
@@ -458,7 +457,7 @@ def train_dataset(fo, model, optimizer, datasets, dataloaders,
                     }, checkpoint_save_path)
 
                     if save_images_video:
-                        write_images_video(results_online, train_epochs, save_path)
+                        write_images_video(results_online, train_steps, save_path)
 
         train_epochs += 1
 
@@ -519,8 +518,9 @@ def eval_dataset(model, dataloaders, obj_type_to_index,
 
 def train_online(fo, model, optimizer, frame_stack=1, zero_fill_frame_stack=False,
         teacher_force=False, train_episodes=10, valid_seen_episodes=10,
-        valid_unseen_episodes=10, eval_interval=1000, save_path=None,
-        save_intermediate=False, save_images_video=False, load_path=None):
+        valid_unseen_episodes=10, eval_interval=1000, max_steps=100000,
+        save_path=None, save_intermediate=False, save_images_video=False,
+        load_path=None):
     """
     Train a model by collecting a trajectory online, then training with correct
     action supervision. Loads model from checkpoint if load_path is not None.
@@ -551,7 +551,7 @@ def train_online(fo, model, optimizer, frame_stack=1, zero_fill_frame_stack=Fals
     last_metrics['entropy'] = []
 
     # TODO: want a replay memory?
-    while True:
+    while train_steps < max_steps:
         # Collect a trajectory
         trajectory_results = rollout_trajectory(fo, model,
                 frame_stack=frame_stack,
@@ -610,7 +610,7 @@ def train_online(fo, model, optimizer, frame_stack=1, zero_fill_frame_stack=Fals
 
         # Evaluate and save checkpoint every N trajectories, collect/print
         # stats
-        if train_steps % eval_interval == 0:
+        if train_steps % eval_interval == 0 or train_steps == max_steps:
             print('steps %d frames %d' % (train_steps, train_frames))
             results = {}
             results['train'] = {}
@@ -847,7 +847,8 @@ if __name__ == '__main__':
                 train_episodes=args.train_episodes,
                 valid_seen_episodes=args.valid_seen_episodes,
                 valid_unseen_episodes=args.valid_unseen_episodes,
-                eval_interval=args.eval_interval, save_path=args.save_path,
+                eval_interval=args.eval_interval, max_steps=args.max_steps,
+                save_path=args.save_path,
                 save_intermediate=args.save_intermediate,
                 save_images_video=args.save_images_video,
                 load_path=args.load_path)
@@ -858,7 +859,8 @@ if __name__ == '__main__':
                 train_episodes=args.train_episodes,
                 valid_seen_episodes=args.valid_seen_episodes,
                 valid_unseen_episodes=args.valid_unseen_episodes,
-                eval_interval=args.eval_interval, save_path=args.save_path,
+                eval_interval=args.eval_interval, max_steps=args.max_steps,
+                save_path=args.save_path,
                 save_intermediate=args.save_intermediate,
                 save_images_video=args.save_images_video,
                 load_path=args.load_path)
