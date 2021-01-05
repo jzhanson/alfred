@@ -63,8 +63,9 @@ class LateFusion(nn.Module):
         return self.predict(frames, object_index, use_hidden=False)
 
     def reset_hidden(self, batch_size=1, device=torch.device('cuda')):
-        self.hidden_state = self.policy_model.init_hidden(
-                batch_size=batch_size, device=device)
+        if isinstance(self.policy_model, LSTMPolicy):
+            self.hidden_state = self.policy_model.init_hidden(
+                    batch_size=batch_size, device=device)
 
 class NatureCNN(nn.Module):
     def __init__(self, frame_stack=1, frame_width=300, frame_height=300):
