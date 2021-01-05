@@ -123,6 +123,7 @@ def rollout_trajectory(fo, model, frame_stack=1, zero_fill_frame_stack=False,
         frame, target_object_type_index = fo.reset(scene_name_or_num)
         frames.append(frame)
     done = False
+    initial_crow_distance = fo.crow_distance_to_goal()
     model.reset_hidden(batch_size=1, device=device)
     while not done:
         # Most recent frames are last/later channels
@@ -182,6 +183,7 @@ def rollout_trajectory(fo, model, frame_stack=1, zero_fill_frame_stack=False,
     trajectory_results = {}
     trajectory_results['scene_name_or_num'] = fo.get_scene_name_or_num()
     trajectory_results['target'] = fo.get_target_object_type()
+    trajectory_results['initial_crow_distance'] = initial_crow_distance
     trajectory_results['frames'] = frames
     trajectory_results['all_action_scores'] = all_action_scores
     trajectory_results['pred_action_indexes'] = pred_action_indexes
@@ -661,7 +663,8 @@ def write_results(writer, results, train_steps, train_frames,
     for split in results.keys():
         for metric, values in results[split].items():
             if metric in ['frames', 'target', 'scene_name_or_num',
-                    'trajectory_index']:
+                    'trajectory_index', 'initial_action_distance',
+                    'initial_crow_distance']:
                 continue
             mean = np.mean(values)
             writer.add_scalar('steps/' + split + '/' + method + '/' + metric,
@@ -692,6 +695,8 @@ def eval_online(fo, model, frame_stack=1, zero_fill_frame_stack=False,
                 VALID_UNSEEN_SCENE_NUMBERS]):
         metrics[split] = {}
         metrics[split]['target'] = []
+        metrics[split]['initial_action_distance'] = []
+        metrics[split]['initial_crow_distance'] = []
         metrics[split]['accuracy'] = []
         metrics[split]['f1'] = []
         metrics[split]['success'] = []
@@ -725,7 +730,13 @@ def eval_online(fo, model, frame_stack=1, zero_fill_frame_stack=False,
                             frame_stack=frame_stack,
                             zero_fill_frame_stack=zero_fill_frame_stack,
                             scene_name_or_num=random.choice(scene_numbers))
+            # TODO: move the actual computation of all these metrics into
+            # trajectory_results
             metrics[split]['target'].append(trajectory_results['target'])
+            metrics[split]['initial_action_distance'].append(
+                    len(fo.original_expert_actions))
+            metrics[split]['initial_crow_distance'].append(
+                    trajectory_results['initial_crow_distance'])
             accuracy, f1 = actions_accuracy_f1(
                     torch.Tensor(trajectory_results['pred_action_indexes']),
                     torch.Tensor(trajectory_results['expert_action_indexes']))
