@@ -389,7 +389,8 @@ def train_dataset(fo, model, optimizer, datasets, dataloaders,
             for metric in last_metrics.keys():
                 results['train'][metric] = last_metrics[metric][-1]
             write_results(writer, results, train_steps, train_frames,
-                    train_trajectories=train_trajectories, method='dataset')
+                    train_trajectories=train_trajectories, method='dataset',
+                    save_path=None) # Don't write training results to file
 
             # Also run an evaluation if this is the last gradient step
             if train_steps % eval_interval == 0 or train_steps == max_steps:
@@ -404,7 +405,8 @@ def train_dataset(fo, model, optimizer, datasets, dataloaders,
                     last_metrics[metric] = []
                 write_results(writer, results, train_steps, train_frames,
                         train_trajectories=train_trajectories,
-                        train_epochs=train_epochs, method='dataset')
+                        train_epochs=train_epochs, method='dataset',
+                        save_path=None)
 
                 # Evaluate on valid_seen and valid_unseen
                 results_dataset = eval_dataset(model, dataloaders,
@@ -414,7 +416,9 @@ def train_dataset(fo, model, optimizer, datasets, dataloaders,
                         zero_fill_frame_stack=zero_fill_frame_stack)
                 write_results(writer, results_dataset, train_steps, train_frames,
                         train_trajectories=train_trajectories,
-                        train_epochs=train_epochs, method='dataset')
+                        train_epochs=train_epochs, method='dataset',
+                        save_path=save_path)
+
                 for split in ['valid_seen', 'valid_unseen']:
                     print(split + ' accuracy %.6f f1 %.6f' %
                             (results_dataset[split]['accuracy'],
@@ -431,7 +435,7 @@ def train_dataset(fo, model, optimizer, datasets, dataloaders,
                         datasets=datasets)
                 write_results(writer, results_trajectory, train_steps,
                         train_frames, train_trajectories, train_epochs,
-                        method='trajectory')
+                        method='trajectory', save_path=save_path)
 
                 results_online = eval_online(fo, model,
                         frame_stack=frame_stack,
@@ -440,7 +444,8 @@ def train_dataset(fo, model, optimizer, datasets, dataloaders,
                         valid_seen_episodes=valid_seen_episodes,
                         valid_unseen_episodes=valid_unseen_episodes)
                 write_results(writer, results_online, train_steps, train_frames,
-                        train_trajectories, train_epochs, method='online')
+                        train_trajectories, train_epochs, method='online',
+                        save_path=save_path)
 
                 if save_path is not None:
                     if save_intermediate:
@@ -607,8 +612,9 @@ def train_online(fo, model, optimizer, frame_stack=1, zero_fill_frame_stack=Fals
         results['train'] = {}
         for metric in last_metrics.keys():
             results['train'][metric] = last_metrics[metric][-1]
+        # Don't write training results to file
         write_results(writer, results, train_steps, train_frames,
-                method='online')
+                method='online', save_path=None)
 
         # Evaluate and save checkpoint every N trajectories, collect/print
         # stats
@@ -620,7 +626,7 @@ def train_online(fo, model, optimizer, frame_stack=1, zero_fill_frame_stack=Fals
                 results['train']['avg/' + metric] = values
                 last_metrics[metric] = []
             write_results(writer, results, train_steps, train_frames,
-                    method='online')
+                    method='online', save_path=None)
 
             # Collect validation statistics and write, print
             results = eval_online(fo, model, frame_stack=frame_stack,
@@ -629,7 +635,8 @@ def train_online(fo, model, optimizer, frame_stack=1, zero_fill_frame_stack=Fals
                     valid_seen_episodes=valid_seen_episodes,
                     valid_unseen_episodes=valid_unseen_episodes)
 
-            write_results(writer, results, train_steps, train_frames)
+            write_results(writer, results, train_steps, train_frames,
+                    method='online', save_path=save_path)
 
             if save_path is not None:
                 if save_intermediate:
@@ -653,7 +660,8 @@ def train_online(fo, model, optimizer, frame_stack=1, zero_fill_frame_stack=Fals
                     write_images_video(results, train_steps, save_path)
 
 def write_results(writer, results, train_steps, train_frames,
-        train_trajectories=None, train_epochs=None, method='dataset'):
+        train_trajectories=None, train_epochs=None, method='dataset',
+        save_path=None):
     """
     Write results to SummaryWriter. Method is either "dataset" or "online"
     depending on whether the metrics were acquired in a traditional
@@ -677,6 +685,20 @@ def write_results(writer, results, train_steps, train_frames,
             if train_epochs is not None:
                 writer.add_scalar('epochs/' + split + '/' + method + '/' +
                         metric, mean, train_epochs)
+    # Also write output to saved file
+    if save_path is not None:
+        results_path = os.path.join(save_path, str(train_steps))
+        # Exclude frames from results
+        json_results = {}
+        for split in results.keys():
+            json_results[split] = {k:v for k, v in results[split].items() if k
+                    != 'frames'}
+        print([k for k in json_results['valid_seen'].keys()])
+        if not os.path.isdir(results_path):
+            os.makedirs(results_path)
+        with open(os.path.join(results_path, method + '.json'), 'w') as \
+                jsonfile:
+            json.dump(json_results, jsonfile)
 
 def eval_online(fo, model, frame_stack=1, zero_fill_frame_stack=False,
         train_episodes=1, valid_seen_episodes=1, valid_unseen_episodes=1,
