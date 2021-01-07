@@ -250,8 +250,6 @@ def flatten_trajectories(batch_samples, frame_stack=1,
     flat_batch_samples['target'] = flat_targets
     flat_batch_samples['low_actions'] = flat_actions
     flat_batch_samples['images'] = flat_images
-    # TODO: do the same for features
-    flat_batch_samples['features'] = []
     return flat_batch_samples
 
 def actions_accuracy_f1(predicted_action_indexes, expert_action_indexes):
@@ -347,7 +345,6 @@ def train_dataset(fo, model, optimizer, datasets, dataloaders,
                 flat_actions = batch_samples['low_actions']
                 # Stacking frames doesn't make sense
                 flat_images = batch_samples['images']
-                flat_features = batch_samples['features']
             else:
                 flat_batch_samples = flatten_trajectories(
                         batch_samples, frame_stack=frame_stack,
@@ -355,7 +352,6 @@ def train_dataset(fo, model, optimizer, datasets, dataloaders,
                 flat_targets = flat_batch_samples['target']
                 flat_actions = flat_batch_samples['low_actions']
                 flat_images = flat_batch_samples['images']
-                flat_features = flat_batch_samples['features']
 
             # Turn target names into indexes and action names into indexes
             flat_target_indexes = torch.tensor([obj_type_to_index[
@@ -494,7 +490,6 @@ def eval_dataset(model, dataloaders, obj_type_to_index,
                 flat_actions = batch_samples['low_actions']
                 # Stacking frames doesn't make sense
                 flat_images = batch_samples['images']
-                flat_features = batch_samples['features']
             else:
                 flat_batch_samples = flatten_trajectories(batch_samples,
                         frame_stack=frame_stack,
@@ -502,7 +497,6 @@ def eval_dataset(model, dataloaders, obj_type_to_index,
                 flat_targets = flat_batch_samples['target']
                 flat_actions = flat_batch_samples['low_actions']
                 flat_images = flat_batch_samples['images']
-                flat_features = flat_batch_samples['features']
 
             # Turn target names into indexes and action names into indexes
             flat_target_indexes = torch.tensor([obj_type_to_index[
