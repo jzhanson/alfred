@@ -104,8 +104,9 @@ class FindOne(object):
             success, _, _, err, _ = self.env.va_interact(action['action'],
                     interact_mask=mask)
             if not success:
-                print ("expert initialization failed, error " + err)
-                break
+                print("expert initialization failed")
+                print(str(err))
+                return None, -1
 
             frames.append(self.env.last_event.frame)
 
