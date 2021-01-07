@@ -186,16 +186,35 @@ def rollout_trajectory(fo, model, frame_stack=1, zero_fill_frame_stack=False,
 
     print('trajectory len: ' + str(len(all_action_scores)))
 
+    success = fo.get_success()
     trajectory_results = {}
     trajectory_results['scene_name_or_num'] = fo.get_scene_name_or_num()
     trajectory_results['target'] = fo.get_target_object_type()
+    trajectory_results['initial_action_distance'] = \
+            len(fo.original_expert_actions)
     trajectory_results['initial_crow_distance'] = initial_crow_distance
+    accuracy, f1 = actions_accuracy_f1(torch.Tensor(pred_action_indexes),
+            torch.Tensor(expert_action_indexes))
+    trajectory_results['accuracy'] = accuracy
+    trajectory_results['f1'] = f1
     trajectory_results['frames'] = frames
     trajectory_results['all_action_scores'] = all_action_scores
     trajectory_results['pred_action_indexes'] = pred_action_indexes
     trajectory_results['expert_action_indexes'] = expert_action_indexes
-    trajectory_results['success'] = fo.get_success()
+    trajectory_results['success'] = float(success)
+    trajectory_results['path_weighted_success'] = path_weighted_success(
+            success, len(frames), len(fo.original_expert_actions))
+    trajectory_results['crow_distance_to_goal'] = fo.crow_distance_to_goal()
+    trajectory_results['walking_distance_to_goal'] = \
+            fo.walking_distance_to_goal()
+    final_expert_actions, final_expert_path = \
+            fo.get_current_expert_actions_path()
+    trajectory_results['action_distance_to_goal'] = len(final_expert_actions)
+    trajectory_results['target_visible'] = fo.target_visible()
     trajectory_results['expert_actions'] = fo.get_original_expert_actions()
+    with torch.no_grad():
+        entropy = trajectory_avg_entropy(torch.cat(all_action_scores))
+    trajectory_results['entropy'] = entropy.item()
     return trajectory_results
 
 def flatten_trajectories(batch_samples, frame_stack=1,
@@ -756,38 +775,26 @@ def eval_online(fo, model, frame_stack=1, zero_fill_frame_stack=False,
                             frame_stack=frame_stack,
                             zero_fill_frame_stack=zero_fill_frame_stack,
                             scene_name_or_num=random.choice(scene_numbers))
-            # TODO: move the actual computation of all these metrics into
-            # trajectory_results
+            # TODO: append in a loop over keys here and elsewhere
             metrics[split]['target'].append(trajectory_results['target'])
             metrics[split]['initial_action_distance'].append(
-                    len(fo.original_expert_actions))
+                    trajectory_results['initial_action_distance'])
             metrics[split]['initial_crow_distance'].append(
                     trajectory_results['initial_crow_distance'])
-            accuracy, f1 = actions_accuracy_f1(
-                    torch.Tensor(trajectory_results['pred_action_indexes']),
-                    torch.Tensor(trajectory_results['expert_action_indexes']))
-            metrics[split]['accuracy'].append(accuracy)
-            metrics[split]['f1'].append(f1)
-            metrics[split]['success'].append(
-                    float(trajectory_results['success']))
+            metrics[split]['accuracy'].append(trajectory_results['accuracy'])
+            metrics[split]['f1'].append(trajectory_results['f1'])
+            metrics[split]['success'].append(trajectory_results['success'])
             metrics[split]['path_weighted_success'].append(
-                    path_weighted_success(
-                        trajectory_results['success'],
-                        len(trajectory_results['frames']),
-                        len(fo.original_expert_actions)))
-            final_expert_actions, final_expert_path = \
-                    fo.get_current_expert_actions_path()
+                    trajectory_results['path_weighted_success'])
             metrics[split]['crow_distance_to_goal'].append(
-                    fo.crow_distance_to_goal())
+                    trajectory_results['crow_distance_to_goal'])
             metrics[split]['walking_distance_to_goal'].append(
-                    fo.walking_distance_to_goal())
+                    trajectory_results['walking_distance_to_goal'])
             metrics[split]['action_distance_to_goal'].append(
-                    len(final_expert_actions))
-            metrics[split]['target_visible'].append(fo.target_visible())
-            with torch.no_grad():
-                entropy = trajectory_avg_entropy(torch.cat(
-                    trajectory_results['all_action_scores']))
-            metrics[split]['entropy'].append(entropy.item())
+                    trajectory_results['action_distance_to_goal'])
+            metrics[split]['target_visible'].append(
+                    trajectory_results['target_visible'])
+            metrics[split]['entropy'].append(trajectory_results['entropy'])
             metrics[split]['trajectory_length'].append(
                     float(len(trajectory_results['frames'])))
             metrics[split]['frames'].append(trajectory_results['frames'])
