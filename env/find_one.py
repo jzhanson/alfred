@@ -219,14 +219,27 @@ class FindOne(object):
         Figure out "correct" action via Graph, advance agent based on input
         action, then return correct action along with obs, reward, done, info.
         """
+        if self.done:
+            print('Trying to step() in a done environment!')
+            assert False # TODO: debugging assert
+            # Return None instead of last event and best action, and action
+            # unsuccessful, 0 for reward
+            return (None, self.target_object_type), 0, self.done, \
+                    (False, None, None)
+        # TODO: remove this debugging code
+        if len(self.current_expert_actions) == 0:
+            print('current_expert_actions has no actions in it!')
+            print('scene_name_or_num: ' + str(self.scene_name_or_num))
+            print('pose_discrete: ' + str(self.env.last_event.pose_discrete))
+            print('end_poses: ' + str(self.end_poses))
+            print('target_objects: ' + str(self.target_objects))
+            print('target_instance_ids: ' + str(self.target_instance_ids))
+            print('steps_taken: ' + str(self.steps_taken))
+            assert False
+
         best_action = self.current_expert_actions[0]['action']
 
         reward = self.rewards['step_penalty']
-        if self.done:
-            # Return None instead of last event and best action, and action
-            # unsuccessful
-            return (None, self.target_object_type), reward, self.done, \
-                    (False, None, None)
         if action == best_action:
             reward = self.rewards['correct_action']
 
