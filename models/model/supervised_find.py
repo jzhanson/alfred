@@ -58,10 +58,7 @@ parser.add_argument('-tf', '--teacher-force', dest='teacher_force', action='stor
 parser.add_argument('-ntf', '--no-teacher-force', dest='teacher_force', action='store_false')
 parser.set_defaults(teacher_force=False)
 parser.add_argument('-dp', '--dataset-path', type=str, default=None, help='path (directory) to dataset indexes of trajectories and obj_type_to_index, if using')
-parser.add_argument('-dt', '--dataset-transitions', dest='dataset_transitions', action='store_true')
-parser.add_argument('-ndt', '--dataset-trajectories', dest='dataset_transitions', action='store_false')
-parser.set_defaults(dataset_transitions=False)
-parser.add_argument('-bs', '--batch-size', type=int, default=1, help='batch size of training trajectories or transitions if dataset-transitions is set')
+parser.add_argument('-bs', '--batch-size', type=int, default=1, help='batch size of training trajectories')
 parser.add_argument('-ms', '--max-steps', type=float, default=100000, help='max training gradient steps')
 parser.add_argument('-do', '--dropout', type=float, default=0.0, help='dropout prob')
 parser.add_argument('-sp', '--save-path', type=str, default=None, help='path (directory) to save models and tensorboard stats')
@@ -323,11 +320,11 @@ def write_images_video(results_online, train_steps, save_path):
                 '*.png'), video_save_path)
 
 def train_dataset(fo, model, optimizer, datasets, dataloaders,
-        obj_type_to_index, dataset_transitions=False, batch_size=1,
-        frame_stack=1, zero_fill_frame_stack=False, train_episodes=10,
-        valid_seen_episodes=10, valid_unseen_episodes=10, eval_interval=100,
-        max_steps=100000, save_path=None, save_intermediate=False,
-        save_images_video=False, load_path=None):
+        obj_type_to_index, batch_size=1, frame_stack=1,
+        zero_fill_frame_stack=False, train_episodes=10, valid_seen_episodes=10,
+        valid_unseen_episodes=10, eval_interval=100, max_steps=100000,
+        save_path=None, save_intermediate=False, save_images_video=False,
+        load_path=None):
     """
     Train a model by sampling from a torch dataloader.
 
@@ -358,19 +355,12 @@ def train_dataset(fo, model, optimizer, datasets, dataloaders,
 
     while train_steps < max_steps:
         for batch_samples in dataloaders['train']:
-            if dataset_transitions:
-                # TODO: test the transitions branch of the code
-                flat_targets = batch_samples['target']
-                flat_actions = batch_samples['low_actions']
-                # Stacking frames doesn't make sense
-                flat_images = batch_samples['images']
-            else:
-                flat_batch_samples = flatten_trajectories(
-                        batch_samples, frame_stack=frame_stack,
-                        zero_fill_frame_stack=zero_fill_frame_stack)
-                flat_targets = flat_batch_samples['target']
-                flat_actions = flat_batch_samples['low_actions']
-                flat_images = flat_batch_samples['images']
+            flat_batch_samples = flatten_trajectories(
+                    batch_samples, frame_stack=frame_stack,
+                    zero_fill_frame_stack=zero_fill_frame_stack)
+            flat_targets = flat_batch_samples['target']
+            flat_actions = flat_batch_samples['low_actions']
+            flat_images = flat_batch_samples['images']
 
             # Turn target names into indexes and action names into indexes
             flat_target_indexes = torch.tensor([obj_type_to_index[
@@ -432,7 +422,6 @@ def train_dataset(fo, model, optimizer, datasets, dataloaders,
                 # Evaluate on valid_seen and valid_unseen
                 results_dataset = eval_dataset(model, dataloaders,
                         obj_type_to_index,
-                        dataset_transitions=dataset_transitions,
                         frame_stack=frame_stack,
                         zero_fill_frame_stack=zero_fill_frame_stack)
                 write_results(writer, results_dataset, train_steps, train_frames,
@@ -489,8 +478,8 @@ def train_dataset(fo, model, optimizer, datasets, dataloaders,
 
         train_epochs += 1
 
-def eval_dataset(model, dataloaders, obj_type_to_index,
-        dataset_transitions=False, frame_stack=1, zero_fill_frame_stack=False):
+def eval_dataset(model, dataloaders, obj_type_to_index, frame_stack=1,
+        zero_fill_frame_stack=False):
     """
     Evaluate a model on valid_seen and valid_unseen datasets given by
     dataloaders.
@@ -503,19 +492,12 @@ def eval_dataset(model, dataloaders, obj_type_to_index,
         all_predicted_action_indexes = []
         all_expert_action_indexes = []
         for batch_samples in dataloaders[split]:
-            if dataset_transitions:
-                # TODO: test the transitions branch of the code
-                flat_targets = batch_samples['target']
-                flat_actions = batch_samples['low_actions']
-                # Stacking frames doesn't make sense
-                flat_images = batch_samples['images']
-            else:
-                flat_batch_samples = flatten_trajectories(batch_samples,
-                        frame_stack=frame_stack,
-                        zero_fill_frame_stack=zero_fill_frame_stack)
-                flat_targets = flat_batch_samples['target']
-                flat_actions = flat_batch_samples['low_actions']
-                flat_images = flat_batch_samples['images']
+            flat_batch_samples = flatten_trajectories(batch_samples,
+                    frame_stack=frame_stack,
+                    zero_fill_frame_stack=zero_fill_frame_stack)
+            flat_targets = flat_batch_samples['target']
+            flat_actions = flat_batch_samples['low_actions']
+            flat_images = flat_batch_samples['images']
 
             # Turn target names into indexes and action names into indexes
             flat_target_indexes = torch.tensor([obj_type_to_index[
@@ -842,11 +824,8 @@ if __name__ == '__main__':
     if args.dataset_path is not None:
         # Frame stacking models only make sense if you're sampling trajectories
         # from a dataset, not transitions
-        if args.dataset_transitions and args.frame_stack > 1:
-            args.frame_stack = 1
         datasets, dataloaders = get_datasets_dataloaders(
-                batch_size=args.batch_size,
-                transitions=args.dataset_transitions)
+                batch_size=args.batch_size)
     if args.visual_model.lower() == 'nature' or args.visual_model.lower() == \
             'naturecnn':
         visual_model = NatureCNN(frame_stack=args.frame_stack)
@@ -885,7 +864,6 @@ if __name__ == '__main__':
     if args.dataset_path is not None:
         train_dataset(fo, model, optimizer, datasets, dataloaders,
                 obj_type_to_index,
-                dataset_transitions=args.dataset_transitions,
                 batch_size=args.batch_size, frame_stack=args.frame_stack,
                 zero_fill_frame_stack=args.zero_fill_frame_stack,
                 train_episodes=args.train_episodes,
