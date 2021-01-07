@@ -112,6 +112,10 @@ def path_weighted_success(success, num_agent_actions, num_expert_actions):
 def rollout_trajectory(fo, model, frame_stack=1, zero_fill_frame_stack=False,
         teacher_force=False, scene_name_or_num=None, traj_data=None,
         high_idx=None):
+    """
+    Returns dictionary of trajectory results, or None if failed to load from
+    traj_data dict with given high_idx.
+    """
     frames = []
     all_action_scores = []
     pred_action_indexes = []
@@ -119,6 +123,8 @@ def rollout_trajectory(fo, model, frame_stack=1, zero_fill_frame_stack=False,
     if traj_data is not None:
         frames, target_object_type_index = fo.load_from_traj_data(traj_data,
                 high_idx=high_idx)
+        if frames is None: # Failed to load from traj data
+            return None
     else:
         frame, target_object_type_index = fo.reset(scene_name_or_num)
         frames.append(frame)
@@ -693,7 +699,6 @@ def write_results(writer, results, train_steps, train_frames,
         for split in results.keys():
             json_results[split] = {k:v for k, v in results[split].items() if k
                     != 'frames'}
-        print([k for k in json_results['valid_seen'].keys()])
         if not os.path.isdir(results_path):
             os.makedirs(results_path)
         with open(os.path.join(results_path, method + '.json'), 'w') as \
@@ -737,16 +742,21 @@ def eval_online(fo, model, frame_stack=1, zero_fill_frame_stack=False,
             with torch.no_grad():
                 if datasets is not None:
                     # Sample a trajectory
-                    trajectory_index = random.randint(0, len(datasets[split]))
-                    trajectory = datasets[split].trajectories[trajectory_index]
-                    with open(os.path.join(trajectory['path'],
-                        'traj_data.json'), 'r') as jsonfile:
-                        traj_data = json.load(jsonfile)
-                    trajectory_results = rollout_trajectory(fo, model,
-                            frame_stack=frame_stack,
-                            zero_fill_frame_stack=zero_fill_frame_stack,
-                            traj_data=traj_data,
-                            high_idx=trajectory['high_idx'][0])
+                    load_success = False
+                    while not load_success:
+                        trajectory_index = random.randint(0,
+                                len(datasets[split]))
+                        trajectory = datasets[split].trajectories[
+                                trajectory_index]
+                        with open(os.path.join(trajectory['path'],
+                            'traj_data.json'), 'r') as jsonfile:
+                            traj_data = json.load(jsonfile)
+                        trajectory_results = rollout_trajectory(fo, model,
+                                frame_stack=frame_stack,
+                                zero_fill_frame_stack=zero_fill_frame_stack,
+                                traj_data=traj_data,
+                                high_idx=trajectory['high_idx'][0])
+                        load_success = trajectory_results is not None
                 else:
                     trajectory_results = rollout_trajectory(fo, model,
                             frame_stack=frame_stack,
