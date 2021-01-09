@@ -13,6 +13,40 @@ from models.nn.resnet import Resnet
 def conv2d_size_out(size, kernel_size=8, stride=4):
     return (size - (kernel_size - 1) - 1) // stride  + 1
 
+# From https://discuss.pytorch.org/t/is-there-an-inverse-of-rnn-pack-sequence/46549/3
+def unpack_sequence(packed_sequence, lengths):
+    assert isinstance(packed_sequence, nn.utils.rnn.PackedSequence)
+    head = 0
+    trailing_dims = packed_sequence.data.shape[1:]
+    #unpacked_sequence = [torch.zeros(l, *trailing_dims) for l in lengths]
+    unpacked_sequence = [[] for _ in lengths]
+    # l_idx - goes from 0 - maxLen-1
+    for l_idx, b_size in enumerate(packed_sequence.batch_sizes):
+        for b_idx in range(b_size):
+            #unpacked_sequence[b_idx][l_idx] = packed_sequence.data[head]
+            # We don't need to ouse l_idx because l_idx is strictly increasing,
+            # so our sub-lists will have elements appended in the right order
+            unpacked_sequence[b_idx].append(packed_sequence.data[head])
+            head += 1
+    unpacked_sequence = [torch.stack(seq) for seq in unpacked_sequence]
+    return unpacked_sequence
+
+def concatenate_per_step(visual_output, object_embedding):
+    """
+    visual_output is a list of tensors, one for each trajectory, and
+    object_embedding is a list/tensor with one embedding per trajectory target.
+    Concatenate the object embedding to the features of each step of the
+    visual_output.
+    """
+    visual_output_object_embedding = []
+    for trajectory_index in range(len(visual_output)):
+        repeated_object_embedding = object_embedding[trajectory_index] \
+                .repeat(visual_output[trajectory_index].shape[0], 1)
+        visual_output_object_embedding.append(torch.cat(
+            [visual_output[trajectory_index], repeated_object_embedding],
+            dim=-1))
+    return visual_output_object_embedding
+
 class LateFusion(nn.Module):
     """
     Model class that combines a visual model, target object embeddings, and a
@@ -30,9 +64,19 @@ class LateFusion(nn.Module):
         self.reset_hidden()
 
     def predict(self, frames, object_index, use_hidden=True):
+        """
+        frames is a list of tensors, one tensor per trajectory, and
+        object_index is a list (or tensor) of target object types, one for each
+        trajectory
+        """
+        # Concatenate trajectories and transitions for input into visual model
+        frames_sections = [frame.shape[0] for frame in frames]
+        concatenated_frames = torch.cat(frames)
         if isinstance(self.visual_model, Resnet):
+            # Unstack frames, featurize, then restack frames if using Resnet
             unstacked_visual_outputs = []
-            for unstacked_frames in torch.split(frames,
+            # TODO: adapt this to different values of frame stacking
+            for unstacked_frames in torch.split(concatenated_frames,
                     split_size_or_sections=3, dim=1):
                 # Need to turn tensors into PIL images
                 # Cast to uint8 first to reduce amount of memory copied, and
@@ -47,16 +91,25 @@ class LateFusion(nn.Module):
             # is shape (batch_size, 3, 300, 300)
             visual_output = torch.cat(unstacked_visual_outputs, dim=1)
         else:
-            visual_output = self.visual_model(frames)
+            visual_output = self.visual_model(concatenated_frames)
+
+        # Split visual_output back into a list over trajectories
+        visual_output = torch.split(visual_output, frames_sections)
+        # Flatten visual output in case it's made up of conv features
+        visual_output = [output.view(output.shape[0], -1) for output in
+                visual_output]
         embedded_object = self.object_embeddings(object_index)
-        if use_hidden and isinstance(self.policy_model, LSTMPolicy):
-            output, self.hidden_state = self.policy_model(visual_output,
-                    embedded_object, hidden_state=self.hidden_state)
-        elif isinstance(self.policy_model, LSTMPolicy):
-            output, self.hidden_state = self.policy_model(visual_output,
-                    embedded_object)
+
+        if isinstance(self.policy_model, LSTMPolicy):
+            if use_hidden:
+                output, self.hidden_state = self.policy_model(visual_output,
+                        embedded_object, hidden_state=self.hidden_state)
+            else:
+                output, self.hidden_state = self.policy_model(visual_output,
+                        embedded_object)
         else:
             output = self.policy_model(visual_output, embedded_object)
+
         return output
 
     def forward(self, frames, object_index):
@@ -119,15 +172,15 @@ class FCPolicy(nn.Module):
                     out_features=self.num_actions, bias=True))
 
     def forward(self, visual_output, object_embedding):
-        # "Late Fusion"
-        # Reshape conv output to (N, -1) and concatenate object embedding
-        # This reshaping will also work for non-conv features
-        x  = torch.cat([visual_output.view(visual_output.size(0), -1),
-            object_embedding], -1)
+        x = concatenate_per_step(visual_output, object_embedding)
+        sections = [trajectory_x.shape[0] for trajectory_x in x]
+        x = torch.cat(x)
+
         for fc_layer in self.fc_layers:
             x = fc_layer(x)
         action_probs = self.action_logits(x)
 
+        action_probs = torch.split(action_probs, sections)
         return action_probs
 
 class LSTMPolicy(nn.Module):
@@ -163,27 +216,31 @@ class LSTMPolicy(nn.Module):
                     bias=True))
 
     def forward(self, visual_output, object_embedding, hidden_state=None):
-        # Reshape conv output to (N, -1) and concatenate object embedding for
-        # each input step
-        # This reshaping will also work for non-conv features
-        x = torch.cat([visual_output.view(visual_output.size(0), -1),
-            object_embedding], -1)
-        # TODO make LSTM policy and supervised_find adapt to multiple
-        # trajectories (variable length sequence), currently only allows for
-        # one trajectory at a time
-        # Add batch dimension, for now
-        x = torch.unsqueeze(x, dim=0)
+        # TODO: add options to concatenate object_embedding after LSTM
+        visual_output_object_embedding = concatenate_per_step(visual_output,
+                object_embedding)
+        # Pack a variable length sequence of trajectories and feed it to
+        # the LSTM
+        trajectory_lengths = [len(trajectory) for trajectory in
+                visual_output_object_embedding]
+        x = nn.utils.rnn.pack_sequence(visual_output_object_embedding,
+                enforce_sorted=False)
         if self.init_lstm_object:
             pass
         if hidden_state is None:
             x, hidden_state = self.lstm(x)
         else:
             x, hidden_state = self.lstm(x, hidden_state)
-        # Remove batch dimension, for now
-        x = torch.squeeze(x, dim=0)
+
+        # Unpack sequence, concatenate, put through fc layers, split back up
+        x = unpack_sequence(x, trajectory_lengths)
+        x = torch.cat(x)
+
         for fc_layer in self.fc_layers:
             x = fc_layer(x)
         action_probs = self.action_logits(x)
+
+        action_probs = torch.split(action_probs, trajectory_lengths)
 
         return action_probs, hidden_state
 
