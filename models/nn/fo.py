@@ -56,11 +56,13 @@ class LateFusion(nn.Module):
     applicable) and use forward for general training when hidden state is not
     required.
     """
-    def __init__(self, visual_model, object_embeddings, policy_model):
+    def __init__(self, visual_model, object_embeddings, policy_model,
+            frame_stack=1):
         super(LateFusion, self).__init__()
         self.visual_model = visual_model
         self.object_embeddings = object_embeddings
         self.policy_model = policy_model
+        self.frame_stack = frame_stack
         self.reset_hidden()
 
     def predict(self, frames, object_index, use_hidden=True):
@@ -75,9 +77,8 @@ class LateFusion(nn.Module):
         if isinstance(self.visual_model, Resnet):
             # Unstack frames, featurize, then restack frames if using Resnet
             unstacked_visual_outputs = []
-            # TODO: adapt this to different values of frame stacking
             for unstacked_frames in torch.split(concatenated_frames,
-                    split_size_or_sections=3, dim=1):
+                    split_size_or_sections=3*self.frame_stack, dim=1):
                 # Need to turn tensors into PIL images
                 # Cast to uint8 first to reduce amount of memory copied, and
                 # transpose to put RGB channels in the last dimension
