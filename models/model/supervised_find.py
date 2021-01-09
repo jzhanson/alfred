@@ -769,7 +769,7 @@ def eval_online(fo, model, frame_stack=1, zero_fill_frame_stack=False,
                     load_success = False
                     while not load_success:
                         trajectory_index = random.randint(0,
-                                len(datasets[split]))
+                                len(datasets[split].trajectories) - 1)
                         trajectory = datasets[split].trajectories[
                                 trajectory_index]
                         with open(os.path.join(trajectory['path'],
