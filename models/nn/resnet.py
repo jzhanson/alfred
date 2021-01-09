@@ -83,7 +83,10 @@ class Resnet(object):
         else:
             self.resnet_model = Resnet18(args, eval, share_memory,
                     use_conv_feat=use_conv_feat, device=self.device)
-            self.output_size = 512 * 7 * 7 # Specific to Resnet18
+            if use_conv_feat:
+                self.output_size = 512 * 7 * 7 # Specific to Resnet18
+            else:
+                self.output_size = 1000
 
         # normalization transform
         self.transform = self.get_default_transform()
