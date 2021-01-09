@@ -884,10 +884,10 @@ if __name__ == '__main__':
 
     try:
         model = LateFusion(visual_model, object_embeddings,
-                policy_model).to(device)
+                policy_model, frame_stack=args.frame_stack).to(device)
     except:
         model = LateFusion(visual_model, object_embeddings,
-                policy_model).to(device)
+                policy_model, frame_stack=args.frame_stack).to(device)
     optimizer = optim.SGD(model.parameters(), lr=args.lr)
 
     if args.dataset_path is not None:
