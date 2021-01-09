@@ -862,9 +862,12 @@ if __name__ == '__main__':
     elif args.visual_model.lower() == 'resnet' or args.visual_model.lower() \
             == 'resnet18' or args.visual_model.lower() == 'maskrcnn':
         # Resnet class is object, not nn.Module
+        # Set args temporarily to what the Resnet class expects
+        args.gpu_index = args.gpu
         args.gpu = True
         visual_model = Resnet(args, share_memory=True,
                 use_conv_feat=args.resnet_conv_feat)
+        args.gpu = args.gpu_index
         # Visual features are (frame)stacked, not frames, with pretrained
         # models. LateFusion class takes care of that
         visual_output_size = visual_model.output_size * args.frame_stack
