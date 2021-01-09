@@ -155,11 +155,12 @@ def rollout_trajectory(fo, model, frame_stack=1, zero_fill_frame_stack=False,
                 for f in frames[(len(frames) - frame_stack):]])
         stacked_frames = torch.unsqueeze(stacked_frames, dim=0)
 
-        action_scores = model.predict(stacked_frames,
+        action_scores = model.predict([stacked_frames],
                 torch.tensor([target_object_type_index], device=device),
                 use_hidden=True)
         # Sorted in increasing order (rightmost is highest scoring action)
-        sorted_scores, top_indices = torch.sort(action_scores, descending=True)
+        sorted_scores, top_indices = torch.sort(action_scores[0],
+                descending=True)
         top_indices = top_indices.flatten()
         # Try each action until success
         pred_action_index = None
@@ -177,7 +178,7 @@ def rollout_trajectory(fo, model, frame_stack=1, zero_fill_frame_stack=False,
                 break
         assert pred_action_index is not None
         frames.append(frame)
-        all_action_scores.append(action_scores)
+        all_action_scores.append(action_scores[0])
         pred_action_indexes.append(pred_action_index)
         expert_action_indexes.append(ACTION_TO_INDEX[expert_action])
 
@@ -213,6 +214,34 @@ def rollout_trajectory(fo, model, frame_stack=1, zero_fill_frame_stack=False,
         entropy = trajectory_avg_entropy(torch.cat(all_action_scores))
     trajectory_results['entropy'] = entropy.item()
     return trajectory_results
+
+def stack_frames(frames, frame_stack=1, zero_fill_frame_stack=False):
+    stacked_frames = []
+    for trajectory_index in range(len(frames)):
+        trajectory_frames = []
+        for transition_index in range(len(frames[trajectory_index])):
+            if transition_index < frame_stack - 1:
+                if zero_fill_frame_stack:
+                    # Fill earlier frames with zeroes
+                    transition_frames = torch.cat([torch.zeros(((frame_stack -
+                        transition_index - 1) * 3), 300, 300)] +
+                        [frame.permute(2, 0, 1) for frame in
+                            frames[trajectory_index][:transition_index+1]])
+                else:
+                    # Repeat first frame
+                    transition_frames = torch.cat([frames[trajectory_index][0]
+                        .permute(2, 0, 1) for _ in range(frame_stack -
+                            transition_index - 1)] +
+                        [frame.permute(2, 0, 1) for frame in
+                            frames[trajectory_index][:transition_index+1]])
+                trajectory_frames.append(transition_frames)
+            else:
+                trajectory_frames.append(torch.cat([frame.permute(2, 0, 1) for
+                    frame in frames[trajectory_index][
+                        transition_index-frame_stack+1:transition_index+1]]))
+        stacked_frames.append(torch.stack(trajectory_frames).to(device=device,
+            dtype=torch.float32))
+    return stacked_frames
 
 def flatten_trajectories(batch_samples, frame_stack=1,
         zero_fill_frame_stack=False):
@@ -355,23 +384,24 @@ def train_dataset(fo, model, optimizer, datasets, dataloaders,
 
     while train_steps < max_steps:
         for batch_samples in dataloaders['train']:
-            flat_batch_samples = flatten_trajectories(
-                    batch_samples, frame_stack=frame_stack,
+            # These are all lists of tensors where each tensor corresponds to a
+            # variable-length trajectory
+            stacked_frames = stack_frames(batch_samples['images'],
+                    frame_stack=frame_stack,
                     zero_fill_frame_stack=zero_fill_frame_stack)
-            flat_targets = flat_batch_samples['target']
-            flat_actions = flat_batch_samples['low_actions']
-            flat_images = flat_batch_samples['images']
-
             # Turn target names into indexes and action names into indexes
-            flat_target_indexes = torch.tensor([obj_type_to_index[
-                constants.OBJECTS_LOWER_TO_UPPER[target]] for target in flat_targets],
-                device=device)
-            flat_action_indexes = torch.tensor([ACTION_TO_INDEX[action] for
-                action in flat_actions], device=device)
+            target_indexes = torch.tensor([obj_type_to_index[
+                constants.OBJECTS_LOWER_TO_UPPER[target]] for target in
+                batch_samples['target']], device=device)
+            action_indexes = [
+                    torch.tensor([ACTION_TO_INDEX[action] for action in
+                        trajectory_actions], device=device)
+                    for trajectory_actions in batch_samples['low_actions']]
 
             # Train
-            action_scores = model(flat_images, flat_target_indexes)
-            loss = F.cross_entropy(action_scores, flat_action_indexes)
+            action_scores = model(stacked_frames, target_indexes)
+            loss = F.cross_entropy(torch.cat(action_scores),
+                    torch.cat(action_indexes))
             optimizer.zero_grad()
             # TODO: RuntimeError: cuDNN error: CUDNN_STATUS_EXECUTION_FAILED
             #loss.backward()
@@ -383,16 +413,16 @@ def train_dataset(fo, model, optimizer, datasets, dataloaders,
             optimizer.step()
 
             train_steps += 1
-            train_frames += len(action_scores)
+            train_frames += sum([scores.shape[0] for scores in action_scores])
             train_trajectories += batch_size
             last_metrics['loss'].append(loss.item())
-            accuracy, f1 = actions_accuracy_f1(torch.argmax(action_scores,
-                dim=1), flat_action_indexes)
+            accuracy, f1 = actions_accuracy_f1(torch.argmax(
+                torch.cat(action_scores), dim=1), torch.cat(action_indexes))
             last_metrics['accuracy'].append(accuracy)
             last_metrics['f1'].append(f1)
             # Record average policy entropy over all trajectories/transitions
             with torch.no_grad():
-                entropy = trajectory_avg_entropy(action_scores)
+                entropy = trajectory_avg_entropy(torch.cat(action_scores))
             last_metrics['entropy'].append(entropy.item())
 
             results = {}
@@ -492,25 +522,24 @@ def eval_dataset(model, dataloaders, obj_type_to_index, frame_stack=1,
         all_predicted_action_indexes = []
         all_expert_action_indexes = []
         for batch_samples in dataloaders[split]:
-            flat_batch_samples = flatten_trajectories(batch_samples,
+            stacked_frames = stack_frames(batch_samples['images'],
                     frame_stack=frame_stack,
                     zero_fill_frame_stack=zero_fill_frame_stack)
-            flat_targets = flat_batch_samples['target']
-            flat_actions = flat_batch_samples['low_actions']
-            flat_images = flat_batch_samples['images']
 
             # Turn target names into indexes and action names into indexes
-            flat_target_indexes = torch.tensor([obj_type_to_index[
+            target_indexes = torch.tensor([obj_type_to_index[
                 constants.OBJECTS_LOWER_TO_UPPER[target]] for target in
-                flat_targets], device=device)
-            flat_action_indexes = torch.tensor([ACTION_TO_INDEX[action] for
-                action in flat_actions], device=device)
+                batch_samples['target']], device=device)
+            action_indexes = [
+                    torch.tensor([ACTION_TO_INDEX[action] for action in
+                        trajectory_actions], device=device)
+                    for trajectory_actions in batch_samples['low_actions']]
 
             with torch.no_grad():
-                action_scores = model(flat_images, flat_target_indexes)
-            all_predicted_action_indexes.append(torch.argmax(action_scores,
-                dim=1))
-            all_expert_action_indexes.append(flat_action_indexes)
+                action_scores = model(stacked_frames, target_indexes)
+            all_predicted_action_indexes.append(torch.argmax(
+                torch.cat(action_scores), dim=1))
+            all_expert_action_indexes.append(torch.cat(action_indexes))
 
         all_predicted_action_indexes = torch.cat(all_predicted_action_indexes)
         all_expert_action_indexes = torch.cat(all_expert_action_indexes)
