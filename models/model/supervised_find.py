@@ -71,7 +71,6 @@ parser.set_defaults(save_images_video=False)
 parser.add_argument('-lp', '--load-path', type=str, default=None, help='path (.pth) to load model checkpoint from')
 parser.add_argument('-g', '--gpu', type=int, default=3, help='GPU to run model on')
 '''
-parser.add_argument('-do', '--dropout', type=float, default=0.02, help='dropout prob')
 parser.add_argument('-sn', '--save-name', type=str, default='model', help='model save name')
 parser.add_argument('-id', '--model-id', type=str, default='model', help='model id')
 '''
@@ -859,7 +858,8 @@ if __name__ == '__main__':
                 batch_size=args.batch_size)
     if args.visual_model.lower() == 'nature' or args.visual_model.lower() == \
             'naturecnn':
-        visual_model = NatureCNN(frame_stack=args.frame_stack)
+        visual_model = NatureCNN(frame_stack=args.frame_stack,
+                dropout=args.dropout)
         visual_output_size = visual_model.output_size
     elif args.visual_model.lower() == 'resnet' or args.visual_model.lower() \
             == 'resnet18' or args.visual_model.lower() == 'maskrcnn':
@@ -877,7 +877,8 @@ if __name__ == '__main__':
             args.object_embedding_dim)
     if args.policy_model.lower() == 'fc':
         policy_model = FCPolicy(visual_output_size + args.object_embedding_dim,
-                NUM_ACTIONS, num_fc_layers=args.fc_layers)
+                NUM_ACTIONS, num_fc_layers=args.fc_layers,
+                dropout=args.dropout)
     elif args.policy_model.lower() == 'lstm':
         policy_model = LSTMPolicy(visual_output_size +
                 args.object_embedding_dim, NUM_ACTIONS,
