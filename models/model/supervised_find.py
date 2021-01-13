@@ -138,31 +138,14 @@ def rollout_trajectory(fo, model, frame_stack=1, zero_fill_frame_stack=False,
     model.reset_hidden(batch_size=1, device=device)
     while not done:
         frames.append(torch.from_numpy(np.ascontiguousarray(frame)))
-        # Most recent frames are last/later channels
-        if len(frames) < frame_stack:
-            # A frame is shape (300, 300, 3). Use transpose instead of reshape
-            # to avoid data reordering. Concatenate along channels dimension
-            if zero_fill_frame_stack:
-                # Fill earlier frames with zeroes
-                stacked_frames = torch.cat([torch.zeros(3 * (frame_stack -
-                    len(frames)), 300, 300, device=device)] + \
-                            [torch.from_numpy(np.ascontiguousarray(f)
-                                .transpose(2, 0, 1)).float().to(device) for f
-                                in frames])
-            else:
-                # Repeat first frame
-                stacked_frames = torch.cat([torch.from_numpy(
-                    np.ascontiguousarray(frames[0]).transpose(2, 0,
-                        1)).float().to(device) for i in range(frame_stack -
-                            len(frames))] + \
-                                    [torch.from_numpy(np.ascontiguousarray(f)
-                                        .transpose(2, 0, 1)).float().to(device)
-                                        for f in frames])
-        else:
-            stacked_frames = torch.cat([torch.from_numpy(
-                np.ascontiguousarray(f).transpose(2, 0, 1)).float().to(device)
-                for f in frames[(len(frames) - frame_stack):]])
-        stacked_frames = torch.unsqueeze(stacked_frames, dim=0)
+        # stack_frames takes a list of tensors, one tensor per trajectory, so
+        # wrap frames in an outer list and unwrap afterwards. Also,
+        # stack_frames needs the previous frame_stack frames, so pass the
+        # required number of frames but only take the last stacked frame of
+        # that list
+        stacked_frames = stack_frames([frames[-frame_stack:]],
+                frame_stack=frame_stack,
+                zero_fill_frame_stack=zero_fill_frame_stack)[0][-1:]
 
         action_scores = model.predict([stacked_frames],
                 torch.tensor([target_object_type_index], device=device),
