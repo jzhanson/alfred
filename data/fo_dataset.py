@@ -360,7 +360,7 @@ class FindOneDataset(Dataset):
                                 image_name)
                         # Reshape cv2 BGR image to RGB
                         current_images.append(torch.flip(torch.tensor(cv2
-                            .imread( image_path)), [2]))
+                            .imread(image_path)), [2]))
                     sample['images'].append(torch.stack(current_images))
                 if self.features:
                     features = torch.load(os.path.join(current_path,
