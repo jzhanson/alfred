@@ -124,9 +124,11 @@ class LateFusion(nn.Module):
                     batch_size=batch_size, device=device)
 
 class NatureCNN(nn.Module):
-    def __init__(self, frame_stack=1, frame_width=300, frame_height=300):
+    def __init__(self, frame_stack=1, frame_width=300, frame_height=300,
+            dropout=0.0):
         super(NatureCNN, self).__init__()
         self.frame_stack = frame_stack
+        self.dropout = dropout
 
         convw = conv2d_size_out(conv2d_size_out(conv2d_size_out(frame_width,
             kernel_size=8, stride=4), kernel_size=4, stride=2), kernel_size=3,
@@ -139,13 +141,13 @@ class NatureCNN(nn.Module):
         # Nature architecture with batchnorm
         self.conv1 = nn.Sequential(nn.Conv2d(in_channels=3*self.frame_stack,
             out_channels=32, kernel_size=8, stride=4, bias=True),
-            nn.BatchNorm2d(32), nn.ReLU())
+            nn.BatchNorm2d(32), nn.ReLU(), nn.Dropout(self.dropout))
         self.conv2 = nn.Sequential(nn.Conv2d(in_channels=32, out_channels=64,
             kernel_size=4, stride=2, bias=True),
-            nn.BatchNorm2d(64), nn.ReLU())
+            nn.BatchNorm2d(64), nn.ReLU(), nn.Dropout(self.dropout))
         self.conv3 = nn.Sequential(nn.Conv2d(in_channels=64, out_channels=64,
             kernel_size=3, stride=1, bias=True),
-            nn.BatchNorm2d(64), nn.ReLU())
+            nn.BatchNorm2d(64), nn.ReLU(), nn.Dropout(self.dropout))
 
         self.transform = transforms.Normalize(
                 mean=[0.485, 0.456, 0.406],
@@ -166,11 +168,12 @@ class NatureCNN(nn.Module):
         return x2
 
 class FCPolicy(nn.Module):
-    def __init__(self, input_size, num_actions, num_fc_layers=1):
+    def __init__(self, input_size, num_actions, num_fc_layers=1, dropout=0.0):
         super(FCPolicy, self).__init__()
         self.input_size = input_size
         self.num_actions = num_actions
         self.num_fc_layers = num_fc_layers
+        self.dropout = dropout
         self.fc_units = [512, 256, 128, 64]
         self.fc_layers = nn.ModuleList()
         for i in range(num_fc_layers):
@@ -180,7 +183,8 @@ class FCPolicy(nn.Module):
                 in_features = self.fc_units[i-1]
             self.fc_layers.append(nn.Sequential(
                 nn.Linear(in_features=in_features,
-                    out_features=self.fc_units[i], bias=True), nn.ReLU()))
+                    out_features=self.fc_units[i], bias=True), nn.ReLU(),
+                nn.Dropout(self.dropout)))
         self.action_logits = nn.Sequential(
                 nn.Linear(in_features=self.fc_units[i],
                     out_features=self.num_actions, bias=True))
@@ -223,7 +227,8 @@ class LSTMPolicy(nn.Module):
                 in_features = self.fc_units[i-1]
             self.fc_layers.append(nn.Sequential(
                 nn.Linear(in_features=in_features,
-                    out_features=self.fc_units[i], bias=True), nn.ReLU()))
+                    out_features=self.fc_units[i], bias=True), nn.ReLU(),
+                nn.Dropout(self.dropout)))
         self.action_logits = nn.Sequential(
                 nn.Linear(in_features=self.fc_units[i] if num_fc_layers > 0
                     else self.lstm_hidden_dim, out_features=self.num_actions,
