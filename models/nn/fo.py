@@ -5,6 +5,8 @@ import torch
 from torch import nn, optim
 from torch.nn import functional as F
 
+from torchvision import transforms
+
 from models.nn.resnet import Resnet
 
 # From https://pytorch.org/tutorials/intermediate/reinforcement_q_learning.html
@@ -78,7 +80,7 @@ class LateFusion(nn.Module):
             # Unstack frames, featurize, then restack frames if using Resnet
             unstacked_visual_outputs = []
             for unstacked_frames in torch.split(concatenated_frames,
-                    split_size_or_sections=3*self.frame_stack, dim=1):
+                    split_size_or_sections=3, dim=1):
                 # Need to turn tensors into PIL images
                 # Cast to uint8 first to reduce amount of memory copied, and
                 # transpose to put RGB channels in the last dimension
@@ -145,7 +147,18 @@ class NatureCNN(nn.Module):
             kernel_size=3, stride=1, bias=True),
             nn.BatchNorm2d(64), nn.ReLU())
 
+        self.transform = transforms.Normalize(
+                mean=[0.485, 0.456, 0.406],
+                std=[0.229, 0.224, 0.225]
+        )
+
     def forward(self, frames):
+        # Unstack frames, normalize each frame, then re-stack
+        unstacked_frames = torch.split(frames,
+                    split_size_or_sections=3, dim=1)
+        unstacked_normalized_frames = [torch.stack([self.transform(frame) for
+            frame in frames]) for frames in unstacked_frames]
+        frames = torch.cat(unstacked_normalized_frames, dim=1)
         x = self.conv1(frames)
         x1 = self.conv2(x)
         x2 = self.conv3(x1)
