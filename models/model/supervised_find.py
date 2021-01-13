@@ -118,17 +118,26 @@ def rollout_trajectory(fo, model, frame_stack=1, zero_fill_frame_stack=False,
     pred_action_indexes = []
     expert_action_indexes = []
     if traj_data is not None:
-        frames, target_object_type_index = fo.load_from_traj_data(traj_data,
-                high_idx=high_idx)
-        if frames is None: # Failed to load from traj data
+        # TODO: set expert actions to traj_data expert actions, since
+        # environment expert actions don't seem to match the saved trajectory
+        # actions
+        # TODO: load_from_traj_data only chooses the argument (target) of the
+        # given high_idx, not the Find replaced goal. Can we use pass
+        # trajectory_index somehow?
+        loaded_frames, target_object_type_index = fo.load_from_traj_data(
+                traj_data, high_idx=high_idx)
+        if loaded_frames is None: # Failed to load from traj data
             return None
+        # TODO: Add option to use saved frames instead of repeating the last
+        # saved frame
+        frame = loaded_frames[-1]
     else:
         frame, target_object_type_index = fo.reset(scene_name_or_num)
-        frames.append(frame)
     done = False
     initial_crow_distance = fo.crow_distance_to_goal()
     model.reset_hidden(batch_size=1, device=device)
     while not done:
+        frames.append(torch.from_numpy(np.ascontiguousarray(frame)))
         # Most recent frames are last/later channels
         if len(frames) < frame_stack:
             # A frame is shape (300, 300, 3). Use transpose instead of reshape
@@ -177,7 +186,6 @@ def rollout_trajectory(fo, model, frame_stack=1, zero_fill_frame_stack=False,
                 # TODO: consider penalizing failed actions more
                 break
         assert pred_action_index is not None
-        frames.append(frame)
         all_action_scores.append(action_scores[0])
         pred_action_indexes.append(pred_action_index)
         expert_action_indexes.append(ACTION_TO_INDEX[expert_action])
@@ -438,6 +446,9 @@ def train_dataset(fo, model, optimizer, datasets, dataloaders,
                 print('epoch %d steps %d frames %d trajectories %d' %
                         (train_epochs, train_steps, train_frames,
                             train_trajectories))
+                # Because this eval code can be called multiple times an epoch
+                # depending on eval_interval, epochs graphs may have multiple
+                # (y) values for the same epoch (x value)
                 results = {}
                 results['train'] = {}
                 for metric, values in last_metrics.items():
@@ -483,16 +494,17 @@ def train_dataset(fo, model, optimizer, datasets, dataloaders,
                         train_episodes=train_episodes,
                         valid_seen_episodes=valid_seen_episodes,
                         valid_unseen_episodes=valid_unseen_episodes)
-                write_results(writer, results_online, train_steps, train_frames,
-                        train_trajectories, train_epochs, method='online',
-                        save_path=save_path)
+                write_results(writer, results_online, train_steps,
+                        train_frames, train_trajectories, train_epochs,
+                        method='online', save_path=save_path)
 
                 if save_path is not None:
                     if save_intermediate:
-                        checkpoint_save_path = os.path.join(save_path, 'model_' +
-                                str(train_steps) + '.pth')
+                        checkpoint_save_path = os.path.join(save_path, 'model_'
+                                + str(train_steps) + '.pth')
                     else:
-                        checkpoint_save_path = os.path.join(save_path, 'model.pth')
+                        checkpoint_save_path = os.path.join(save_path,
+                                'model.pth')
                     print('saving to ' + checkpoint_save_path)
                     torch.save({
                         'train_steps' : train_steps,
@@ -504,7 +516,8 @@ def train_dataset(fo, model, optimizer, datasets, dataloaders,
                     }, checkpoint_save_path)
 
                     if save_images_video:
-                        write_images_video(results_online, train_steps, save_path)
+                        write_images_video(results_trajectory, train_steps,
+                                save_path)
 
         train_epochs += 1
 
@@ -701,7 +714,8 @@ def write_results(writer, results, train_steps, train_frames,
     for split in results.keys():
         for metric, values in results[split].items():
             if metric in ['frames', 'target', 'scene_name_or_num',
-                    'trajectory_index', 'initial_action_distance',
+                    'trajectory_index', 'trajectory_path',
+                    'trajectory_high_idx', 'initial_action_distance',
                     'initial_crow_distance']:
                 continue
             mean = np.mean(values)
@@ -762,6 +776,8 @@ def eval_online(fo, model, frame_stack=1, zero_fill_frame_stack=False,
         metrics[split]['scene_name_or_num'] = []
         if datasets is not None:
             metrics[split]['trajectory_index'] = []
+            metrics[split]['trajectory_path'] = []
+            metrics[split]['trajectory_high_idx'] = []
         for i in range(episodes):
             with torch.no_grad():
                 if datasets is not None:
@@ -813,6 +829,9 @@ def eval_online(fo, model, frame_stack=1, zero_fill_frame_stack=False,
                     trajectory_results['scene_name_or_num'])
             if datasets is not None:
                 metrics[split]['trajectory_index'].append(trajectory_index)
+                metrics[split]['trajectory_path'].append(trajectory['path'])
+                metrics[split]['trajectory_high_idx'].append(
+                        trajectory['high_idx'])
 
     model.train()
 
