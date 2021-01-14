@@ -58,6 +58,9 @@ parser.add_argument('-tf', '--teacher-force', dest='teacher_force', action='stor
 parser.add_argument('-ntf', '--no-teacher-force', dest='teacher_force', action='store_false')
 parser.set_defaults(teacher_force=False)
 parser.add_argument('-dp', '--dataset-path', type=str, default=None, help='path (directory) to dataset indexes of trajectories and obj_type_to_index, if using')
+parser.add_argument('-hri', '--high-res-images', dest='high_res_images', action='store_true', help='whether the provided dataset uses images from high_res_images directories')
+parser.add_argument('-ri', '--raw-images', dest='high_res_images', action='store_false', help='whether the provided dataset uses images from raw_images directories')
+parser.set_defaults(high_res_images=False)
 parser.add_argument('-bs', '--batch-size', type=int, default=1, help='batch size of training trajectories')
 parser.add_argument('-ms', '--max-steps', type=float, default=100000, help='max training gradient steps')
 parser.add_argument('-do', '--dropout', type=float, default=0.0, help='dropout prob')
@@ -855,7 +858,8 @@ if __name__ == '__main__':
         # Frame stacking models only make sense if you're sampling trajectories
         # from a dataset, not transitions
         datasets, dataloaders = get_datasets_dataloaders(
-                batch_size=args.batch_size)
+                batch_size=args.batch_size, path=args.dataset_path,
+                high_res_images=args.high_res_images)
     if args.visual_model.lower() == 'nature' or args.visual_model.lower() == \
             'naturecnn':
         visual_model = NatureCNN(frame_stack=args.frame_stack,
