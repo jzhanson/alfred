@@ -408,7 +408,7 @@ def collate_trajectories(samples):
     return new_samples
 
 def get_datasets_dataloaders(batch_size=1, transitions=False, path=None,
-        high_res_images=False):
+        high_res_images=False, num_workers=1):
     datasets = {}
     dataloaders = {}
     if path is None:
@@ -419,10 +419,10 @@ def get_datasets_dataloaders(batch_size=1, transitions=False, path=None,
         # Some weird torch 1.1.0 doesn't like me passing collate_fn=None
         if transitions:
             dataloader = DataLoader(fo_dataset, batch_size=batch_size,
-                    shuffle=True, num_workers=0, pin_memory=True)
+                    shuffle=True, num_workers=num_workers, pin_memory=True)
         else:
             dataloader = DataLoader(fo_dataset, batch_size=batch_size,
-                    shuffle=True, num_workers=0, pin_memory=True,
+                    shuffle=True, num_workers=num_workers, pin_memory=True,
                     collate_fn=collate_trajectories)
         datasets[split] = fo_dataset
         dataloaders[split] = dataloader
