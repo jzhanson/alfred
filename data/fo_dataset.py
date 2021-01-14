@@ -19,6 +19,8 @@ parser.add_argument('-fp', '--find-parsing', dest='find_parsing', action='store_
 parser.add_argument('-nfp', '--no-find-parsing', dest='find_parsing', action='store_false', help='whether to do advanced parsing of gotolocation + other subgoals into \'finds\'')
 parser.set_defaults(find_parsing=False)
 parser.add_argument('-sp', '--save-path', type=str, default=None, help='path (directory) to save index files')
+parser.add_argument('-hri', '--high-res-images', dest='high_res_images', action='store_true', help='use high_res_images directories')
+parser.add_argument('-ri', '--raw-images', dest='high_res_images', action='store_false', help='use raw_images directories')
 
 
 AUGMENT_SUBGOALS = ['PickupObject', 'SliceObject', 'ToggleObject',
@@ -74,11 +76,15 @@ def trajectories_from_high_pddl_dicts(high_pddl_dict, next_high_pddl_dict,
 
     return trajectories, targets
 
-def get_trajectories(paths, find_parsing=False):
+def get_trajectories(paths, find_parsing=False, high_res_images=False):
     trajectories = []
     target_occurrences = {}
     # Iterate through jsons
     for path in paths:
+        # Some directories may not have high res images: skip those
+        if high_res_images and not os.path.isdir(os.path.join(path,
+            'high_res_images')):
+            continue
         with open(os.path.join(path, 'traj_data.json')) as jsonfile:
             traj_dict = json.load(jsonfile)
             path_trajectories = []
@@ -142,9 +148,14 @@ def get_trajectories(paths, find_parsing=False):
                     for trajectory_index in \
                             path_high_idxs_to_trajectory_indexes[
                                     image['high_idx']]:
-                        # Images in traj_data.json are .png where in reality
-                        # they are .jpg
-                        image_name = image['image_name'].split('.')[0] + '.jpg'
+                        # Images in traj_data.json are .png but in ALFRED
+                        # dataset they are .jpg
+                        # Use original .png if using from high_res_images
+                        if high_res_images:
+                            image_name = image['image_name']
+                        else:
+                            image_name = image['image_name'].split('.')[0] + \
+                                    '.jpg'
                         path_trajectories[trajectory_index]['images'] \
                                 .append(image_name)
                         # Supposedly 10 extra features are at the end and don't
@@ -200,7 +211,7 @@ def get_trajectories(paths, find_parsing=False):
             trajectories.extend(path_trajectories)
     return trajectories, target_occurrences
 
-def make_fo_dataset(find_parsing=False, save_path=None):
+def make_fo_dataset(find_parsing=False, save_path=None, high_res_images=False):
     splits_path = os.path.join(os.environ['ALFRED_ROOT'], "data/splits/oct21.json")
     task_repo = os.path.join(os.environ['ALFRED_ROOT'], "data/full_2.1.0")
 
@@ -215,12 +226,14 @@ def make_fo_dataset(find_parsing=False, save_path=None):
             item['task']) for item in split_tasks['valid_unseen']]
 
     training_trajectories, training_target_occurrences = get_trajectories(
-            training_paths, find_parsing=find_parsing)
+            training_paths, find_parsing=find_parsing,
+            high_res_images=high_res_images)
     validation_seen_trajectories, validation_seen_target_occurrences = \
-            get_trajectories(validation_seen_paths, find_parsing=find_parsing)
+            get_trajectories(validation_seen_paths, find_parsing=find_parsing,
+                    high_res_images=high_res_images)
     validation_unseen_trajectories, validation_unseen_target_occurrences =  \
             get_trajectories(validation_unseen_paths,
-                    find_parsing=find_parsing)
+                    find_parsing=find_parsing, high_res_images=high_res_images)
     print('training trajectories: ' + str(len(training_trajectories)))
     print('validation seen trajectories: ' + str(len(
         validation_seen_trajectories)))
@@ -284,7 +297,7 @@ class FindOneDataset(Dataset):
     This class returns trajectories by index.
     """
     def __init__(self, json_path, images=True, features=True,
-            transitions=False):
+            transitions=False, high_res_images=False):
         with open(json_path, 'r') as jsonfile:
             self.trajectories = json.load(jsonfile)
         self.images = images
@@ -302,6 +315,11 @@ class FindOneDataset(Dataset):
                         transition_index))
         else:
             self.transitions = None
+        self.high_res_images = high_res_images
+        if self.high_res_images:
+            self.images_subdir_name = 'high_res_images'
+        else:
+            self.images_subdir_name = 'raw_images'
 
     def __len__(self):
         return len(self.transitions) if self.transitions is not None else \
@@ -336,7 +354,8 @@ class FindOneDataset(Dataset):
                 current_path = self.trajectories[trajectory_index]['path']
                 # Load the images and/or features of each sample
                 if self.images:
-                    image_path = os.path.join(current_path, 'raw_images',
+                    image_path = os.path.join(current_path,
+                            self.images_subdir_name,
                             self.trajectories[trajectory_index]['images'][
                                 transition_index])
                     # Reshape cv2 BGR image to RGB
@@ -356,8 +375,8 @@ class FindOneDataset(Dataset):
                 if self.images:
                     current_images = []
                     for image_name in self.trajectories[index]['images']:
-                        image_path = os.path.join(current_path, 'raw_images',
-                                image_name)
+                        image_path = os.path.join(current_path,
+                                self.images_subdir_name, image_name)
                         # Reshape cv2 BGR image to RGB
                         current_images.append(torch.flip(torch.tensor(cv2
                             .imread(image_path)), [2]))
@@ -388,14 +407,15 @@ def collate_trajectories(samples):
             new_samples[k].append(sample[k])
     return new_samples
 
-def get_datasets_dataloaders(batch_size=1, transitions=False, path=None):
+def get_datasets_dataloaders(batch_size=1, transitions=False, path=None,
+        high_res_images=False):
     datasets = {}
     dataloaders = {}
     if path is None:
         path = os.path.join(os.environ['ALFRED_ROOT'], "data/find_one")
     for split in ['train', 'valid_seen', 'valid_unseen']:
         fo_dataset = FindOneDataset(os.path.join(path, split + ".json"),
-            transitions=transitions)
+            transitions=transitions, high_res_images=high_res_images)
         # Some weird torch 1.1.0 doesn't like me passing collate_fn=None
         if transitions:
             dataloader = DataLoader(fo_dataset, batch_size=batch_size,
@@ -418,10 +438,12 @@ if __name__ == '__main__':
     if not os.path.isdir(save_path):
         os.makedirs(save_path)
 
-    make_fo_dataset(find_parsing=args.find_parsing, save_path=save_path)
+    make_fo_dataset(find_parsing=args.find_parsing, save_path=save_path,
+            high_res_images=args.high_res_images)
 
-    datasets, dataloaders = get_dataloaders(batch_size=4, transitions=True,
-            path=save_path)
+    datasets, dataloaders = get_datasets_dataloaders(batch_size=4,
+            transitions=True, path=save_path,
+            high_res_images=args.high_res_images)
     for sample_batched in dataloaders['train']:
         print(len(sample_batched['low_actions']),
                 len(sample_batched['images']), len(sample_batched['features']),
