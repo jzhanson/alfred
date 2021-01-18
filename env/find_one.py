@@ -73,23 +73,26 @@ class FindOne(object):
         if high_idx is None:
             high_idx = 0
 
-        self.scene_name_or_num = traj_data['scene']['scene_num']
+        self.traj_data = traj_data
+        self.high_idx = high_idx
+        self.scene_name_or_num = self.traj_data['scene']['scene_num']
 
         # From models/eval/eval.py
-        object_poses = traj_data['scene']['object_poses']
-        dirty_and_empty = traj_data['scene']['dirty_and_empty']
-        object_toggles = traj_data['scene']['object_toggles']
+        object_poses = self.traj_data['scene']['object_poses']
+        dirty_and_empty = self.traj_data['scene']['dirty_and_empty']
+        object_toggles = self.traj_data['scene']['object_toggles']
 
         scene_name = 'FloorPlan%d' % self.scene_name_or_num
         self.env.reset(scene_name)
         self.env.restore_scene(object_poses, object_toggles, dirty_and_empty)
 
         # initialize to start position
-        self.env.step(dict(traj_data['scene']['init_action']))
+        self.env.step(dict(self.traj_data['scene']['init_action']))
 
         # From models/eval/eval_subgoals.py
         expert_init_actions = [a['discrete_action'] for a in
-                traj_data['plan']['low_actions'] if a['high_idx'] < high_idx]
+                self.traj_data['plan']['low_actions'] if a['high_idx'] <
+                self.high_idx]
 
         frames = [self.env.last_event.frame]
         for i in range(len(expert_init_actions)):
@@ -111,7 +114,7 @@ class FindOne(object):
             frames.append(self.env.last_event.frame)
 
         self.target_object_type = constants.OBJECTS_LOWER_TO_UPPER[
-                traj_data['plan']['high_pddl'][high_idx]
+                self.traj_data['plan']['high_pddl'][self.high_idx]
                 ['discrete_action']['args'][-1]
         ]
         if self.target_object_type not in self.obj_type_to_index:
@@ -152,6 +155,8 @@ class FindOne(object):
         if scene_name_or_num is None:
             # Randomly choose a scene if none specified
             scene_name_or_num = random.choice(AVAILABLE_SCENE_NUMBERS)
+        self.traj_data = None
+        self.high_idx = None
         self.scene_name_or_num = scene_name_or_num
         event = self.env.reset(scene_name_or_num) # Returns ai2thor.server.Event
 
@@ -236,6 +241,10 @@ class FindOne(object):
             print('target_objects: ' + str(self.target_objects))
             print('target_instance_ids: ' + str(self.target_instance_ids))
             print('steps_taken: ' + str(self.steps_taken))
+            if self.traj_data is not None:
+                print('task type: ' + self.traj_data['task_type'])
+                print('task id: ' + self.traj_data['task_id'])
+                print('high idx: ' + str(self.high_idx))
             assert False
 
         best_action = self.current_expert_actions[0]['action']
