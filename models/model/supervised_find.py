@@ -861,7 +861,7 @@ if __name__ == '__main__':
         datasets, dataloaders = get_datasets_dataloaders(
                 batch_size=args.batch_size, path=args.dataset_path,
                 high_res_images=args.high_res_images,
-                num_workers=args.dataset_workers)
+                num_workers=args.dataloader_workers)
     if args.visual_model.lower() == 'nature' or args.visual_model.lower() == \
             'naturecnn':
         visual_model = NatureCNN(frame_stack=args.frame_stack,
@@ -901,6 +901,9 @@ if __name__ == '__main__':
         model = LateFusion(visual_model, object_embeddings,
                 policy_model, frame_stack=args.frame_stack).to(device)
     optimizer = optim.SGD(model.parameters(), lr=args.lr)
+
+    print('model parameters: ' + str(sum(p.numel() for p in model.parameters()
+        if p.requires_grad)))
 
     if args.dataset_path is not None:
         train_dataset(fo, model, optimizer, datasets, dataloaders,
