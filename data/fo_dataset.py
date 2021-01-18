@@ -21,6 +21,7 @@ parser.set_defaults(find_parsing=False)
 parser.add_argument('-sp', '--save-path', type=str, default=None, help='path (directory) to save index files')
 parser.add_argument('-hri', '--high-res-images', dest='high_res_images', action='store_true', help='use high_res_images directories')
 parser.add_argument('-ri', '--raw-images', dest='high_res_images', action='store_false', help='use raw_images directories')
+parser.set_defaults(high_res_images=True)
 
 
 AUGMENT_SUBGOALS = ['PickupObject', 'SliceObject', 'ToggleObject',
@@ -150,12 +151,16 @@ def get_trajectories(paths, find_parsing=False, high_res_images=False):
                                     image['high_idx']]:
                         # Images in traj_data.json are .png but in ALFRED
                         # dataset they are .jpg
-                        # Use original .png if using from high_res_images
+                        # Use .png if using from high_res_images
                         if high_res_images:
-                            image_name = image['image_name']
+                            image_name = image['image_name'].split('.')[0] + \
+                                    '.png'
                         else:
                             image_name = image['image_name'].split('.')[0] + \
                                     '.jpg'
+                        image_path = os.path.join(path, 'high_res_images', image_name)
+                        if not os.path.isfile(image_path):
+                            print('not a real file! ' + image_path)
                         path_trajectories[trajectory_index]['images'] \
                                 .append(image_name)
                         # Supposedly 10 extra features are at the end and don't
@@ -187,7 +192,13 @@ def get_trajectories(paths, find_parsing=False, high_res_images=False):
                 while image['low_idx'] == \
                         trajectory_index_to_last_low_idx[0][1] + 1:
                     trajectory_index = trajectory_index_to_last_low_idx[0][0]
-                    image_name = image['image_name'].split('.')[0] + '.jpg'
+                    if high_res_images:
+                        image_name = image['image_name'].split('.')[0] + '.png'
+                    else:
+                        image_name = image['image_name'].split('.')[0] + '.jpg'
+                    image_path = os.path.join(path, 'high_res_images', image_name)
+                    if not os.path.isfile(image_path):
+                        print('not a real file! ' + image_path)
                     path_trajectories[trajectory_index]['images'].append(
                             image_name)
                     path_trajectories[trajectory_index]['features'].append(
@@ -359,8 +370,11 @@ class FindOneDataset(Dataset):
                             self.trajectories[trajectory_index]['images'][
                                 transition_index])
                     # Reshape cv2 BGR image to RGB
-                    sample['images'].append(torch.flip(torch.tensor(cv2
-                        .imread(image_path)), [2]))
+                    image = cv2.imread(image_path)
+                    if image is None:
+                        print(image_path)
+                    sample['images'].append(torch.flip(torch.tensor(image),
+                        [2]))
                 if self.features:
                     features = torch.load(os.path.join(current_path,
                         'feat_conv.pt'))
@@ -377,9 +391,12 @@ class FindOneDataset(Dataset):
                     for image_name in self.trajectories[index]['images']:
                         image_path = os.path.join(current_path,
                                 self.images_subdir_name, image_name)
+                        image = cv2.imread(image_path)
+                        if image is None:
+                            print(image_path)
                         # Reshape cv2 BGR image to RGB
-                        current_images.append(torch.flip(torch.tensor(cv2
-                            .imread(image_path)), [2]))
+                        current_images.append(torch.flip(torch.tensor(image),
+                            [2]))
                     sample['images'].append(torch.stack(current_images))
                 if self.features:
                     features = torch.load(os.path.join(current_path,
