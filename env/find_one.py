@@ -402,26 +402,9 @@ class FindOne(object):
         """
         Returns 1 if a target is visible from the current pose, 0 otherwise.
         """
-        instance_segs = self.env.last_event.instance_segmentation_frame
-        color_to_object_id = self.env.last_event.color_to_object_id
-
-        # Some segmentations correspond to object types? For example
-        # some are 'Sink|-01.99|+01.14|-00.98|SinkBasin', 'SinkBasin',
-        # 'Sink', 'Sink|-01.99|+01.14|-00.98'
-        #scene_object_ids = [obj['objectId'] for obj in
-        #        self.env.last_event.metadata['objects']]
-
-        for i in range(instance_segs.shape[0]):
-            for j in range(instance_segs.shape[1]):
-                # Sometimes colors in instance_segs don't appear in
-                # color_to_object_id: specifically, (0, 0, 255)
-                color = tuple(instance_segs[i, j])
-                if color in color_to_object_id and color_to_object_id[color] \
-                        in self.target_instance_ids:
-                    return True
-                elif color not in color_to_object_id:
-                    print('color %s not in color_to_object_id at (%d, %d)' %
-                            (str(color), i, j))
+        for object_id in self.target_instance_ids:
+            if self.env.last_event.get_object(object_id)['visible']:
+                return True
         return False
 
 if __name__ == '__main__':
