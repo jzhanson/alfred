@@ -57,6 +57,9 @@ parser.add_argument('-vue', '--valid-unseen-episodes', type=int, default=10, hel
 parser.add_argument('-tf', '--teacher-force', dest='teacher_force', action='store_true')
 parser.add_argument('-ntf', '--no-teacher-force', dest='teacher_force', action='store_false')
 parser.set_defaults(teacher_force=False)
+parser.add_argument('-ct', '--crow-threshold', type=float, default=None, help='crow distance threshold for success on live rollouts')
+parser.add_argument('-at', '--action-threshold', type=int, default=None, help='action distance threshold for success on live rollouts')
+parser.add_argument('-wt', '--walking-threshold', type=int, default=None, help='walking distance threshold for success on live rollouts')
 parser.add_argument('-dp', '--dataset-path', type=str, default=None, help='path (directory) to dataset indexes of trajectories and obj_type_to_index, if using')
 parser.add_argument('-hri', '--high-res-images', dest='high_res_images', action='store_true', help='whether the provided dataset uses images from high_res_images directories')
 parser.add_argument('-ri', '--raw-images', dest='high_res_images', action='store_false', help='whether the provided dataset uses images from raw_images directories')
@@ -183,7 +186,7 @@ def rollout_trajectory(fo, model, frame_stack=1, zero_fill_frame_stack=False,
     trajectory_results['scene_name_or_num'] = fo.get_scene_name_or_num()
     trajectory_results['target'] = fo.get_target_object_type()
     trajectory_results['initial_action_distance'] = \
-            len(fo.original_expert_actions)
+            len(fo.get_original_expert_actions())
     trajectory_results['initial_crow_distance'] = initial_crow_distance
     accuracy, f1 = actions_accuracy_f1(torch.Tensor(pred_action_indexes),
             torch.Tensor(expert_action_indexes))
@@ -199,9 +202,7 @@ def rollout_trajectory(fo, model, frame_stack=1, zero_fill_frame_stack=False,
     trajectory_results['crow_distance_to_goal'] = fo.crow_distance_to_goal()
     trajectory_results['walking_distance_to_goal'] = \
             fo.walking_distance_to_goal()
-    final_expert_actions, final_expert_path = \
-            fo.get_current_expert_actions_path()
-    trajectory_results['action_distance_to_goal'] = len(final_expert_actions)
+    trajectory_results['action_distance_to_goal'] = fo.action_distance_to_goal()
     trajectory_results['target_visible'] = fo.target_visible()
     trajectory_results['expert_actions'] = fo.get_original_expert_actions()
     with torch.no_grad():
@@ -621,14 +622,12 @@ def train_online(fo, model, optimizer, frame_stack=1, zero_fill_frame_stack=Fals
                     len(trajectory_results['frames']),
                     len(fo.get_original_expert_actions())))
 
-        final_expert_actions, final_expert_path = \
-                fo.get_current_expert_actions_path()
         last_metrics['crow_distance_to_goal'].append(
                 fo.crow_distance_to_goal())
         last_metrics['walking_distance_to_goal'].append(
                 fo.walking_distance_to_goal())
         last_metrics['action_distance_to_goal'].append(
-                len(final_expert_actions))
+                fo.action_distance_to_goal())
         last_metrics['target_visible'].append(fo.target_visible())
         last_metrics['trajectory_length'].append(
                 len(trajectory_results['frames']))
@@ -853,7 +852,9 @@ if __name__ == '__main__':
     print(obj_type_to_index)
     index_to_obj_type = {i: ot for ot, i in obj_type_to_index.items()}
 
-    fo = FindOne(env, obj_type_to_index)
+    fo = FindOne(env, obj_type_to_index, crow_threshold=args.crow_threshold,
+            action_threshold=args.action_threshold,
+            walking_threshold=args.walking_threshold)
 
     if args.dataset_path is not None:
         # Frame stacking models only make sense if you're sampling trajectories
