@@ -63,11 +63,16 @@ def crow_distance(a, b):
 
 class FindOne(object):
     """Task is to find an instance of a specified object in a scene"""
-    def __init__(self, env, obj_type_to_index, max_steps=100):
+    def __init__(self, env, obj_type_to_index, max_steps=100,
+            crow_threshold=None, action_threshold=None,
+            walking_threshold=None):
         self.env = env # ThorEnv
         self.obj_type_to_index = obj_type_to_index
         self.max_steps = max_steps
         self.rewards = REWARDS
+        self.crow_threshold = crow_threshold
+        self.action_threshold = action_threshold
+        self.walking_threshold = walking_threshold
 
     def load_from_traj_data(self, traj_data, high_idx=None):
         if high_idx is None:
@@ -197,6 +202,9 @@ class FindOne(object):
         # Randomly initialize agent position
         # len(self.graph.points) - 1 because randint is inclusive
         start_point_index = random.randint(0, len(self.graph.points) - 1)
+        # NOTE: does not account for crow_success, action_success, or
+        # walking_success, (but an agent still has to predict "Done" to get
+        # credit)
         while start_point_index in self.end_point_indexes:
             start_point_index = random.randint(0, len(self.graph.points) - 1)
         start_point = self.graph.points[start_point_index]
@@ -255,9 +263,11 @@ class FindOne(object):
 
         if action == ACTIONS_DONE or self.steps_taken == self.max_steps:
             self.done = True
-            # TODO: make this success condition better
-            if self.env.last_event.pose_discrete in self.end_poses:
-            #if action == ACTIONS_DONE and best_action == ACTIONS_DONE:
+
+            if action == ACTIONS_DONE and (((self.crow_success() or
+                self.action_success or self.walking_success) and
+                self.target_visible) or self.env.last_event.pose_discrete in
+                        self.end_poses):
                 reward = self.rewards['success']
                 self.success = True
             else:
@@ -385,6 +395,18 @@ class FindOne(object):
     def get_success(self):
         return self.success
 
+    def crow_success(self):
+        return self.crow_threshold is not None and \
+                    self.crow_distance_to_goal() < self.crow_threshold
+
+    def action_success(self):
+        return self.action_threshold is not None and \
+                    self.action_distance_to_goal() < self.action_threshold
+
+    def walking_success(self):
+        return self.walking_threshold is not None and \
+                    self.walking_distance_to_goal() < self.walking_threshold
+
     def crow_distance_to_goal(self):
         target_object_distances_to_agent = [crow_distance(
             target_object['position'],
@@ -392,6 +414,9 @@ class FindOne(object):
             for target_object in self.target_objects]
 
         return min(target_object_distances_to_agent)
+
+    def action_distance_to_goal(self):
+        return len(self.current_expert_actions)
 
     def walking_distance_to_goal(self):
         actions, path = self.get_current_expert_actions_path()
