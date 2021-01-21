@@ -307,7 +307,7 @@ class FindOneDataset(Dataset):
     """
     This class returns trajectories by index.
     """
-    def __init__(self, json_path, images=True, features=True,
+    def __init__(self, json_path, images=True, features=False,
             transitions=False, high_res_images=False):
         with open(json_path, 'r') as jsonfile:
             self.trajectories = json.load(jsonfile)
