@@ -265,8 +265,8 @@ class FindOne(object):
             self.done = True
 
             if action == ACTIONS_DONE and (((self.crow_success() or
-                self.action_success or self.walking_success) and
-                self.target_visible) or self.env.last_event.pose_discrete in
+                self.action_success() or self.walking_success()) and
+                self.target_visible()) or self.env.last_event.pose_discrete in
                         self.end_poses):
                 reward = self.rewards['success']
                 self.success = True
