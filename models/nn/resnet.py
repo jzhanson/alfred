@@ -3,14 +3,15 @@ import torch.nn as nn
 from torchvision import models, transforms
 
 
-class Resnet18(object):
+class Resnet18(nn.Module):
     '''
     pretrained Resnet18 from torchvision
     '''
 
     def __init__(self, args, eval=True, share_memory=False, use_conv_feat=True,
-            device=torch.device('cuda')):
-        self.model = models.resnet18(pretrained=True)
+            pretrained=True, device=torch.device('cuda')):
+        super(Resnet18, self).__init__()
+        self.model = models.resnet18(pretrained=pretrained)
         self.device=device
 
         if args.gpu:
@@ -31,15 +32,20 @@ class Resnet18(object):
     def extract(self, x):
         return self.model(x)
 
+    def forward(self, x):
+        return self.extract(x)
 
-class MaskRCNN(object):
+
+class MaskRCNN(nn.Module):
     '''
     pretrained MaskRCNN from torchvision
     '''
 
     def __init__(self, args, eval=True, share_memory=False, min_size=224,
-            device=torch.device('cuda')):
-        self.model = models.detection.maskrcnn_resnet50_fpn(pretrained=True, min_size=min_size)
+            pretrained=True, device=torch.device('cuda')):
+        super(MaskRCNN, self).__init__()
+        self.model = models.detection.maskrcnn_resnet50_fpn(
+                pretrained=pretrained, min_size=min_size)
         self.model = self.model.backbone.body
         self.feat_layer = 3
         self.device = device
@@ -61,10 +67,15 @@ class MaskRCNN(object):
         features = self.model(x)
         return features[self.feat_layer]
 
+    def forward(self, x):
+        return self.extract(x)
 
-class Resnet(object):
 
-    def __init__(self, args, eval=True, share_memory=False, use_conv_feat=True):
+class Resnet(nn.Module):
+
+    def __init__(self, args, eval=True, share_memory=False, use_conv_feat=True,
+            pretrained=True, frozen=True):
+        super(Resnet, self).__init__()
         self.model_type = args.visual_model
         self.gpu = args.gpu
         if self.gpu:
@@ -78,15 +89,21 @@ class Resnet(object):
         # choose model type
         if self.model_type == "maskrcnn":
             self.resnet_model = MaskRCNN(args, eval, share_memory,
-                    device=self.device)
+                    pretrained=pretrained, device=self.device)
             self.output_size = 2048 * 7 * 7 # Specific to MaskRCNN
         else:
             self.resnet_model = Resnet18(args, eval, share_memory,
-                    use_conv_feat=use_conv_feat, device=self.device)
+                    pretrained=pretrained, use_conv_feat=use_conv_feat,
+                    device=self.device)
             if use_conv_feat:
                 self.output_size = 512 * 7 * 7 # Specific to Resnet18
             else:
                 self.output_size = 1000
+
+        self.frozen = frozen
+        if self.frozen:
+            for param in self.resnet_model.model.parameters():
+                param.requires_grad = False
 
         # normalization transform
         self.transform = self.get_default_transform()
@@ -109,8 +126,11 @@ class Resnet(object):
             images_normalized = images_normalized.to(self.device)
 
         out = []
-        with torch.set_grad_enabled(False):
+        with torch.set_grad_enabled(not self.frozen):
             for i in range(0, images_normalized.size(0), batch):
                 b = images_normalized[i:i+batch]
-                out.append(self.resnet_model.extract(b))
+                out.append(self.resnet_model(b))
         return torch.cat(out, dim=0)
+
+    def forward(self, images, batch=32):
+        return self.featurize(images, batch)
