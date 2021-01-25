@@ -88,7 +88,7 @@ class LateFusion(nn.Module):
                 unstacked_frames = [Image.fromarray(frame.to(dtype=torch.uint8)
                     .cpu().numpy().transpose(1, 2, 0)) for frame in
                     unstacked_frames]
-                unstacked_visual_outputs.append(self.visual_model.featurize(
+                unstacked_visual_outputs.append(self.visual_model(
                     unstacked_frames))
             # unstacked_visual_outputs is now length frame_stack, each element
             # is shape (batch_size, 3, 300, 300)
