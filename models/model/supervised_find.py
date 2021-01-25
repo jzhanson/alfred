@@ -509,8 +509,19 @@ def train_dataset(fo, model, optimizer, datasets, dataloaders,
                     }, checkpoint_save_path)
 
                     if save_images_video:
+                        trajectory_save_path = os.path.join(save_path, 'trajectory')
+                        online_save_path = os.path.join(save_path, 'online')
+                        if not os.path.isdir(trajectory_save_path):
+                            os.makedirs(trajectory_save_path)
+                        if not os.path.isdir(online_save_path):
+                            os.makedirs(online_save_path)
                         write_images_video(results_trajectory, train_steps,
-                                save_path)
+                                trajectory_save_path)
+                        write_images_video(results_online, train_steps,
+                                online_save_path)
+
+            if train_steps == max_steps:
+                break
 
         train_epochs += 1
 
