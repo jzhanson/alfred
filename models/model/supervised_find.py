@@ -50,6 +50,12 @@ parser.set_defaults(init_lstm_object=False)
 parser.add_argument('-rcf', '--resnet-conv-feat', dest='resnet_conv_feat', action='store_true', help='use conv feat (skip last two resnet-18 layers)')
 parser.add_argument('-rll', '--resnet-last-layers', dest='resnet_conv_feat', action='store_false', help='use last two resnet-18 layers')
 parser.set_defaults(resnet_conv_feat=True)
+parser.add_argument('-pvm', '--pretrained-visual-model', dest='pretrained_visual_model', action='store_true', help='if using resnet-18 or maskrcnn, use pretrained weights')
+parser.add_argument('-bvm', '--blank-visual-model', dest='pretrained_visual_model', action='store_false', help='if using resnet-18 or maskrcnn, use blank model')
+parser.set_defaults(pretrained_visual_model=True)
+parser.add_argument('-fpm', '--freeze-pretrained-model', dest='freeze_pretrained_model', action='store_true', help='if using resnet-18 or maskrcnn, freeze weights')
+parser.add_argument('-tpm', '--train-pretrained-model', dest='freeze_pretrained_model', action='store_false', help='if using resnet-18 or maskrcnn, allow weights to change')
+parser.set_defaults(freeze_pretrained_model=True)
 parser.add_argument('-ei', '--eval-interval', type=int, default=100, help='number of training steps between evaluations')
 parser.add_argument('-te', '--train-episodes', type=int, default=10, help='number of episodes to evaluate live on train seen scenes and trajectories')
 parser.add_argument('-vse', '--valid-seen-episodes', type=int, default=10, help='number of episodes to evaluate live on validation seen scenes and trajectories')
@@ -875,7 +881,9 @@ if __name__ == '__main__':
         args.gpu_index = args.gpu
         args.gpu = True
         visual_model = Resnet(args, share_memory=True,
-                use_conv_feat=args.resnet_conv_feat)
+                use_conv_feat=args.resnet_conv_feat,
+                pretrained=args.pretrained_visual_model,
+                frozen=args.freeze_pretrained_model)
         args.gpu = args.gpu_index
         # Visual features are (frame)stacked, not frames, with pretrained
         # models. LateFusion class takes care of that
