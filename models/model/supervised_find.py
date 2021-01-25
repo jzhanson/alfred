@@ -343,7 +343,7 @@ def write_images_video(results_online, train_steps, save_path):
             for image_index in range(len(trajectory_images)):
                 image_save_path = os.path.join(images_save_path, '%09d.png' %
                         int(image_index))
-                cv2.imwrite(image_save_path, trajectory_images[image_index])
+                cv2.imwrite(image_save_path, trajectory_images[image_index].numpy())
             video_save_path = os.path.join(images_save_path,
                     'video.mp4')
             video_saver.save(os.path.join(images_save_path,
