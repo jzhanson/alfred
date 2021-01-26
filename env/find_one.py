@@ -300,6 +300,11 @@ class FindOne(object):
         agent_height = self.env.last_event.metadata['agent']['position']['y']
         end_poses = []
         end_point_indexes = []
+        # TODO: should this to match up perfectly with get_obj_coords in
+        # gen/game_states/task_game_state_full_knowledge.py? get_obj_coords
+        # uses backed off point if the distance to object is < 0.5 and the
+        # point is better than before. This works fine as-is for most objects
+        # but more poorly for large things like CounterTop
         for target_object in self.target_objects:
             distances_to_target = []
             for point in self.graph.points:
@@ -344,9 +349,31 @@ class FindOne(object):
                 end_rotation = 1
             elif np.abs(delta_x) >= np.abs(delta_z) and delta_x < 0:
                 end_rotation = 3
-            # TODO: figure up ending look up/down?
-            #constants.VISIBILITY_DISTANCE
-            end_pose = (end_point[0], end_point[1], end_rotation, 0)
+            # Calculate look angle: from get_obj_coords in
+            # gen/game_states/task_game_state_full_knowledge.py
+            horizontal_dist_to_obj = np.max(np.abs([delta_x, delta_z]))
+            # Use the center y for now. Corners are in
+            # target_object['objectBounds']['objectBoundsCorners']
+            obj_height = agent_height - target_object['position']['y']
+            camera_angle = int(np.clip(np.round(np.arctan2(obj_height,
+                horizontal_dist_to_obj) * (180 / np.pi /
+                    constants.HORIZON_GRANULARITY)) *
+                constants.HORIZON_GRANULARITY, -30,  60))
+
+            # Hard overwrites for camera_angle adjustments based on object type
+            # and scene.
+            if self.target_object_type is not None and self.scene_name_or_num \
+                    is not None:
+                if (self.target_object_type, self.scene_name_or_num) in \
+                        constants.FORCED_HORIZON_OBJS:
+                    camera_angle = constants.FORCED_HORIZON_OBJS[
+                        (self.target_object_type, self.scene_name_or_num)]
+                elif (self.target_object_type, None) in \
+                        constants.FORCED_HORIZON_OBJS:
+                    camera_angle = constants.FORCED_HORIZON_OBJS[
+                        (self.target_object_type, None)]
+
+            end_pose = (end_point[0], end_point[1], end_rotation, camera_angle)
             end_poses.append(end_pose)
             end_point_indexes.append(end_point_index)
 
