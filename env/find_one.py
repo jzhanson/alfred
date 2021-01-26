@@ -314,11 +314,12 @@ class FindOne(object):
             end_point_index = np.argmin(distances_to_target)
 
             end_point = self.graph.points[end_point_index]
-            delta_x = end_point[0]*constants.AGENT_STEP_SIZE - \
-                    target_object['position']['x']
-            delta_z = end_point[1]*constants.AGENT_STEP_SIZE - \
-                    target_object['position']['z']
+            delta_x = target_object['position']['x'] - \
+                    end_point[0]*constants.AGENT_STEP_SIZE
+            delta_z = target_object['position']['z'] - \
+                    end_point[1]*constants.AGENT_STEP_SIZE
             '''
+            Center is point, where agent would stand.
                     z
               \     |     /
                \  0 | 0  /
