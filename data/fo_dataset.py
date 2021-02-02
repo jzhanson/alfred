@@ -461,6 +461,11 @@ if __name__ == '__main__':
     datasets, dataloaders = get_datasets_dataloaders(batch_size=4,
             transitions=True, path=save_path,
             high_res_images=args.high_res_images)
+
+    print('train trajectories: ' + str(len(datasets['train'])))
+    print('valid_seen trajectories: ' + str(len(datasets['valid_seen'])))
+    print('valid_unseen trajectories: ' + str(len(datasets['valid_unseen'])))
+
     for sample_batched in dataloaders['train']:
         print(len(sample_batched['low_actions']),
                 len(sample_batched['images']), len(sample_batched['features']),
