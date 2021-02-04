@@ -95,16 +95,6 @@ args = parser.parse_args()
 # So is RuntimeError: cuDNN error: CUDNN_STATUS_EXECUTION_FAILED
 # TODO: upgrade CUDA in ALFRED docker container
 
-# Available scenes are [1, 30], [201, 230], [301, 330], and [401, 430]
-# Tragically this is hardcoded in ai2thor 2.1.0 in
-# ai2thor/controller.py line 429
-# I got these splits out of the last number in the first directory of each
-# train, valid_seen and valid_unseen task
-TRAIN_SCENE_NUMBERS = [1, 2, 3, 4, 5, 6, 7, 8, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 30, 201, 202, 203, 204, 205, 206, 207, 208, 209, 210, 211, 212, 213, 214, 216, 217, 218, 220, 221, 222, 223, 224, 225, 227, 228, 229, 230, 301, 302, 303, 304, 305, 306, 307, 309, 310, 311, 312, 313, 314, 316, 317, 318, 319, 320, 321, 322, 323, 324, 326, 327, 328, 329, 330, 401, 402, 403, 405, 406, 407, 408, 409, 410, 411, 412, 413, 414, 415, 416, 417, 418, 419, 420, 421, 422, 423, 426, 427, 428, 429, 430]
-VALID_SEEN_SCENE_NUMBERS = [1, 2, 3, 4, 5, 6, 7, 8, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 30, 201, 202, 203, 204, 205, 206, 207, 212, 213, 214, 216, 218, 222, 223, 224, 225, 227, 229, 230, 301, 302, 303, 304, 305, 309, 310, 311, 313, 314, 316, 318, 320, 323, 324, 326, 327, 328, 329, 330, 401, 402, 403, 405, 406, 407, 408, 409, 410, 412, 413, 414, 415, 417, 418, 419, 422, 423, 426, 427, 428, 429]
-VALID_UNSEEN_SCENE_NUMBERS = [10, 219, 308, 424]
-TEST_SCENE_NUMBERS = [9, 29, 215, 226, 315, 325, 404, 425]
-
 # TODO: clean up moving model to CUDA
 device = torch.device('cuda:' + str(args.gpu))
 
@@ -611,7 +601,8 @@ def train_online(fo, model, optimizer, frame_stack=1, zero_fill_frame_stack=Fals
                 frame_stack=frame_stack,
                 zero_fill_frame_stack=zero_fill_frame_stack,
                 teacher_force=teacher_force,
-                scene_name_or_num=random.choice(TRAIN_SCENE_NUMBERS))
+                scene_name_or_num=random.choice(
+                    constants.DATASET_TRAIN_SCENE_NUMBERS))
         all_action_scores = torch.cat(trajectory_results['all_action_scores'])
 
         # Train on trajectory
@@ -758,8 +749,8 @@ def eval_online(fo, model, frame_stack=1, zero_fill_frame_stack=False,
     for split, episodes, scene_numbers in zip(
             ['train', 'valid_seen', 'valid_unseen'],
             [train_episodes, valid_seen_episodes, valid_unseen_episodes],
-            [TRAIN_SCENE_NUMBERS, VALID_SEEN_SCENE_NUMBERS,
-                VALID_UNSEEN_SCENE_NUMBERS]):
+            [DATASET_TRAIN_SCENE_NUMBERS, DATASET_VALID_SEEN_SCENE_NUMBERS,
+                DATASET_VALID_UNSEEN_SCENE_NUMBERS]):
         metrics[split] = {}
         metrics[split]['target'] = []
         metrics[split]['initial_action_distance'] = []
