@@ -13,12 +13,6 @@ from env.thor_env import ThorEnv
 import gen.constants as constants
 from gen.graph.graph_obj import Graph
 
-# Available scenes are [1, 30], [201, 230], [301, 330], and [401, 430]
-# Tragically this is hardcoded in ai2thor 2.1.0 in
-# ai2thor/controller.py line 429
-AVAILABLE_SCENE_NUMBERS = list(range(1, 31)) + list(range(201, 231)) + \
-    list(range(301, 331)) + list(range(401, 431)) # 20 scenes per room type
-
 ACTIONS_DONE = 'Done'
 ACTIONS = ['MoveAhead', 'RotateLeft', 'RotateRight', 'LookUp', 'LookDown',
         'Done']
@@ -38,7 +32,7 @@ REWARDS = {
 def index_all_items(env):
     """Iterates through each scene and puts all item types into a dict"""
     obj_type_to_index = {}
-    for scene_num in AVAILABLE_SCENE_NUMBERS:
+    for scene_num in constants.SCENE_NUMBERS:
         event = env.reset(scene_num)
         for obj in event.metadata['objects']:
             if obj['objectType'] not in obj_type_to_index:
@@ -159,7 +153,7 @@ class FindOne(object):
     def reset(self, scene_name_or_num=None):
         if scene_name_or_num is None:
             # Randomly choose a scene if none specified
-            scene_name_or_num = random.choice(AVAILABLE_SCENE_NUMBERS)
+            scene_name_or_num = random.choice(constants.SCENE_NUMBERS)
         self.traj_data = None
         self.high_idx = None
         self.scene_name_or_num = scene_name_or_num
