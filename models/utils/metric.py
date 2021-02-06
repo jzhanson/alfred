@@ -106,8 +106,8 @@ class F1Score:
         true_count = torch.eq(labels, label_id).sum()
 
         # true positives: labels equal to prediction and to label_id
-        true_positive = torch.logical_and(torch.eq(labels, predictions),
-                torch.eq(labels, label_id)).sum().float()
+        true_positive = ((torch.eq(labels, predictions) +
+                torch.eq(labels, label_id)) > 1).sum().float()
         # precision for label
         precision = torch.div(true_positive, torch.eq(predictions, label_id).sum().float())
         # replace nan values with 0
@@ -155,6 +155,8 @@ class F1Score:
 
         return f1_score
 
-def compute_actions_f1(predictions, labels, av='micro'):
+# Keep in mind that the f1 micro is just the accuracy
+# https://stackoverflow.com/questions/55740220/macro-vs-micro-vs-weighted-vs-samples-f1-score
+def compute_actions_f1(predictions, labels, av='macro'):
     f1_metric = F1Score(av)
     return f1_metric(predictions, labels)
