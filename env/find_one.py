@@ -121,12 +121,17 @@ class FindOne(object):
                     ') of trajectory not in obj_type_to_index')
         instance_ids = [obj['objectId'] for obj in
                 self.env.last_event.metadata['objects']]
-        interactable_instance_ids = self.env.prune_by_any_interaction(
+        self.interactable_instance_ids = self.env.prune_by_any_interaction(
                 instance_ids)
-        interactable_objects = [self.env.last_event.get_object(instance_id)
-                for instance_id in interactable_instance_ids]
-        self.target_objects = [obj for obj in interactable_objects if
-                obj['objectType'] == self.target_object_type]
+        self.interactable_objects = [self.env.last_event.get_object(instance_id)
+                for instance_id in self.interactable_instance_ids]
+        self.set_valid_target_objects()
+        if len(self.target_objects) == 0:
+            print('No unhidden target objects of type ' +
+                    self.target_object_type + ' in scene ' +
+                    str(self.scene_name_or_num))
+            self.target_objects = [obj for obj in self.interactable_objects if
+                    obj['objectType'] == self.target_object_type]
         self.target_instance_ids = [obj['objectId'] for obj in
                 self.target_objects]
         self.target_object_type_index = self.obj_type_to_index[
@@ -162,23 +167,27 @@ class FindOne(object):
         # First, pick an object type that's present in the scene and
         # interactable
         instance_ids = [obj['objectId'] for obj in event.metadata['objects']]
-        interactable_instance_ids = self.env.prune_by_any_interaction(
+        self.interactable_instance_ids = self.env.prune_by_any_interaction(
                 instance_ids)
-        interactable_objects = [event.get_object(instance_id) for instance_id
-                in interactable_instance_ids]
+        self.interactable_objects = [event.get_object(instance_id) for instance_id
+                in self.interactable_instance_ids]
         # Use a set to remove duplicates and avoid bias by number of objects in
         # scene
         interactable_object_types = list(set([obj['objectType'] for obj in
-            interactable_objects]))
+            self.interactable_objects]))
         self.target_object_type = random.choice(interactable_object_types)
-        # Next, make sure it's present in obj_type_to_index
-        while self.target_object_type not in self.obj_type_to_index:
+        while True:
             self.target_object_type = random.choice(interactable_object_types)
-        # Finally, keep track of all objects in the scene of that type
-        self.target_objects = [obj for obj in interactable_objects if
-                obj['objectType'] == self.target_object_type]
-        self.target_instance_ids = [obj['objectId'] for obj in
-                self.target_objects]
+            # Next, make sure it's present in obj_type_to_index and there are
+            # valid target objects (not hidden) in the scene
+            if self.target_object_type not in self.obj_type_to_index:
+                continue
+            self.set_valid_target_objects()
+
+            self.target_instance_ids = [obj['objectId'] for obj in
+                    self.target_objects]
+            if len(self.target_instance_ids) > 0:
+                break
 
         self.target_object_type_index = self.obj_type_to_index[
                 self.target_object_type]
@@ -285,6 +294,28 @@ class FindOne(object):
 
         return (event.frame, self.target_object_type), reward, self.done, \
             (success, event, best_action) #obs, rew, done, info
+
+    def set_valid_target_objects(self):
+        # Get target objects of self.target_object_type that aren't hidden in
+        # containers
+        candidate_objects = [obj for obj in self.interactable_objects if
+                obj['objectType'] == self.target_object_type]
+        self.target_objects = []
+        for candidate_object in candidate_objects:
+            if candidate_object['parentReceptacles'] is not None:
+                exists_object_not_in_container = False
+                parent_receptacles = [self.env.last_event.get_object(
+                    parent_receptacle_id) for parent_receptacle_id in
+                        candidate_object['parentReceptacles']]
+                # Toilet can be opened or closed but I don't think things can
+                # be hidden in them
+                parent_receptacles_closed = [parent_receptacle['openable']
+                        and not parent_receptacle['isOpen'] and
+                        parent_receptacle['objectType'] != 'Toilet' for
+                        parent_receptacle in parent_receptacles]
+                if any(parent_receptacles_closed):
+                    continue
+            self.target_objects.append(candidate_object)
 
     def get_end_poses_point_indexes(self):
         """
