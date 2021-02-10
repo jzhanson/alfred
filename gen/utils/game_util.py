@@ -292,7 +292,7 @@ def get_objects_of_type(object_type, metadata):
 
 
 def get_obj_of_type_closest_to_obj(object_type, ref_object_id, metadata):
-    objs_of_type = [obj for obj in metadata['objects'] if obj['objectType'] == object_type and obj['visible']]
+    objs_of_type = [obj for obj in metadata['objects'] if obj['objectType'] == object_type]
     ref_obj = get_object(ref_object_id, metadata)
     closest_objs_of_type = sorted(objs_of_type, key=lambda o: np.linalg.norm(np.array([o['position']['x'], o['position']['y'], o['position']['z']]) - \
                                                                              np.array([ref_obj['position']['x'], ref_obj['position']['y'], ref_obj['position']['z']])))
