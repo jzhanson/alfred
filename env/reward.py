@@ -1,11 +1,9 @@
 from gen.utils.game_util import get_object
 import gen.constants as constants
 
-# TODO: add more sophisticated state change tracking like update_states in
-# env/thor_env.py to track heated, cooled, and cleaned objects separately, as
-# well as filling with liquid and being used up (don't need cookable since
-# being cooked is very similar to being heated, and we're tracking object
-# states outside the environment anyways)
+# TODO: consider adding filling with liquid and being used up (don't need
+# cookable since being cooked is very similar to being heated, and we're
+# tracking object states outside the environment anyways)
 #
 # canChangeTempToHot is also a property of Toaster, StoveBurner, CoffeeMachine,
 # and Microwave. Only Potato is cookable
@@ -15,23 +13,49 @@ class InteractionReward(object):
     every interaction.
     """
     def __init__(self, env, rewards, reward_rotations=False,
-            reward_look_angle=False):
+            reward_look_angle=False, reward_state_changes=True):
         self.env = env
         self.rewards = rewards
         self.reward_rotations = reward_rotations
         self.reward_look_angle = reward_look_angle
-        self.interactions = [] # Tuples of object_id, action
-        self.visited_locations_poses = {} # (x, z): (rotation, looking angle)
+        self.reset()
 
     def get_reward(self, state, action, target_instance_id=None,
             interact_mask=None):
+        """
+        state.metadata['lastAction'] has TeleportFull for navigation actions
+        and is consistent with what was executed in the environment, while our
+        action argument is consistent with the actions exposed to the
+        agent/user.
+        """
         reward = self.rewards['step_penalty']
-        if (state.metadata['lastActionSuccess'] and
+        if not state.metadata['lastActionSuccess']:
+            reward = self.rewards['invalid_action']
+        elif (state.metadata['lastActionSuccess'] and
                 state.metadata['lastAction'] in constants.INT_ACTIONS):
-            interaction = (target_instance_id, action)
-            if interaction not in interactions:
-                interactions.append(interaction)
+            interaction = (target_instance_id, state.metadata['lastAction'])
+            if interaction not in self.interactions:
+                self.interactions.append(interaction)
                 reward = self.rewards['interaction']
+            # Also, if action resulted in objects becoming clean, heated, or
+            # cooled, give reward for each one
+            newly_cleaned = (len(self.env.cleaned_objects) -
+                    self.num_cleaned_objects)
+            newly_heated = (len(self.env.heated_objects) -
+                    self.num_heated_objects)
+            newly_cooled = (len(self.env.cooled_objects) -
+                    self.num_cooled_objects)
+            # A single action can only result in one type of state change
+            if newly_cleaned > 0:
+                reward += newly_cleaned * self.rewards['state_change']
+                self.num_cleaned_objects += newly_cleaned
+            if newly_heated > 0:
+                reward += newly_heated * self.rewards['state_change']
+                self.num_heated_objects += newly_heated
+            if newly_cooled > 0:
+                reward += newly_cooled * self.rewards['state_change']
+                self.num_cooled_objects += newly_cooled
+        # Could also do state.metadata['lastAction'] == 'TeleportFull'
         elif (state.metadata['lastActionSuccess'] and action in
                 constants.NAV_ACTIONS):
             location = state.pose_discrete[:2]
@@ -66,8 +90,17 @@ class InteractionReward(object):
         return self.rewards['invalid_action']
 
     def reset(self):
-        self.interactions = []
-        self.visited_locations = {}
+        self.interactions = [] # Tuples of object_id, action
+        self.visited_locations_poses = {} # (x, z): (rotation, looking angle)
+        # Use env/thor_env.py's cleaned_objects, heated_objects, and
+        # cooled_objects, which don't ever drop members, to track
+        # cleaned/heated/cooled state changes
+        self.num_cleaned_objects = 0
+        self.num_heated_objects = 0
+        self.num_cooled_objects = 0
+        # Do not reward initial agent location
+        starting_pose = self.env.last_event.pose_discrete
+        self.visited_locations_poses[starting_pose[:2]] = [starting_pose[2:]]
 
 class BaseAction(object):
     '''
