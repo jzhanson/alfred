@@ -191,22 +191,10 @@ class InteractionExploration(object):
         return self.env.last_event.frame, reward, self.done, (success,
                 self.env.last_event, err)
 
-    def closest_object(self, allow_not_visible=False,
-        allow_uninteracted=True, contextual=True):
+    def contextual_attributes(self):
+        """Get attributes of interactable objects based on agent state.
+
         """
-        Returns object id of closest visible interactable object to current
-        agent position.
-
-        If contextual is true, items will be filtered based on current state
-        (e.g. if not holding anything, will allow pickupable items, if holding
-        a knife, will allow sliceable items).
-
-        If uninteracted is True, will only return closest visible
-        uninteracted object.
-
-        Inventory objects are not counted.
-        """
-        # If one of the attributes is true, then the object is included
         # TODO: Unused properties: dirtyable, breakable, cookable,
         # canFillWithLiquid, canChangeTempToCold, canChangeTempToHot,
         # canBeUsedUp
@@ -223,10 +211,29 @@ class InteractionExploration(object):
             # item
             # Cleanable, heatable and coolable objects should all be pickupable
             contextual_attributes.append('pickupable')
+        return contextual_attributes
 
-        inventory_object_id = self.env.last_event.metadata \
-                ['inventoryObjects'][0]['objectId'] if \
-                len(self.env.last_event.metadata['inventoryObjects']) > 0 else None
+    def closest_object(self, allow_not_visible=False,
+        allow_uninteracted=True, contextual=True):
+        """
+        Returns object id of closest visible interactable object to current
+        agent position.
+
+        If contextual is true, items will be filtered based on current state
+        (e.g. if not holding anything, will allow pickupable items, if holding
+        a knife, will allow sliceable items).
+
+        If uninteracted is True, will only return closest visible
+        uninteracted object.
+
+        Inventory objects are not counted.
+        """
+        # If one of the attributes is true, then the object is included
+        contextual_attributes = self.contextual_attributes
+        inventory_object_id = (self.env.last_event.metadata
+                ['inventoryObjects'][0]['objectId'] if
+                len(self.env.last_event.metadata['inventoryObjects']) > 0 else
+                None)
 
         # Return None (not '') if no object is found because this function will
         # be called when trying to get an object for contextual interaction,
@@ -241,10 +248,11 @@ class InteractionExploration(object):
                 continue
             if inventory_object_id == object_id:
                 continue
-            possesses_contextual_attributes = [obj[attribute] for attribute in
-                    contextual_attributes]
-            if not any(possesses_contextual_attributes):
-                continue
+            if contextual:
+                possesses_contextual_attributes = [obj[attribute] for attribute
+                        in contextual_attributes]
+                if not any(possesses_contextual_attributes):
+                    continue
 
             distance = obj['distance']
             if closest_object_id is None or distance < closest_object_distance:
