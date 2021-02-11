@@ -10,37 +10,15 @@ import cv2
 from env.thor_env import ThorEnv
 import gen.constants as constants
 from gen.graph.graph_obj import Graph
+from reward import InteractionReward
 
-ACTIONS_INTERACT = 'Interact'
-NAV_ACTIONS = ['MoveAhead', 'RotateLeft', 'RotateRight', 'LookUp', 'LookDown']
-INT_ACTIONS = ['OpenObject', 'CloseObject', 'PickupObject', 'PutObject',
-        'ToggleObjectOn', 'ToggleObjectOff', 'SliceObject']
-SIMPLE_ACTIONS = NAV_ACTIONS + [ACTIONS_INTERACT]
-COMPLEX_ACTIONS = NAV_ACTIONS + INT_ACTIONS
-INDEX_TO_ACTION_SIMPLE = dict(enumerate(SIMPLE_ACTIONS))
-ACTION_TO_INDEX_SIMPLE = dict((v,k) for k,v in INDEX_TO_ACTION_SIMPLE.items())
-INDEX_TO_ACTION_COMPLEX = dict(enumerate(COMPLEX_ACTIONS))
-ACTION_TO_INDEX_COMPLEX = dict((v,k) for k,v in
-        INDEX_TO_ACTION_COMPLEX.items())
-
-# TODO: fix up reward function and add options for reward for every new state
-# or reward only for new interactions
-REWARDS = {
-        'success' : 10,
-        'failure' : -10,
-        'step_penalty' : 0,
-        'correct_action' : 1,
-        'interact' : 1
-        }
-
-# TODO: track object states in a vector to issue rewards based on novelty
 class InteractionExploration(object):
     """Task is to interact with all objects in a scene"""
-    def __init__(self, env, single_interact=False, use_masks=False):
+    def __init__(self, env, reward, single_interact=False, use_masks=False):
         self.env = env # ThorEnv
         self.single_interact = single_interact
         self.use_masks = use_masks
-        self.rewards = REWARDS
+        self.reward = reward
         self.done = False
 
     def reset(self, scene_name_or_num=None):
@@ -103,28 +81,28 @@ class InteractionExploration(object):
 
 
     def step(self, action, interact_mask=None):
-        reward = self.rewards['step_penalty']
         # Reject action if already done
         if self.done:
             err = 'Trying to step in a done environment'
             success = False
-            return self.env.last_event.frame, reward, self.done, (success,
-                    self.env.last_event, err)
+            return (self.env.last_event.frame, self.reward.invalid_action(),
+                    self.done, (success, self.env.last_event, err))
 
-        is_interact_action = (action == ACTIONS_INTERACT or action in
-                INT_ACTIONS)
+        is_interact_action = (action == constants.ACTIONS_INTERACT or action in
+                constants.INT_ACTIONS)
 
         # If using masks, a mask must be provided with an interact action
         if self.use_masks and is_interact_action and interact_mask is None:
             err = 'No mask provided with interact action ' + action
             success = False
-            return self.env.last_event.frame, reward, self.done, (success,
-                    self.env.last_event, err)
+            return (self.env.last_event.frame, self.reward.invalid_action(),
+                    self.done, (success, self.env.last_event, err))
 
         # If not using masks, have to choose an object based on camera
         # view and proximity and interactability
         if is_interact_action and not self.use_masks:
             # Choose object
+            # TODO: change this to object at the center of the screen
             target_instance_id = self.closest_object(allow_not_visible=False,
                     allow_uninteracted=True, contextual=True)
             if target_instance_id is None:
@@ -139,8 +117,9 @@ class InteractionExploration(object):
                         err = ('No valid contextual interaction for object ' +
                                 target_instance_id)
                         success = False
-                        return self.env.last_event.frame, reward, self.done, \
-                            (success, self.env.last_event, err)
+                        return (self.env.last_event.frame,
+                                self.reward.invalid_action(), self.done,
+                                (success, self.env.last_event, err))
                 else:
                     contextual_action = action
                 event, success, err = self.exec_targeted_action(
@@ -162,8 +141,9 @@ class InteractionExploration(object):
                         err = ('No valid contextual interaction for object ' +
                                 target_instance_id)
                         success = False
-                        return self.env.last_event.frame, reward, self.done, \
-                            (success, self.env.last_event, err)
+                        return (self.env.last_event.frame,
+                                self.reward.invalid_action(), self.done,
+                                (success, self.env.last_event, err))
                     # Could call env/thor_env.py's va_interact, for some nice
                     # debug code
                     #success, event, target_instance_id, err, _ = \
@@ -188,13 +168,15 @@ class InteractionExploration(object):
         # a target
         if target_instance_id is not None and target_instance_id != '':
             if not self.objects_interacted[target_instance_id]:
-                reward = self.rewards['interact']
                 self.objects_interacted[target_instance_id] = True
 
             if all(self.objects_interacted.values()):
                 self.done = True
 
         self.steps_taken += 1
+        reward = self.reward.get_reward(self.env.last_event, action,
+                target_instance_id=target_instance_id,
+                interact_mask=interact_mask)
 
         # obs, rew, done, info
         return self.env.last_event.frame, reward, self.done, (success,
@@ -297,16 +279,25 @@ class InteractionExploration(object):
 if __name__ == '__main__':
     env = ThorEnv()
 
-    ie = InteractionExploration(env, single_interact=True, use_masks=True)
+    import json
+    with open(os.path.join(os.environ['ALFRED_ROOT'], 'models',
+        'config', 'rewards.json'), 'r') as jsonfile:
+        reward_config = json.load(jsonfile)['InteractionExploration']
+
+    reward = InteractionReward(env, reward_config)
+
+    ie = InteractionExploration(env, reward, single_interact=True,
+            use_masks=False)
     frame = ie.reset()
     done = False
-    import matplotlib.pyplot as plt
     import numpy as np
     while not done:
-        plt.imshow(frame)
-        plt.savefig('/home/jzhanson/alfred/alfred_frame.png')
-        action = random.choice(SIMPLE_ACTIONS)
-        if action == ACTIONS_INTERACT or action in INT_ACTIONS:
+        cv2.imwrite(os.path.join(os.environ['ALFRED_ROOT'],
+            'alfred_frame.png'), cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+        #action = random.choice(constants.SIMPLE_ACTIONS)
+        action = input("Input action: ")
+        if (action == constants.ACTIONS_INTERACT or action in
+                constants.INT_ACTIONS):
             # Choose a random mask of an interactable object
             visible_objects = ie.env.prune_by_any_interaction(
                     [obj['objectId'] for obj in
@@ -327,7 +318,8 @@ if __name__ == '__main__':
             chosen_object_mask = None
         frame, reward, done, (success, event, err) = ie.step(action,
                 interact_mask=chosen_object_mask)
+        print(env.last_event.metadata['lastAction'])
 
-        print(action, success, err)
+        print(action, success, reward, err)
 
 
