@@ -28,11 +28,27 @@ class InteractionExploration(object):
         self.reward = reward
         self.done = False
 
-    def reset(self, scene_name_or_num=None):
+    def reset(self, scene_name_or_num=None, random_object_positions=True,
+            random_position=True, random_rotation=True,
+            random_look_angle=True):
         if scene_name_or_num is None:
             # Randomly choose a scene if none specified
             scene_name_or_num = random.choice(constants.SCENE_NUMBERS)
         event = self.env.reset(scene_name_or_num)
+
+        if random_object_positions:
+            # Can play around with numDuplicatesOfType to populate the
+            # environment with more objects
+            #
+            # TODO: can also consider randomizing object states (e.g.
+            # open/closed, toggled)
+            self.env.step(dict(action='InitialRandomSpawn',
+                    randomSeed=0,
+                    forceVisible=False,
+                    numPlacementAttempts=5,
+                    placeStationary=True,
+                    numDuplicatesOfType=None, #[{objType: count}]
+                    excludedReceptacles=None))
 
         # Tabulate all interactable objects and mark as uninteracted with
         instance_ids = [obj['objectId'] for obj in event.metadata['objects']]
@@ -45,11 +61,19 @@ class InteractionExploration(object):
         self.graph = Graph(use_gt=True, construct_graph=True,
                 scene_id=scene_name_or_num)
 
-        # Randomly initialize agent position
-        # len(self.graph.points) - 1 because randint is inclusive
-        start_point_index = random.randint(0, len(self.graph.points) - 1)
-        start_point = self.graph.points[start_point_index]
-        start_pose = (start_point[0], start_point[1], random.randint(0, 3), 0)
+        start_point = event.pose_discrete[:2]
+        rotation = event.pose_discrete[2]
+        look_angle = event.pose_discrete[3]
+        if random_position:
+            # Randomly initialize agent position
+            # len(self.graph.points) - 1 because randint is inclusive
+            start_point_index = random.randint(0, len(self.graph.points) - 1)
+            start_point = self.graph.points[start_point_index]
+        if random_rotation:
+            rotation = random.randint(0, 3)
+        if random_look_angle:
+            look_angle = random.randrange(-30, 61, 15) # Include 60 degrees
+        start_pose = (start_point[0], start_point[1], rotation, look_angle)
         action = {'action': 'TeleportFull',
                   'x': start_pose[0] * constants.AGENT_STEP_SIZE,
                   'y': event.metadata['agent']['position']['y'],
