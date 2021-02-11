@@ -1239,3 +1239,18 @@ OPENABLE_CLASS_LIST = ['Fridge', 'Cabinet', 'Microwave', 'Drawer', 'Safe', 'Box'
 OPENABLE_CLASS_SET = set(OPENABLE_CLASS_LIST)
 
 ########################################################################################################################
+# Interaction Exploration actions
+
+ACTIONS_INTERACT = 'Interact'
+NAV_ACTIONS = ['MoveAhead', 'RotateLeft', 'RotateRight', 'LookUp', 'LookDown']
+INT_ACTIONS = ['OpenObject', 'CloseObject', 'PickupObject', 'PutObject',
+        'ToggleObjectOn', 'ToggleObjectOff', 'SliceObject']
+SIMPLE_ACTIONS = NAV_ACTIONS + [ACTIONS_INTERACT]
+COMPLEX_ACTIONS = NAV_ACTIONS + INT_ACTIONS
+INDEX_TO_ACTION_SIMPLE = dict(enumerate(SIMPLE_ACTIONS))
+ACTION_TO_INDEX_SIMPLE = dict((v,k) for k,v in INDEX_TO_ACTION_SIMPLE.items())
+INDEX_TO_ACTION_COMPLEX = dict(enumerate(COMPLEX_ACTIONS))
+ACTION_TO_INDEX_COMPLEX = dict((v,k) for k,v in
+        INDEX_TO_ACTION_COMPLEX.items())
+
+########################################################################################################################
