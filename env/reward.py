@@ -1,4 +1,73 @@
 from gen.utils.game_util import get_object
+import gen.constants as constants
+
+# TODO: add more sophisticated state change tracking like update_states in
+# env/thor_env.py to track heated, cooled, and cleaned objects separately, as
+# well as filling with liquid and being used up (don't need cookable since
+# being cooked is very similar to being heated, and we're tracking object
+# states outside the environment anyways)
+#
+# canChangeTempToHot is also a property of Toaster, StoveBurner, CoffeeMachine,
+# and Microwave. Only Potato is cookable
+class InteractionReward(object):
+    """
+    Simple reward function for InteractionExploration that gives a reward for
+    every interaction.
+    """
+    def __init__(self, env, rewards, reward_rotations=False,
+            reward_look_angle=False):
+        self.env = env
+        self.rewards = rewards
+        self.reward_rotations = reward_rotations
+        self.reward_look_angle = reward_look_angle
+        self.interactions = [] # Tuples of object_id, action
+        self.visited_locations_poses = {} # (x, z): (rotation, looking angle)
+
+    def get_reward(self, state, action, target_instance_id=None,
+            interact_mask=None):
+        reward = self.rewards['step_penalty']
+        if (state.metadata['lastActionSuccess'] and
+                state.metadata['lastAction'] in constants.INT_ACTIONS):
+            interaction = (target_instance_id, action)
+            if interaction not in interactions:
+                interactions.append(interaction)
+                reward = self.rewards['interaction']
+        elif (state.metadata['lastActionSuccess'] and action in
+                constants.NAV_ACTIONS):
+            location = state.pose_discrete[:2]
+            if location not in self.visited_locations_poses:
+                reward = self.rewards['navigation']
+                self.visited_locations_poses[location] = [state.pose_discrete[2:]]
+            elif location in self.visited_locations_poses:
+                rotation = state.pose_discrete[2]
+                look_angle = state.pose_discrete[3]
+                if self.reward_rotations and len([rotation_look_angle for
+                        rotation_look_angle in
+                        self.visited_locations_poses[location] if
+                        rotation_look_angle[0] == rotation]) == 0:
+                    reward = self.rewards['navigation']
+                    self.visited_locations_poses[location].append((rotation,
+                        look_angle))
+                elif self.reward_look_angle and len([rotation_look_angle for
+                        rotation_look_angle in
+                        self.visited_locations_poses[location] if
+                        rotation_look_angle[1] == look_angle]) == 0:
+                    reward = self.rewards['navigation']
+                    self.visited_locations_poses[location].append((rotation,
+                        look_angle))
+                elif ((rotation, look_angle) not in
+                        self.visited_locations_poses[location]):
+                    self.visited_locations_poses[location].append((rotation,
+                        look_angle))
+
+        return reward
+
+    def invalid_action(self):
+        return self.rewards['invalid_action']
+
+    def reset(self):
+        self.interactions = []
+        self.visited_locations = {}
 
 class BaseAction(object):
     '''
