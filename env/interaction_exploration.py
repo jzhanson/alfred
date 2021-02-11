@@ -14,9 +14,16 @@ from reward import InteractionReward
 
 class InteractionExploration(object):
     """Task is to interact with all objects in a scene"""
-    def __init__(self, env, reward, single_interact=False, use_masks=False):
+    def __init__(self, env, reward, single_interact=False,
+            sample_contextual_action=False, use_masks=False):
+        """Initialize environment
+
+        single_interact enables the single "Interact" action for contextual
+        interaction.
+        """
         self.env = env # ThorEnv
         self.single_interact = single_interact
+        self.sample_contextual_action = sample_contextual_action
         self.use_masks = use_masks
         self.reward = reward
         self.done = False
@@ -81,6 +88,8 @@ class InteractionExploration(object):
 
 
     def step(self, action, interact_mask=None):
+        """Advances environment based on given action and mask.
+        """
         # Reject action if already done
         if self.done:
             err = 'Trying to step in a done environment'
@@ -203,7 +212,6 @@ class InteractionExploration(object):
         # canBeUsedUp
         # env/thor_env.py takes care of cleaned, heated, and cooled objects by
         # keeping a list
-        # TODO: maybe update env/thor_env.py to also modify object states?
         contextual_attributes = ['openable', 'toggleable']
         if len(self.env.last_event.metadata['inventoryObjects']) > 0:
             contextual_attributes.append('receptacle')
@@ -248,30 +256,38 @@ class InteractionExploration(object):
         """
         Returns action for the object with the given id based on object
         attributes.
+
+        Due to limitations with a conditional statement, can only do one action
+        if multiple apply, such as opening or toggling a microwave. If sampling
+        from all valid actions is desired, set
+        self.sample_contextual_action=True.
         """
         obj = self.env.last_event.get_object(target_instance_id)
         holding_object = len(self.env.last_event.metadata['inventoryObjects']) \
                 > 0
         held_object = self.env.last_event.metadata['inventoryObjects'][0] if \
                 holding_object else None
-        # TODO: test this contextual actions
+        valid_actions = []
         if obj['openable'] and not obj['isOpen']:
-            return 'OpenObject'
-        elif obj['receptacle'] and holding_object:
-            # and not (obj['openable'] and not obj['isOpen']):
-            return 'PutObject'
-        elif obj['openable'] and obj['isOpen']:
-            return 'CloseObject'
-        elif obj['toggleable'] and not obj['isToggled']:
-            return 'ToggleObjectOn'
-        elif obj['toggleable'] and obj['isToggled']:
-            return 'ToggleObjectOff'
-        # TODO: are there any/do we want to be able to pick up openable or toggleable items?
-        elif obj['pickupable'] and not holding_object:
-            return 'PickupObject'
-        elif holding_object and 'Knife' in held_object['objectType'] and \
+            valid_actions.append('OpenObject')
+        # Favor putting object over repeatedly opening/closing object
+        if obj['receptacle'] and holding_object:
+            valid_actions.append('PutObject')
+        if obj['openable'] and obj['isOpen']:
+            valid_actions.append('CloseObject')
+        if obj['toggleable'] and not obj['isToggled']:
+            valid_actions.append('ToggleObjectOn')
+        if obj['toggleable'] and obj['isToggled']:
+            valid_actions.append('ToggleObjectOff')
+        if obj['pickupable'] and not holding_object:
+            valid_actions.append('PickupObject')
+        if holding_object and 'Knife' in held_object['objectType'] and \
                 obj['sliceable']:
-            return 'SliceObject'
+            valid_actions.append('SliceObject')
+
+        if len(valid_actions) > 0:
+            return (random.choice(valid_actions) if
+                    self.sample_contextual_action else valid_actions[0])
         else:
             # Sometimes there won't be a valid interaction
             return None
