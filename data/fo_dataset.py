@@ -15,6 +15,8 @@ import gen.constants as constants
 import argparse
 parser = argparse.ArgumentParser()
 
+parser.add_argument('-spp', '--splits-path', type=str, default=None, help='path of train/valid_seen/valid_unseen splits index files')
+parser.add_argument('-tr', '--task-repo', type=str, default=None, help='path to directory containint train, valid_seen, and valid_unseen splits of trajectories')
 parser.add_argument('-fp', '--find-parsing', dest='find_parsing', action='store_true', help='whether to do advanced parsing of gotolocation + other subgoals into \'finds\'')
 parser.add_argument('-nfp', '--no-find-parsing', dest='find_parsing', action='store_false', help='whether to do advanced parsing of gotolocation + other subgoals into \'finds\'')
 parser.set_defaults(find_parsing=False)
@@ -222,9 +224,14 @@ def get_trajectories(paths, find_parsing=False, high_res_images=False):
             trajectories.extend(path_trajectories)
     return trajectories, target_occurrences
 
-def make_fo_dataset(find_parsing=False, save_path=None, high_res_images=False):
-    splits_path = os.path.join(os.environ['ALFRED_ROOT'], "data/splits/oct21.json")
-    task_repo = os.path.join(os.environ['ALFRED_ROOT'], "data/full_2.1.0")
+def make_fo_dataset(splits_path=None, task_repo=None, find_parsing=False,
+        save_path=None, high_res_images=False):
+    if splits_path is None:
+        splits_path = os.path.join(os.environ['ALFRED_ROOT'],
+                "data/splits/oct21.json")
+    if task_repo is None:
+        task_repo = os.path.join(os.environ['ALFRED_ROOT'],
+                "data/full_2.1.0")
 
     split_tasks = json.load(open(splits_path))
     #splits = split_tasks.keys()
@@ -455,7 +462,8 @@ if __name__ == '__main__':
     if not os.path.isdir(save_path):
         os.makedirs(save_path)
 
-    make_fo_dataset(find_parsing=args.find_parsing, save_path=save_path,
+    make_fo_dataset(splits_path=args.splits_path, task_repo=args.task_repo,
+            find_parsing=args.find_parsing, save_path=save_path,
             high_res_images=args.high_res_images)
 
     datasets, dataloaders = get_datasets_dataloaders(batch_size=4,
