@@ -1253,4 +1253,28 @@ INDEX_TO_ACTION_COMPLEX = dict(enumerate(COMPLEX_ACTIONS))
 ACTION_TO_INDEX_COMPLEX = dict((v,k) for k,v in
         INDEX_TO_ACTION_COMPLEX.items())
 
+KEY_TO_ACTION = {
+        ' ' : 'MoveAhead',
+        'w' : 'MoveAhead',
+        'a' : 'RotateLeft',
+        'd' : 'RotateLeft',
+        'h' : 'RotateLeft',
+        'j' : 'LookDown',
+        'k' : 'LookUp',
+        'l' : 'RotateRight',
+        'ma' : 'MoveAhead',
+        'rl' : 'RotateLeft',
+        'rr' : 'RotateRight',
+        'ld' : 'LookDown',
+        'lu' : 'LookUp',
+        'i' : 'Interact',
+        'oo' : 'OpenObject',
+        'co' : 'CloseObject',
+        'pio' : 'PickupObject',
+        'puo' : 'PutObject',
+        'toon' : 'ToggleObjectOn',
+        'toof' : 'ToggleObjectOff',
+        'so' : 'SliceObject',
+        }
+
 ########################################################################################################################
