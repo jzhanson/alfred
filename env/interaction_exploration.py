@@ -42,7 +42,7 @@ class InteractionExploration(object):
             #
             # TODO: can also consider randomizing object states (e.g.
             # open/closed, toggled)
-            self.env.step(dict(action='InitialRandomSpawn',
+            event = self.env.step(dict(action='InitialRandomSpawn',
                     randomSeed=0,
                     forceVisible=False,
                     numPlacementAttempts=5,
@@ -273,11 +273,9 @@ class InteractionExploration(object):
                 continue
             if inventory_object_id == object_id:
                 continue
-            if contextual:
-                possesses_contextual_attributes = [obj[attribute] for attribute
-                        in contextual_attributes]
-                if not any(possesses_contextual_attributes):
-                    continue
+            if contextual and not any([obj[attribute] for attribute in
+                contextual_attributes]):
+                continue
 
             distance = obj['distance']
             if closest_object_id is None or distance < closest_object_distance:
