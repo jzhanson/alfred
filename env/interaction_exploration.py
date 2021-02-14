@@ -135,9 +135,10 @@ class InteractionExploration(object):
         # view and proximity and interactability
         if is_interact_action and not self.use_masks:
             # Choose object
-            # TODO: change this to object at the center of the screen
-            target_instance_id = self.closest_object(allow_not_visible=False,
-                    allow_uninteracted=True, contextual=True)
+            # TODO: can try out projecting the point at the center of the
+            # screen, and finding the object closest to that
+            target_instance_id = self.center_of_view_object(
+                    allow_interacted=True, contextual=True)
             if target_instance_id is None:
                 err = 'No valid object visible for no mask interaction'
                 success = False
@@ -236,6 +237,51 @@ class InteractionExploration(object):
             # Cleanable, heatable and coolable objects should all be pickupable
             contextual_attributes.append('pickupable')
         return contextual_attributes
+
+    def center_of_view_object(self, allow_interacted=True, contextual=True):
+        """Get object at or closest to center of view.
+        """
+        if contextual:
+            contextual_attributes = self.contextual_attributes()
+        inventory_object_id = (self.env.last_event.metadata
+                ['inventoryObjects'][0]['objectId'] if
+                len(self.env.last_event.metadata['inventoryObjects']) > 0 else
+                None)
+
+        center_x = self.env.last_event.screen_width / 2
+        center_y = self.env.last_event.screen_height / 2
+
+        visible_object_ids = [obj['objectId'] for obj in
+                self.env.last_event.metadata['objects'] if obj['visible']]
+
+        object_id_to_average_pixel_distance = {}
+
+        center_of_view_object_id = None
+        for object_id, object_interacted in self.objects_interacted.items():
+            obj = self.env.last_event.get_object(object_id)
+            if not obj['visible']:
+                continue
+            if not allow_interacted and object_interacted:
+                continue
+            if contextual and not any([obj[attribute] for attribute in
+                contextual_attributes]):
+                continue
+            if inventory_object_id == object_id:
+                continue
+            mask = self.env.last_event.instance_masks[object_id]
+            xs, ys = np.nonzero(mask)
+            xs_distance = np.power(xs - center_x, 2)
+            ys_distance = np.power(ys - center_y, 2)
+            object_id_to_average_pixel_distance[object_id] = np.mean(np.sqrt(
+                xs_distance + ys_distance))
+        sorted_object_id_pixel_distances = sorted(
+                object_id_to_average_pixel_distance.items(), key=lambda x:
+                x[1])
+        if len(sorted_object_id_pixel_distances) == 0:
+            return None
+        center_of_view_object_id = sorted_object_id_pixel_distances[0][0]
+
+        return center_of_view_object_id
 
     def closest_object(self, allow_not_visible=False,
         allow_interacted=True, contextual=True):
