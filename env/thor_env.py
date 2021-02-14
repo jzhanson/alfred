@@ -582,6 +582,7 @@ class ThorEnv(Controller):
                 print("all_ids inside BBox: " + str(all_ids))
                 instance_seg = copy.copy(instance_segs)
                 instance_seg[:, :, :] = interact_mask[:, :, np.newaxis] == 1
+                instance_seg *= 255
                 cv2.imshow('seg', instance_segs)
                 cv2.imshow('mask', instance_seg)
                 cv2.imshow('full', self.last_event.frame[:,:,::-1])
