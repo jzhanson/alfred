@@ -370,6 +370,9 @@ class InteractionExploration(object):
             return None
 
 if __name__ == '__main__':
+    single_interact = True
+    use_masks = False
+    accept_input = False
     env = ThorEnv()
 
     import json
@@ -379,38 +382,62 @@ if __name__ == '__main__':
 
     reward = InteractionReward(env, reward_config)
 
-    ie = InteractionExploration(env, reward, single_interact=True,
-            use_masks=False)
+    ie = InteractionExploration(env, reward, single_interact=single_interact,
+            use_masks=use_masks)
     frame = ie.reset()
     done = False
     import numpy as np
     while not done:
-        cv2.imwrite(os.path.join(os.environ['ALFRED_ROOT'],
-            'alfred_frame.png'), cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-        #action = random.choice(constants.SIMPLE_ACTIONS)
-        action = input("Input action: ")
+        cv2.imwrite(os.path.join(os.environ['ALFRED_ROOT'], 'saved',
+            'test_frame.png'), cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+        cv2.imwrite(os.path.join(os.environ['ALFRED_ROOT'], 'saved',
+            'test_segs.png'), cv2.cvtColor(
+                ie.env.last_event.instance_segmentation_frame,
+                cv2.COLOR_BGR2RGB))
+
+        if accept_input:
+            key_action = input("Input action: ")
+            action = (constants.KEY_TO_ACTION[key_action] if key_action in
+                    constants.KEY_TO_ACTION else key_action)
+        else:
+            action = random.choice(constants.SIMPLE_ACTIONS if single_interact
+                    else constants.COMPLEX_ACTIONS)
+
         if (action == constants.ACTIONS_INTERACT or action in
-                constants.INT_ACTIONS):
-            # Choose a random mask of an interactable object
-            visible_objects = ie.env.prune_by_any_interaction(
-                    [obj['objectId'] for obj in
-                        ie.env.last_event.metadata['objects'] if obj['visible']])
-            if len(visible_objects) == 0:
-                chosen_object_mask = None
+                constants.INT_ACTIONS) and use_masks:
+            if accept_input:
+                mask_x, mask_y = (input("Input x and y of pixel for 'mask': ")
+                        .split(' '))
+                chosen_object_mask = np.zeros((300, 300))
+                # Can also specify 4 numbers for a bounding box, or select the
+                # ground truth segmentation mask using the provided pixel
+                chosen_object_mask[int(mask_y)][int(mask_x)] = 1
             else:
-                chosen_object = random.choice(visible_objects)
-                # TODO: choose largest mask?
-                object_id_to_color = {v:k for k,v in ie.env.last_event.color_to_object_id.items()}
-                chosen_object_color = object_id_to_color[chosen_object]
-                # np.equal returns (300, 300, 3) despite broadcasting, but all the
-                # last dimension are the same
-                chosen_object_mask = np.equal(
-                        ie.env.last_event.instance_segmentation_frame,
-                        chosen_object_color)[:, :, 0]
+                # Choose a random mask of an interactable object
+                # Sometimes the inventory object may be chosen, but that's fine
+                # for this testing code
+                visible_objects = ie.env.prune_by_any_interaction(
+                        [obj['objectId'] for obj in
+                            ie.env.last_event.metadata['objects'] if
+                            obj['visible']])
+                if len(visible_objects) == 0:
+                    print('Attempting to interact but no visible objects')
+                    chosen_object_mask = None
+                else:
+                    chosen_object = random.choice(visible_objects)
+                    chosen_object_mask = ie.env.last_event \
+                            .instance_masks[chosen_object]
         else:
             chosen_object_mask = None
         frame, reward, done, (success, event, err) = ie.step(action,
                 interact_mask=chosen_object_mask)
+
+        if chosen_object_mask is not None:
+            mask_image = np.zeros((300, 300, 3))
+            mask_image[:, :, :] = chosen_object_mask[:, :, np.newaxis] == 1
+            mask_image *= 255
+            cv2.imwrite(os.path.join(os.environ['ALFRED_ROOT'], 'saved',
+                'test_mask.png'), mask_image)
         print(env.last_event.metadata['lastAction'])
 
         print(action, success, reward, err)
