@@ -111,7 +111,10 @@ class Resnet(nn.Module):
 
     @staticmethod
     def get_default_transform():
+        # Unfortunately torchvision 0.7.0 does not support a torch.Tensor input
+        # for transforms.resize in models/nn/resnet.py, only PIL.Image
         return transforms.Compose([
+            transforms.ToPILImage(),
             transforms.Resize((224, 224)),
             transforms.ToTensor(),
             transforms.Normalize(
