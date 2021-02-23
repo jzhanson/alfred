@@ -81,13 +81,16 @@ class LateFusion(nn.Module):
             unstacked_visual_outputs = []
             for unstacked_frames in torch.split(concatenated_frames,
                     split_size_or_sections=3, dim=1):
-                # Need to turn tensors into PIL images
-                # Cast to uint8 first to reduce amount of memory copied, and
-                # transpose to put RGB channels in the last dimension
-                # Channels should be in RGB order
-                unstacked_frames = [Image.fromarray(frame.to(dtype=torch.uint8)
-                    .cpu().numpy().transpose(1, 2, 0)) for frame in
-                    unstacked_frames]
+                # Cast to uint8 first to reduce amount of memory copied. Resnet
+                # wants CPU tensors to convert to PIL Image, but frame is a
+                # CUDA tensor. We could change stack_frames in
+                # models/model/supervised_find.py to not convert frames to
+                # CUDA, but we still copy for now to keep the interface that
+                # visual_model expects CUDA tensors for everything and also so
+                # these models require as little knowledge about device as
+                # possible.
+                unstacked_frames = [frame.to(dtype=torch.uint8).cpu() for
+                        frame in unstacked_frames]
                 unstacked_visual_outputs.append(self.visual_model(
                     unstacked_frames))
             # unstacked_visual_outputs is now length frame_stack, each element
