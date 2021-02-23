@@ -157,10 +157,13 @@ def get_trajectories(paths, find_parsing=False, high_res_images=False):
                         if high_res_images:
                             image_name = image['image_name'].split('.')[0] + \
                                     '.png'
+                            image_path = os.path.join(path, 'high_res_images',
+                                    image_name)
                         else:
                             image_name = image['image_name'].split('.')[0] + \
                                     '.jpg'
-                        image_path = os.path.join(path, 'high_res_images', image_name)
+                            image_path = os.path.join(path, 'raw_images',
+                                    image_name)
                         if not os.path.isfile(image_path):
                             print('not a real file! ' + image_path)
                         path_trajectories[trajectory_index]['images'] \
@@ -196,9 +199,12 @@ def get_trajectories(paths, find_parsing=False, high_res_images=False):
                     trajectory_index = trajectory_index_to_last_low_idx[0][0]
                     if high_res_images:
                         image_name = image['image_name'].split('.')[0] + '.png'
+                        image_path = os.path.join(path, 'high_res_images',
+                                image_name)
                     else:
                         image_name = image['image_name'].split('.')[0] + '.jpg'
-                    image_path = os.path.join(path, 'high_res_images', image_name)
+                        image_path = os.path.join(path, 'raw_images',
+                                image_name)
                     if not os.path.isfile(image_path):
                         print('not a real file! ' + image_path)
                     path_trajectories[trajectory_index]['images'].append(
@@ -334,6 +340,8 @@ class FindOneDataset(Dataset):
         else:
             self.transitions = None
         self.high_res_images = high_res_images
+        # Note: this will not modify the extension of the image read from the
+        # dataset index file (e.g.  raw_images/*********.png is possible)
         if self.high_res_images:
             self.images_subdir_name = 'high_res_images'
         else:
