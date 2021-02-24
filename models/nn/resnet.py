@@ -28,6 +28,11 @@ class Resnet18(nn.Module):
 
         if use_conv_feat:
             self.model = nn.Sequential(*list(self.model.children())[:-2])
+        else:
+            # We still trim off the last 1000-way fc layer because those are
+            # the ImageNet class activations and it's unlikely we'll ever need
+            # those
+            self.model = nn.Sequential(*list(self.model.children())[:-1])
 
     def extract(self, x):
         return self.model(x)
@@ -98,7 +103,7 @@ class Resnet(nn.Module):
             if use_conv_feat:
                 self.output_size = 512 * 7 * 7 # Specific to Resnet18
             else:
-                self.output_size = 1000
+                self.output_size = 512
 
         self.frozen = frozen
         if self.frozen:
