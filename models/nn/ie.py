@@ -60,7 +60,6 @@ class SuperpixelFusion(nn.Module):
 
         superpixel_features = self.get_superpixel_features(frame)
 
-
     def get_superpixel_features(self, frame):
         # slic works fine if frame is torch.Tensor
         segments = slic(img_as_float(frame), **self.slic_kwargs)
@@ -133,7 +132,7 @@ if __name__ == '__main__':
             'min_size_factor' : 0.01
     }
     resnet_args = Namespace(visual_model='resnet', gpu=0)
-    resnet = Resnet(resnet_args)
+    resnet = Resnet(resnet_args, use_conv_feat=False)
     sf = SuperpixelFusion(superpixel_model=resnet, slic_kwargs=slic_kwargs,
             neighbor_depth=0, black_outer=True)
 
