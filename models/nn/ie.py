@@ -12,6 +12,12 @@ from skimage.future import graph
 
 from functools import reduce
 
+import os
+import sys
+sys.path.append(os.path.join(os.environ['ALFRED_ROOT']))
+sys.path.append(os.path.join(os.environ['ALFRED_ROOT'], 'models'))
+from models.nn.resnet import Resnet
+
 class SingleLayerCNN(nn.Module):
     def __init__(self, input_width=300, input_height=300, output_size=64):
         super(SingleLayerCNN, self).__init__()
@@ -100,11 +106,13 @@ class LSTMPolicy(nn.Module):
 
         return action_fc_output, visual_fc_output
 
+# TODO: maybe this class should be in a different place since it deals
+# with choosing a superpixel more than any neural network stuff
 class SuperpixelFusion(nn.Module):
     def __init__(self, visual_model=None, superpixel_model=None,
             action_embeddings=None, policy_model=None, slic_kwargs={},
             boundary_pixels=0, neighbor_depth=0, neighbor_connectivity=2,
-            black_outer=False):
+            black_outer=False, sample_action=True):
 
         """
         neighbor_connectivity of 1 means don't include diagonal adjacency, 2
@@ -120,18 +128,55 @@ class SuperpixelFusion(nn.Module):
         self.neighbor_depth = neighbor_depth
         self.neighbor_connectivity = neighbor_connectivity
         self.black_outer = black_outer
+        self.sample_action = sample_action
 
     def forward(self, frame, last_action):
         """
         Assumes frame is already a torch tensor of floats and moved to GPU.
         """
-        visual_features = self.visual_model(frame)
-        action, policy_visual_vector = self.policy_model(visual_features,
-                self.action_embeddings(last_action))
+        # TODO: make this class okay with batched frame and action if necessary
+        # for threading
+        visual_features = self.visual_model([frame])
+        # Squeeze out the last two 1 dimensions of the Resnet features
+        if isinstance(self.visual_model, Resnet):
+            visual_features = torch.squeeze(visual_features, -1)
+            visual_features = torch.squeeze(visual_features, -1)
+        action_output, visual_output = self.policy_model(visual_features,
+                self.action_embeddings(torch.LongTensor([last_action])))
 
-        superpixel_features = self.get_superpixel_features(frame)
+        # TODO: sample action outside of this class?
+        if self.sample_action:
+            # TODO: gumbel softmax?
+            #action_index = torch.multinomial(F.gumbel_softmax(F.log_softmax(
+            #   action_output, dim=-1)), num_samples=1)
+            action_index = torch.multinomial(F.softmax(action_output, dim=-1),
+                    num_samples=1)
+        else:
+            action_index = torch.argmax(action_output, dim=-1)
 
-    def get_superpixel_features(self, frame):
+        superpixel_masks, frame_crops = self.get_superpixel_masks_frame_crops(
+                frame)
+
+        superpixel_features = self.superpixel_model(frame_crops)
+        # Get rid of last two dimensions since Resnet features are (512, 1, 1)
+        if isinstance(self.visual_model, Resnet):
+            superpixel_features = torch.squeeze(superpixel_features, -1)
+            superpixel_features = torch.squeeze(superpixel_features, -1)
+
+        similarity_scores = torch.sum(visual_output * superpixel_features,
+                dim=-1)
+
+        chosen_superpixel_mask = superpixel_masks[torch.argmax(
+            similarity_scores)]
+
+        return action_index, chosen_superpixel_mask
+
+    def get_superpixel_masks_frame_crops(self, frame):
+        """
+        Returns superpixel masks for each superpixel over the whole image and
+        frame crops of the original image cropped to the bounding box of the
+        superpixel.
+        """
         # slic works fine if frame is torch.Tensor
         segments = slic(img_as_float(frame), **self.slic_kwargs)
 
@@ -143,6 +188,8 @@ class SuperpixelFusion(nn.Module):
             rag = graph.RAG(label_image=segments,
                     connectivity=self.neighbor_connectivity)
             rag_adj = rag.adj # Keep this in case it's an expensive operation
+        # The original segment labels don't matter since we only use
+        # superpixel_bounding_boxes and superpixel_masks, which match up
         for label in superpixel_labels:
             labels = [label]
             if self.neighbor_depth > 0:
@@ -160,8 +207,7 @@ class SuperpixelFusion(nn.Module):
             max_x = min(frame.shape[1], np.max(xs) + self.boundary_pixels + 1)
             min_x = max(0, np.min(xs) - self.boundary_pixels)
             superpixel_bounding_boxes.append((min_y, max_y, min_x, max_x))
-            if self.black_outer:
-                superpixel_masks.append(mask[min_y:max_y, min_x:max_x])
+            superpixel_masks.append(mask)
 
         frame_crops = [frame[min_y:max_y, min_x:max_x, :] for (min_y, max_y,
             min_x, max_x) in superpixel_bounding_boxes]
@@ -170,25 +216,19 @@ class SuperpixelFusion(nn.Module):
             copied_frame_crops = []
             for i in range(len(frame_crops)):
                 copied_frame_crop = np.copy(frame_crops[i])
-                copied_frame_crop[np.logical_not(superpixel_masks[i])] = 0
+                min_y, max_y, min_x, max_x = superpixel_bounding_boxes[i]
+                cropped_mask = superpixel_masks[i][min_y:max_y, min_x:max_x]
+                copied_frame_crop[np.logical_not(cropped_mask)] = 0
                 copied_frame_crops.append(copied_frame_crop)
             frame_crops = copied_frame_crops
 
-        superpixel_features = self.superpixel_model(frame_crops)
-
-        return superpixel_features
-
+        return superpixel_masks, frame_crops
 
 class Namespace:
     def __init__(self, **kwargs):
         self.__dict__.update(kwargs)
 
 if __name__ == '__main__':
-    import os
-    import sys
-    sys.path.append(os.path.join(os.environ['ALFRED_ROOT']))
-    sys.path.append(os.path.join(os.environ['ALFRED_ROOT'], 'models'))
-    from models.nn.resnet import Resnet
     from skimage import io
     slic_kwargs = {
             'max_iter' : 10,
@@ -202,11 +242,17 @@ if __name__ == '__main__':
             'sigma' : 0,
             'min_size_factor' : 0.01
     }
+    action_embeddings = nn.Embedding(num_embeddings=12, embedding_dim=16)
+    policy_model = LSTMPolicy()
     resnet_args = Namespace(visual_model='resnet', gpu=0)
-    resnet = Resnet(resnet_args, use_conv_feat=False)
-    sf = SuperpixelFusion(superpixel_model=resnet, slic_kwargs=slic_kwargs,
+    visual_model = Resnet(resnet_args, use_conv_feat=False)
+    superpixel_model = Resnet(resnet_args, use_conv_feat=False)
+    sf = SuperpixelFusion(action_embeddings=action_embeddings,
+            visual_model=visual_model, superpixel_model=superpixel_model,
+            policy_model=policy_model, slic_kwargs=slic_kwargs,
             neighbor_depth=0, black_outer=True)
 
+    '''
     sys.path.append(os.path.join(os.environ['ALFRED_ROOT'], 'env'))
     # for alfred's graph in env/tasks.py
     sys.path.append(os.path.join(os.environ['ALFRED_ROOT'], 'gen'))
@@ -221,8 +267,11 @@ if __name__ == '__main__':
     reward = InteractionReward(env, reward_config)
     ie = InteractionExploration(env, reward)
     frame = ie.reset()
+    '''
 
-    superpixel_features = sf.get_superpixel_features(frame)
-    print(superpixel_features.shape)
+    frame = io.imread('/home/jzhanson/alfred/saved/test_frame.png')
+    masks, frame_crops = sf.forward(frame, 0)
+    print(masks)
+    print(frame_crops)
 
 
