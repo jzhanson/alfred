@@ -21,13 +21,84 @@ class SingleLayerCNN(nn.Module):
 
 
 class LSTMPolicy(nn.Module):
-    def __init__(self, visual_feature_size=512, superpixels_feature_size=64,
-            prev_action_size=None, hidden_size=64, visual_output_size=64):
+    def __init__(self, num_actions=12, visual_feature_size=512,
+            superpixels_feature_size=512, prev_action_size=16,
+            lstm_hidden_size=512, dropout=0, action_fc_units=[],
+            visual_fc_units=[], prev_action_after_lstm=False):
+
         super(LSTMPolicy, self).__init__()
 
-    def forward(self, visual_feature, prev_action):
-        pass
+        self.num_actions = num_actions
+        self.visual_feature_size = visual_feature_size
+        self.superpixels_feature_size = superpixels_feature_size
+        self.prev_action_size = prev_action_size
+        self.lstm_hidden_size = lstm_hidden_size
+        self.dropout = dropout
+        self.action_fc_units = action_fc_units
+        self.visual_fc_units = visual_fc_units
+        self.prev_action_after_lstm = prev_action_after_lstm
 
+        lstm_input_size = self.visual_feature_size + self.prev_action_size
+
+        # Could use nn.LSTM but we probably will never run/train the policy on
+        # actual sequences
+        # No dropout applied to single layer LSTM
+        self.lstm = nn.LSTMCell(input_size=lstm_input_size,
+                hidden_size=self.lstm_hidden_size,
+                bias=True)
+
+        if self.prev_action_after_lstm:
+            fc_input_size = self.lstm_hidden_size + self.prev_action_size
+        else:
+            fc_input_size = self.lstm_hidden_size
+
+        # TODO: shared fc layers for action and visual vector?
+        self.action_fc_layers = nn.ModuleList()
+        for i in range(len(action_fc_units)):
+            if i == 0:
+                in_features = fc_input_size
+            else:
+                in_features = self.action_fc_units[i-1]
+            self.action_fc_layers.append(nn.Sequential(nn.Linear(
+                in_features=in_features, out_features=self.action_fc_units[i],
+                bias=True), nn.ReLU(), nn.Dropout(self.dropout)))
+        self.action_logits = nn.Sequential(nn.Linear(
+            in_features=self.action_fc_units[i] if len(self.action_fc_layers) >
+            0 else fc_input_size, out_features=self.num_actions, bias=True))
+
+        self.visual_fc_layers = nn.ModuleList()
+        for i in range(len(visual_fc_units)):
+            if i == 0:
+                in_features = fc_input_size
+            else:
+                in_features = self.visual_fc_units[i-1]
+            self.visual_fc_layers.append(nn.Sequential(nn.Linear(
+                in_features=in_features, out_features=self.visual_fc_units[i],
+                bias=True), nn.ReLU(), nn.Dropout(self.dropout)))
+
+    def forward(self, visual_feature, prev_action_embedding):
+        lstm_input = torch.cat([visual_feature, prev_action_embedding], dim=1)
+
+        # TODO: adapt this to multiple batch samples
+        # TODO: figure out hidden state and how to track hidden state with
+        # multiple threads
+        hidden_state, cell_state = self.lstm(lstm_input)
+
+        if self.prev_action_after_lstm:
+            fc_input = torch.cat([hidden_state, prev_action_embedding], dim=1)
+        else:
+            fc_input = hidden_state
+
+        action_fc_output = fc_input
+        for action_fc_layer in self.action_fc_layers:
+            action_fc_output = action_fc_layer(action_fc_output)
+        action_fc_output = self.action_logits(action_fc_output)
+
+        visual_fc_output = fc_input
+        for visual_fc_layer in self.visual_fc_layers:
+            visual_fc_output = visual_fc_layer(visual_fc_output)
+
+        return action_fc_output, visual_fc_output
 
 class SuperpixelFusion(nn.Module):
     def __init__(self, visual_model=None, superpixel_model=None,
