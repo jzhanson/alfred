@@ -1,8 +1,10 @@
 import os
 import sys
 sys.path.append(os.path.join(os.environ['ALFRED_ROOT']))
+sys.path.append(os.path.join(os.environ['ALFRED_ROOT'], 'env'))
 sys.path.append(os.path.join(os.environ['ALFRED_ROOT'], 'gen'))
 sys.path.append(os.path.join(os.environ['ALFRED_ROOT'], 'models'))
+
 
 import random
 
@@ -10,7 +12,7 @@ import cv2
 from env.thor_env import ThorEnv
 import gen.constants as constants
 from gen.graph.graph_obj import Graph
-from reward import InteractionReward
+from env.reward import InteractionReward
 
 class InteractionExploration(object):
     """Task is to interact with all objects in a scene"""
