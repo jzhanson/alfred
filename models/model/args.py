@@ -59,5 +59,54 @@ parser.set_defaults(high_res_images=False)
 parser.add_argument('-dw', '--dataloader-workers', type=int, default=1, help='number of dataloader workers (total workers is this times three, since one for train, valid_seen, and valid_unseen)')
 parser.add_argument('-bs', '--batch-size', type=int, default=1, help='batch size of training trajectories')
 
+# rl_interaction arguments
+# SLIC superpixel arguments
+parser.add_argument('--slic-max-iter', type=int, default=10, help='maximum iterations of k-means for slic (default: 10)')
+parser.add_argument('--slic-max-size-factor', type=float, default=3, help='proportion of max connected segment size (default: 3)')
+parser.add_argument('--slic-n-segments', type=int, default=10, help='approx number of segments (default: 10)')
+parser.add_argument('--slic-compactness', type=float, default=10.0, help='balances color proximity and space proximity, higher values give more weight to space proximity, making superpixel shapes more square (default: 10.0)')
+parser.add_argument('--slic-sigma', type=float, default=0, help='width of Gaussian smoothing kernel, 0 means no smoothing (default: 0)')
+parser.add_argument('--slic-min-size-factor', type=float, default=0.01, help='proportion of the minimum segment size to be removed with respect to the supposed segment size (default: 0.01)')
+# Other superpixel construction arguments
+parser.add_argument('--boundary-pixels', type=int, default=0, help='pixels to expand the boundary of superpixel bounding boxes by (default: 0)')
+parser.add_argument('--neighbor-depth', type=int, default=0, help='number of superpixel neighbors to include when calculating superpixel bounding boxes (default: 0)')
+parser.add_argument('--neighbor-connectivity', type=int, default=2, help='2 to include diagonal adjacency when finding neighboring superpixels, 1 not to (default: 2)')
+parser.add_argument('--black-outer', dest='black_outer', action='store_true', help='set pixels inside bounding box but outside superpixel to (0, 0, 0)')
+parser.add_argument('--no-black-outer', dest='black_outer', action='store_false', help='keep pixels inside bounding box but outside superpixel as their original values')
+parser.set_defaults(black_outer=False)
+
+# InteractionExploration environment options
+parser.add_argument('--single-interact', dest='single_interact', action='store_true', help='only use a single action for all object interactions')
+parser.add_argument('--complex-interact', dest='single_interact', action='store_false', help='use different interact actions')
+parser.set_defaults(single_interact=False)
+parser.add_argument('--sample-contextual-action', dest='sample_contextual_action', action='store_true', help='sample contextual action for single interact action')
+parser.add_argument('--no-sample-contextual-action', dest='sample_contextual_action', action='store_false', help='do not sample contextual action for single interact action')
+parser.set_defaults(sample_contextual_action=False)
+parser.add_argument('--use-masks', dest='use_masks', action='store_true', help='use interaction masks')
+parser.add_argument('--no-use-masks', dest='use_masks', action='store_false', help='do not use interaction masks (use contextual interaction with object closest to center of view)')
+parser.set_defaults(use_masks=False)
+
+# Reward config arguments
+parser.add_argument('--reward-config-path', type=str, default='models/config/rewards.json', help='path to rewards config json (default: models/config/rewards.json)')
+parser.add_argument('--reward-rotations', dest='reward_rotations', action='store_true', help='give new state reward for rotations')
+parser.add_argument('--no-reward-rotations', dest='reward_rotations', action='store_false', help='do not give new state reward for rotations')
+parser.set_defaults(reward_rotations=False)
+parser.add_argument('--reward-look-angle', dest='reward_look_angle', action='store_true', help='give new state reward for look angles')
+parser.add_argument('--no-reward-look-angle', dest='reward_look_angle', action='store_false', help='do not give new state reward for look angles')
+parser.set_defaults(reward_look_angle=False)
+parser.add_argument('--reward-state-changes', dest='reward_state_changes', action='store_true', help='give new state reward for object state changes')
+parser.add_argument('--no-reward-state-changes', dest='reward_state_changes', action='store_false', help='do not give new state reward for object state changes')
+parser.set_defaults(reward_state_changes=True)
+
+# Model parameters
+parser.add_argument('--superpixel-model', type=str, default='resnet', help='which model to use for superpixels (only \'resnet\' supported for now)')
+parser.add_argument('--superpixel-feature-size', type=int, default=512, help='dimension for superpixel features (default: 512, will be 512 if superpixel-model is \'resnet\')')
+parser.add_argument('--action-embedding-dim', type=int, default=16, help='dimension for action embeddings (default: 16)')
+parser.add_argument('--action-fc-units', type=int, nargs='+', default=512, help='dimensions for action fc layers before logits (default: 512)')
+parser.add_argument('--visual-fc-units', type=int, nargs='+', default=512, help='dimensions for visual fc layers (default: 512)')
+parser.add_argument('--prev-action-after-lstm', dest='prev_action_after_lstm', action='store_true', help='concatenate previous action to lstm output (hidden state)')
+parser.add_argument('--no-prev-action-after-lstm', dest='prev_action_after_lstm', action='store_false', help='do not concatenate previous action to lstm output (hidden state)')
+parser.set_defaults(prev_action_after_lstm=False)
+
 def parse_args():
     return parser.parse_args()
