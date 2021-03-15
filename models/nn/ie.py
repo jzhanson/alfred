@@ -28,7 +28,7 @@ class SingleLayerCNN(nn.Module):
 
 class LSTMPolicy(nn.Module):
     def __init__(self, num_actions=12, visual_feature_size=512,
-            superpixels_feature_size=512, prev_action_size=16,
+            superpixel_feature_size=512, prev_action_size=16,
             lstm_hidden_size=512, dropout=0, action_fc_units=[],
             visual_fc_units=[], prev_action_after_lstm=False):
 
@@ -36,7 +36,7 @@ class LSTMPolicy(nn.Module):
 
         self.num_actions = num_actions
         self.visual_feature_size = visual_feature_size
-        self.superpixels_feature_size = superpixels_feature_size
+        self.superpixel_feature_size = superpixel_feature_size
         self.prev_action_size = prev_action_size
         self.lstm_hidden_size = lstm_hidden_size
         self.dropout = dropout
