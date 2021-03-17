@@ -23,7 +23,7 @@ from models.nn.fo import LateFusion, NatureCNN, FCPolicy, LSTMPolicy, \
 import gen.constants as constants
 from gen.graph.graph_obj import Graph
 from data.fo_dataset import get_datasets_dataloaders
-from models.utils.metric import (compute_actions_f1, trajectory_avg_entropy,
+from models.utils.metric import (actions_accuracy_f1, trajectory_avg_entropy,
         path_weighted_success)
 from utils.video_util import VideoSaver
 
@@ -221,20 +221,6 @@ def flatten_trajectories(batch_samples, frame_stack=1,
     flat_batch_samples['low_actions'] = flat_actions
     flat_batch_samples['images'] = flat_images
     return flat_batch_samples
-
-def actions_accuracy_f1(predicted_action_indexes, expert_action_indexes):
-    """
-    Calculate the accuracy and f1 (micro) of predicted actions.
-    """
-    correct_preds = 0
-    for i in range(len(expert_action_indexes)):
-        if predicted_action_indexes[i] == expert_action_indexes[i]:
-            correct_preds += 1
-    accuracy = correct_preds / len(predicted_action_indexes)
-    f1 = compute_actions_f1(
-            predicted_action_indexes,
-            expert_action_indexes).item()
-    return accuracy, f1
 
 def write_images_video(results_online, train_steps, save_path):
     for split in results_online.keys():
