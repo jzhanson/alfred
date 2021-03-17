@@ -3,6 +3,7 @@ parser = argparse.ArgumentParser()
 
 # General arguments
 parser.add_argument('-lr', '--lr', type=float, default=0.01, help='learning rate')
+parser.add_argument('--optimizer', type=str, default='adam', help='optimizer (\'sgd\', \'rmsprop\', \'adam\', or \'adam-amsgrad\') to use (default: \'adam\')')
 parser.add_argument('-fs', '--frame-stack', type=int, default=1, help='number of frames to stack')
 parser.add_argument('-zffs', '--zero-fill-frame-stack', dest='zero_fill_frame_stack', action='store_true', help='fill frames with zeros when frame stacking on early steps')
 parser.add_argument('-fffs', '--first-fill-frame-stack', dest='zero_fill_frame_stack', action='store_false', help='replicate first frame when frame stacking on early steps')
