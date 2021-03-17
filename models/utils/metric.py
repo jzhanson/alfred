@@ -2,6 +2,8 @@ import re
 import string
 import collections
 
+import torch
+from torch.nn import functional as F
 
 def normalize_answer(s):
     """
@@ -160,3 +162,13 @@ class F1Score:
 def compute_actions_f1(predictions, labels, av='macro'):
     f1_metric = F1Score(av)
     return f1_metric(predictions, labels)
+
+def trajectory_avg_entropy(trajectory_logits):
+    return -torch.mean(torch.sum(
+            F.log_softmax(trajectory_logits, dim=-1) *
+            torch.exp(F.log_softmax(trajectory_logits, dim=-1)),
+            dim=-1), dim=-1)
+
+def path_weighted_success(success, num_agent_actions, num_expert_actions):
+    return float(success) * num_expert_actions / max(num_agent_actions,
+            num_expert_actions)
