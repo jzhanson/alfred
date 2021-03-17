@@ -163,6 +163,20 @@ def compute_actions_f1(predictions, labels, av='macro'):
     f1_metric = F1Score(av)
     return f1_metric(predictions, labels)
 
+def actions_accuracy_f1(predicted_action_indexes, expert_action_indexes):
+    """
+    Calculate the accuracy and f1 (micro) of predicted actions.
+    """
+    correct_preds = 0
+    for i in range(len(expert_action_indexes)):
+        if predicted_action_indexes[i] == expert_action_indexes[i]:
+            correct_preds += 1
+    accuracy = correct_preds / len(predicted_action_indexes)
+    f1 = compute_actions_f1(
+            predicted_action_indexes,
+            expert_action_indexes).item()
+    return accuracy, f1
+
 def trajectory_avg_entropy(trajectory_logits):
     return -torch.mean(torch.sum(
             F.log_softmax(trajectory_logits, dim=-1) *
