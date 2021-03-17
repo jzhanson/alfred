@@ -23,7 +23,8 @@ from models.nn.fo import LateFusion, NatureCNN, FCPolicy, LSTMPolicy, \
 import gen.constants as constants
 from gen.graph.graph_obj import Graph
 from data.fo_dataset import get_datasets_dataloaders
-from models.utils.metric import compute_actions_f1
+from models.utils.metric import (compute_actions_f1, trajectory_avg_entropy,
+        path_weighted_success)
 from utils.video_util import VideoSaver
 
 video_saver = VideoSaver()
@@ -40,16 +41,6 @@ args = parse_args()
 
 # TODO: clean up moving model to CUDA
 device = torch.device('cuda:' + str(args.gpu))
-
-def trajectory_avg_entropy(trajectory_logits):
-    return -torch.mean(torch.sum(
-            F.log_softmax(trajectory_logits, dim=-1) *
-            torch.exp(F.log_softmax(trajectory_logits, dim=-1)),
-            dim=-1), dim=-1)
-
-def path_weighted_success(success, num_agent_actions, num_expert_actions):
-    return float(success) * num_expert_actions / max(num_agent_actions,
-            num_expert_actions)
 
 def rollout_trajectory(fo, model, frame_stack=1, zero_fill_frame_stack=False,
         teacher_force=False, scene_name_or_num=None, traj_data=None,
