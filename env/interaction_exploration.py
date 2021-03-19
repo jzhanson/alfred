@@ -86,10 +86,6 @@ class InteractionExploration(object):
                   }
         event = self.env.step(action)
 
-        # TODO: make a function that gets the closest object and computes the
-        # path to the closest object, copy over expert actions, and add
-        # Interact action (optionally with mask) or other appropriate action to
-        # end of expert_actions
         self.steps_taken = 0
         self.done = False
 
@@ -370,6 +366,13 @@ class InteractionExploration(object):
         else:
             # Sometimes there won't be a valid interaction
             return None
+
+    def get_current_expert_actions_path(self):
+        # TODO: make a function that gets the closest object and computes the
+        # path to the closest object, copy over expert actions, and add
+        # Interact action (optionally with mask) or other appropriate action to
+        # end of expert_actions
+        return [{'action' : 'MoveAhead'}], []
 
 if __name__ == '__main__':
     single_interact = True
