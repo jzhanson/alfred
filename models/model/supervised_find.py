@@ -25,6 +25,7 @@ from gen.graph.graph_obj import Graph
 from data.fo_dataset import get_datasets_dataloaders
 from models.utils.metric import (actions_accuracy_f1, trajectory_avg_entropy,
         path_weighted_success)
+from models.utils.helper_utils import stack_frames
 from utils.video_util import VideoSaver
 
 video_saver = VideoSaver()
@@ -81,7 +82,8 @@ def rollout_trajectory(fo, model, frame_stack=1, zero_fill_frame_stack=False,
         # that list
         stacked_frames = stack_frames([frames[-frame_stack:]],
                 frame_stack=frame_stack,
-                zero_fill_frame_stack=zero_fill_frame_stack)[0][-1:]
+                zero_fill_frame_stack=zero_fill_frame_stack,
+                device=device)[0][-1:]
 
         action_scores = model.predict([stacked_frames],
                 torch.tensor([target_object_type_index], device=device),
@@ -139,34 +141,6 @@ def rollout_trajectory(fo, model, frame_stack=1, zero_fill_frame_stack=False,
         entropy = trajectory_avg_entropy(torch.cat(all_action_scores))
     trajectory_results['entropy'] = entropy.item()
     return trajectory_results
-
-def stack_frames(frames, frame_stack=1, zero_fill_frame_stack=False):
-    stacked_frames = []
-    for trajectory_index in range(len(frames)):
-        trajectory_frames = []
-        for transition_index in range(len(frames[trajectory_index])):
-            if transition_index < frame_stack - 1:
-                if zero_fill_frame_stack:
-                    # Fill earlier frames with zeroes
-                    transition_frames = torch.cat([torch.zeros(((frame_stack -
-                        transition_index - 1) * 3), 300, 300)] +
-                        [frame.permute(2, 0, 1) for frame in
-                            frames[trajectory_index][:transition_index+1]])
-                else:
-                    # Repeat first frame
-                    transition_frames = torch.cat([frames[trajectory_index][0]
-                        .permute(2, 0, 1) for _ in range(frame_stack -
-                            transition_index - 1)] +
-                        [frame.permute(2, 0, 1) for frame in
-                            frames[trajectory_index][:transition_index+1]])
-                trajectory_frames.append(transition_frames)
-            else:
-                trajectory_frames.append(torch.cat([frame.permute(2, 0, 1) for
-                    frame in frames[trajectory_index][
-                        transition_index-frame_stack+1:transition_index+1]]))
-        stacked_frames.append(torch.stack(trajectory_frames).to(device=device,
-            dtype=torch.float32))
-    return stacked_frames
 
 def flatten_trajectories(batch_samples, frame_stack=1,
         zero_fill_frame_stack=False):
@@ -299,7 +273,7 @@ def train_dataset(fo, model, optimizer, datasets, dataloaders,
             # variable-length trajectory
             stacked_frames = stack_frames(batch_samples['images'],
                     frame_stack=frame_stack,
-                    zero_fill_frame_stack=zero_fill_frame_stack)
+                    zero_fill_frame_stack=zero_fill_frame_stack, device=device)
             # Turn target names into indexes and action names into indexes
             target_indexes = torch.tensor([obj_type_to_index[
                 constants.OBJECTS_LOWER_TO_UPPER[target]] for target in
@@ -451,7 +425,7 @@ def eval_dataset(model, dataloaders, obj_type_to_index, frame_stack=1,
         for batch_samples in dataloaders[split]:
             stacked_frames = stack_frames(batch_samples['images'],
                     frame_stack=frame_stack,
-                    zero_fill_frame_stack=zero_fill_frame_stack)
+                    zero_fill_frame_stack=zero_fill_frame_stack, device=device)
 
             # Turn target names into indexes and action names into indexes
             target_indexes = torch.tensor([obj_type_to_index[
