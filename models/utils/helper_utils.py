@@ -34,3 +34,42 @@ def load_partial_model(pretrained_dict, model):
     pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict}
     model_dict.update(pretrained_dict)
     model.load_state_dict(model_dict)
+
+def stack_frames(frames, frame_stack=1, zero_fill_frame_stack=False,
+        device=torch.device('cpu')):
+    """
+    stack_frames takes a list of tensors, one tensor per trajectory, so if only
+    one trajectory is being stacked, may need to wrap in an outer list and
+    unwrap afterwards.
+
+    stack_frames returns a list of tensors, one tensor per trajectory, and
+    there are the same number of stacked frames as there were original frames,
+    so if you only want one stacked frame, pass frame_stack frames and only
+    take the last one.
+    """
+    stacked_frames = []
+    for trajectory_index in range(len(frames)):
+        trajectory_frames = []
+        for transition_index in range(len(frames[trajectory_index])):
+            if transition_index < frame_stack - 1:
+                if zero_fill_frame_stack:
+                    # Fill earlier frames with zeroes
+                    transition_frames = torch.cat([torch.zeros(((frame_stack -
+                        transition_index - 1) * 3), 300, 300)] +
+                        [frame.permute(2, 0, 1) for frame in
+                            frames[trajectory_index][:transition_index+1]])
+                else:
+                    # Repeat first frame
+                    transition_frames = torch.cat([frames[trajectory_index][0]
+                        .permute(2, 0, 1) for _ in range(frame_stack -
+                            transition_index - 1)] +
+                        [frame.permute(2, 0, 1) for frame in
+                            frames[trajectory_index][:transition_index+1]])
+                trajectory_frames.append(transition_frames)
+            else:
+                trajectory_frames.append(torch.cat([frame.permute(2, 0, 1) for
+                    frame in frames[trajectory_index][
+                        transition_index-frame_stack+1:transition_index+1]]))
+        stacked_frames.append(torch.stack(trajectory_frames).to(device=device,
+            dtype=torch.float32))
+    return stacked_frames
