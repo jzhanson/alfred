@@ -4,9 +4,9 @@ sys.path.append(os.path.join(os.environ['ALFRED_ROOT']))
 sys.path.append(os.path.join(os.environ['ALFRED_ROOT'], 'env'))
 sys.path.append(os.path.join(os.environ['ALFRED_ROOT'], 'gen'))
 sys.path.append(os.path.join(os.environ['ALFRED_ROOT'], 'models'))
-
-
 import random
+
+import numpy as np
 
 import cv2
 from env.thor_env import ThorEnv
@@ -36,7 +36,9 @@ class InteractionExploration(object):
         if scene_name_or_num is None:
             # Randomly choose a scene if none specified
             scene_name_or_num = random.choice(constants.SCENE_NUMBERS)
-        event = self.env.reset(scene_name_or_num)
+
+        self.scene_name_or_num = scene_name_or_num
+        event = self.env.reset(self.scene_name_or_num)
 
         if random_object_positions:
             # Can play around with numDuplicatesOfType to populate the
@@ -61,7 +63,7 @@ class InteractionExploration(object):
 
         # Build scene graph
         self.graph = Graph(use_gt=True, construct_graph=True,
-                scene_id=scene_name_or_num)
+                scene_id=self.scene_name_or_num)
 
         start_point = event.pose_discrete[:2]
         rotation = event.pose_discrete[2]
@@ -366,6 +368,9 @@ class InteractionExploration(object):
         else:
             # Sometimes there won't be a valid interaction
             return None
+
+    def get_scene_name_or_num(self):
+        return self.scene_name_or_num
 
     def get_current_expert_actions_path(self):
         # TODO: make a function that gets the closest object and computes the
