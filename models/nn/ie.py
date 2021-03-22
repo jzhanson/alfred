@@ -208,8 +208,8 @@ class SuperpixelFusion(nn.Module):
 
         #print('similarity scores', similarity_scores.shape)
 
-        return (action_scores, value, similarity_scores, superpixel_masks,
-                hidden_state)
+        return (action_scores, value, similarity_scores,
+                batch_superpixel_masks, hidden_state)
 
     def featurize(self, stacked_frames, superpixel_model=False):
         chosen_model = (self.superpixel_model if superpixel_model else
