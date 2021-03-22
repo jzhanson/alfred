@@ -99,8 +99,6 @@ class LSTMPolicy(nn.Module):
     def forward(self, visual_feature, prev_action_embedding, policy_hidden):
         lstm_input = torch.cat([visual_feature, prev_action_embedding], dim=1)
 
-        # TODO: adapt this to multiple batch samples
-        # TODO: figure out how to track hidden state with multiple threads
         hidden_state, cell_state = self.lstm(lstm_input, policy_hidden)
 
         if self.prev_action_after_lstm:
@@ -129,15 +127,12 @@ class LSTMPolicy(nn.Module):
         return (torch.zeros(batch_size, self.lstm_hidden_size, device=device),
                 torch.zeros(batch_size, self.lstm_hidden_size, device=device))
 
-# TODO: maybe this class should be in a different place since it deals
-# with choosing a superpixel more than any neural network stuff
 class SuperpixelFusion(nn.Module):
     # TODO: add a better initialization for fc layers and LSTMPolicy
     def __init__(self, visual_model=None, superpixel_model=None,
             action_embeddings=None, policy_model=None, slic_kwargs={},
             boundary_pixels=0, neighbor_depth=0, neighbor_connectivity=2,
-            black_outer=False, sample_action=True):
-
+            black_outer=False, sample_action=True, device=torch.device('cpu')):
         """
         neighbor_connectivity of 1 means don't include diagonal adjacency, 2
         means do include diagonal adjacency
@@ -146,6 +141,11 @@ class SuperpixelFusion(nn.Module):
         self.visual_model = visual_model
         self.superpixel_model = superpixel_model
         self.action_embeddings = action_embeddings
+        # A bit of a hack to get zeros like an embedding
+        # Unfortunately torch.LongTensor must be constructed on CPU
+        # TODO: could make this part of embeddings
+        self.initial_action_embedding = torch.zeros_like(
+                self.action_embeddings(torch.LongTensor([0]).to(device)))
         self.policy_model = policy_model
         self.slic_kwargs = slic_kwargs
         self.boundary_pixels = boundary_pixels
@@ -158,38 +158,43 @@ class SuperpixelFusion(nn.Module):
             device=torch.device('cpu')):
         """
         Assumes frame is already a torch tensor of floats and moved to GPU.
+        last_action_index is a list of length batch_size, some of which might
+        be None (to signal there being no previous action). We don't make it a
+        list of length batch_size and wrap the inner indexes with an extra
+        dimension (in essence [batch_size, 1] instead of [batch_size]) because
+        of the Nones - it would require extra processing "for no reason"
         """
-        # TODO: make this class okay with batched frame and action if necessary
-        # for threading
         visual_features = self.featurize(frame)
         #print('visual features', len(visual_features), visual_features[0].shape)
 
-        # TODO: update this so it will work if we're batching multiple
-        # last_action_index, consider making last_action_index [batch_size, 1]
-        # instead of [batch_size]
-        if last_action_index[0] is not None:
-            last_action_embedding = self.action_embeddings(last_action_index)
-        else:
-            # TODO: A bit of a hack to get zeros like an embedding
-            last_action_embedding = torch.zeros_like(self.action_embeddings(
-                torch.LongTensor([0]).to(device)))
+        # Could streamline this embedding lookup with torch.nonzero, but it's
+        # not worth the complexity
+        last_action_embedding = []
+        for i in range(len(last_action_index)):
+            if last_action_index[i] is not None:
+                last_action_embedding.append(self.action_embeddings(
+                    last_action_index[i].unsqueeze(0)))
+            else:
+                last_action_embedding.append(self.initial_action_embedding)
+        last_action_embedding = torch.cat(last_action_embedding, dim=0)
 
         action_scores, value, visual_output, hidden_state = self.policy_model(
                 visual_features, last_action_embedding, policy_hidden)
 
         #print('action scores', action_scores.shape)
 
-        # TODO: make frame_crops work if frames are stacked
         batch_superpixel_masks = []
         batch_frame_crops = []
         batch_superpixel_features = []
         for i in range(frame.shape[0]):
+            # Take last three channels (RGB of last stacked frame)
             superpixel_masks, frame_crops = self.get_superpixel_masks_frame_crops(
-                    frame[i])
+                    frame[i][-3:])
             batch_superpixel_masks.append(superpixel_masks)
             batch_frame_crops.append(frame_crops)
 
-            # TODO: want to stack frames for superpixels?
+            # Stacking frames for superpixels doesn't seem like a good idea,
+            # since moving and looking around changes the view so drastically
             superpixel_features = self.featurize(frame_crops,
                     superpixel_model=True)
             batch_superpixel_features.append(superpixel_features)
