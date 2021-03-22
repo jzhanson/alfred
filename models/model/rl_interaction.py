@@ -150,12 +150,14 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
     trajectory_results['action_entropy'] = action_entropy.item()
     return trajectory_results
 
-def train(model, env, optimizer, gamma=1.0, tau=1.0, single_interact=False,
-        use_masks=True, max_trajectory_length=None, frame_stack=1,
-        zero_fill_frame_stack=False, teacher_force=False, train_episodes=10,
-        valid_seen_episodes=10, valid_unseen_episodes=10, eval_interval=1000,
-        max_steps=1000000, device=torch.device('cpu'), save_path=None,
-        save_intermediate=False, save_images_video=False, load_path=None):
+def train(model, env, optimizer, gamma=1.0, tau=1.0,
+        value_loss_coefficient=0.5, entropy_coefficient=0.01, max_grad_norm=50,
+        single_interact=False, use_masks=True, max_trajectory_length=None,
+        frame_stack=1, zero_fill_frame_stack=False, teacher_force=False,
+        train_episodes=10, valid_seen_episodes=10, valid_unseen_episodes=10,
+        eval_interval=1000, max_steps=1000000, device=torch.device('cpu'),
+        save_path=None, save_intermediate=False, save_images_video=False,
+        load_path=None):
     writer = SummaryWriter(log_dir='tensorboard_logs' if save_path is None else
             os.path.join(save_path, 'tensorboard_logs'))
 
@@ -219,10 +221,10 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0, single_interact=False,
             probs = F.softmax(trajectory_results['all_action_scores'][i].cpu(), dim=-1)
             log_probs = F.log_softmax(trajectory_results['all_action_scores'][i].cpu(), dim=-1)
             entropy = torch.sum(-(log_probs * probs))
-            policy_loss = policy_loss - action_log_prob * gae - 0.01 * entropy
+            policy_loss = (policy_loss - action_log_prob * gae -
+                    entropy_coefficient * entropy)
 
-        # TODO: add argument for coefficient
-        loss = policy_loss + 0.5 * value_loss
+        loss = policy_loss + value_loss_coefficient * value_loss
 
         optimizer.zero_grad()
         # TODO: RuntimeError: cuDNN error: CUDNN_STATUS_EXECUTION_FAILED
@@ -231,7 +233,7 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0, single_interact=False,
             loss.backward(retain_graph=True)
         except:
             loss.backward()
-        # TODO: may want to clamp gradients
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
         optimizer.step()
 
         # Compute and save some stats
@@ -528,6 +530,9 @@ if __name__ == '__main__':
         if p.requires_grad)))
 
     train(sf, ie, optimizer, gamma=args.gamma, tau=args.tau,
+            value_loss_coefficient=args.value_loss_coefficient,
+            entropy_coefficient=args.entropy_coefficient,
+            max_grad_norm=args.max_grad_norm,
             single_interact=args.single_interact, use_masks=args.use_masks,
             max_trajectory_length=args.max_trajectory_length,
             frame_stack=args.frame_stack,
