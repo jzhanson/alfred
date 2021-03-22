@@ -32,6 +32,7 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
     """
     frames = []
     all_action_scores = []
+    all_mask_scores = []
     values = []
     pred_action_indexes = []
     rewards = []
@@ -97,8 +98,12 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
             frame, reward, done, (action_success, event, err) = (
                     env.step(selected_action, interact_mask=selected_mask))
             if action_success:
+                print(selected_action)
                 # TODO: consider penalizing failed actions more or only allow
                 # one failed action
+                # TODO: report failed actions
+                # TODO: keep track of chosen action distribution with
+                # tensorboard
                 break
         assert pred_action_index is not None
         all_action_scores.append(action_scores[0])
@@ -107,6 +112,7 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
         rewards.append(reward)
         expert_action_indexes.append(action_to_index[current_expert_actions[0]
             ['action']])
+        all_mask_scores.append(mask_scores[0])
         prev_action_index = pred_action_index
         num_steps += 1
 
@@ -132,14 +138,16 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
     trajectory_results['scene_name_or_num'] = env.get_scene_name_or_num()
     trajectory_results['frames'] = frames
     trajectory_results['all_action_scores'] = all_action_scores
+    trajectory_results['all_mask_scores'] = all_mask_scores
     trajectory_results['values'] = values
     trajectory_results['pred_action_indexes'] = pred_action_indexes
     trajectory_results['expert_action_indexes'] = expert_action_indexes
     trajectory_results['success'] = float(success)
     trajectory_results['rewards'] = rewards
     with torch.no_grad():
-        entropy = trajectory_avg_entropy(torch.cat(all_action_scores))
-    trajectory_results['entropy'] = entropy.item()
+        # TODO: masks entropy
+        action_entropy = trajectory_avg_entropy(torch.cat(all_action_scores))
+    trajectory_results['action_entropy'] = action_entropy.item()
     return trajectory_results
 
 def train(model, env, optimizer, gamma=1.0, tau=1.0, single_interact=False,
@@ -168,7 +176,8 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0, single_interact=False,
     last_metrics['success'] = []
     last_metrics['rewards'] = []
     last_metrics['trajectory_length'] = []
-    last_metrics['entropy'] = []
+    last_metrics['action_entropy'] = []
+    last_metrics['num_masks'] = []
 
     # TODO: want a replay memory?
     while train_steps < max_steps:
@@ -235,8 +244,10 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0, single_interact=False,
                 len(trajectory_results['frames']))
         # Record average policy entropy over an episode
         with torch.no_grad():
-            entropy = trajectory_avg_entropy(all_action_scores)
-        last_metrics['entropy'].append(entropy.item())
+            action_entropy = trajectory_avg_entropy(all_action_scores)
+        last_metrics['action_entropy'].append(action_entropy.item())
+        last_metrics['num_masks'].append(np.mean([len(scores) for scores in
+            trajectory_results['all_mask_scores']]))
 
         results = {}
         results['train'] = {}
@@ -309,7 +320,7 @@ def evaluate(env, model, single_interact=False, use_masks=True,
         metrics[split] = {}
         metrics[split]['success'] = []
         metrics[split]['rewards'] = []
-        metrics[split]['entropy'] = []
+        metrics[split]['action_entropy'] = []
         metrics[split]['trajectory_length'] = []
         metrics[split]['frames'] = []
         metrics[split]['scene_name_or_num'] = []
@@ -325,7 +336,8 @@ def evaluate(env, model, single_interact=False, use_masks=True,
             # TODO: append in a loop over keys here and elsewhere
             metrics[split]['success'].append(trajectory_results['success'])
             metrics[split]['rewards'].append(trajectory_results['rewards'])
-            metrics[split]['entropy'].append(trajectory_results['entropy'])
+            metrics[split]['action_entropy'].append(
+                    trajectory_results['action_entropy'])
             metrics[split]['trajectory_length'].append(
                     float(len(trajectory_results['frames'])))
             metrics[split]['frames'].append(trajectory_results['frames'])
