@@ -177,11 +177,17 @@ def actions_accuracy_f1(predicted_action_indexes, expert_action_indexes):
             expert_action_indexes).item()
     return accuracy, f1
 
+def per_step_entropy(trajectory_logits):
+    entropies = []
+    for i in range(len(trajectory_logits)):
+        log_probs = F.log_softmax(trajectory_logits[i], dim=-1)
+        probs = torch.exp(log_probs)
+        entropy = torch.sum(-(log_probs * probs))
+        entropies.append(entropy)
+    return torch.stack(entropies)
+
 def trajectory_avg_entropy(trajectory_logits):
-    return -torch.mean(torch.sum(
-            F.log_softmax(trajectory_logits, dim=-1) *
-            torch.exp(F.log_softmax(trajectory_logits, dim=-1)),
-            dim=-1), dim=-1)
+    return torch.mean(per_step_entropy(trajectory_logits))
 
 def path_weighted_success(success, num_agent_actions, num_expert_actions):
     return float(success) * num_expert_actions / max(num_agent_actions,
