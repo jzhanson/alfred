@@ -4,6 +4,7 @@ parser = argparse.ArgumentParser()
 # General arguments
 parser.add_argument('-lr', '--lr', type=float, default=0.01, help='learning rate')
 parser.add_argument('--optimizer', type=str, default='adam', help='optimizer (\'sgd\', \'rmsprop\', \'adam\', or \'adam-amsgrad\') to use (default: \'adam\')')
+parser.add_argument('-mgn', '--max-grad-norm', type=float, default=50, help='maximum grad norm before clamping (default: 50)')
 parser.add_argument('-fs', '--frame-stack', type=int, default=1, help='number of frames to stack')
 parser.add_argument('-zffs', '--zero-fill-frame-stack', dest='zero_fill_frame_stack', action='store_true', help='fill frames with zeros when frame stacking on early steps')
 parser.add_argument('-fffs', '--first-fill-frame-stack', dest='zero_fill_frame_stack', action='store_false', help='replicate first frame when frame stacking on early steps')
@@ -109,8 +110,10 @@ parser.add_argument('--prev-action-after-lstm', dest='prev_action_after_lstm', a
 parser.add_argument('--no-prev-action-after-lstm', dest='prev_action_after_lstm', action='store_false', help='do not concatenate previous action to lstm output (hidden state)')
 parser.set_defaults(prev_action_after_lstm=False)
 parser.add_argument('--max-trajectory-length', type=int, default=None, help='max length of trajectory rollouts')
-parser.add_argument('--gamma', type=float, default=1.0, help='discount factor')
-parser.add_argument('--tau', type=float, default=1.0, help='decay term (bias/variance tradeoff) for GAE, lambda in the paper')
+parser.add_argument('--gamma', type=float, default=1.0, help='discount factor (default: 1.0)')
+parser.add_argument('--tau', type=float, default=1.0, help='decay term (bias/variance tradeoff) for GAE, lambda in the paper (default: 1.0)')
+parser.add_argument('--value-loss-coefficient', type=float, default=0.5, help='coefficient for value loss (default: 0.5)')
+parser.add_argument('--entropy-coefficient', type=float, default=0.01, help='coefficient for entropy in loss (default: 0.01)')
 
 def parse_args():
     return parser.parse_args()
