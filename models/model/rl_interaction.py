@@ -13,7 +13,7 @@ import torch.nn.functional as F
 
 import gen.constants as constants
 from env.interaction_exploration import InteractionExploration
-from models.utils.metric import trajectory_avg_entropy#, path_weighted_success
+from models.utils.metric import per_step_entropy, trajectory_avg_entropy
 from models.utils.helper_utils import stack_frames
 from utils.video_util import VideoSaver
 
@@ -90,7 +90,6 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
             else:
                 selected_mask = None
             if teacher_force:
-                # TODO: should selected_action be pred_action_index?
                 selected_action = current_expert_actions[0]['action']
                 # TODO: add expert superpixel mask
             else:
@@ -144,10 +143,12 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
     trajectory_results['expert_action_indexes'] = expert_action_indexes
     trajectory_results['success'] = float(success)
     trajectory_results['rewards'] = rewards
+    # Record average policy entropy over an episode
     with torch.no_grad():
-        # TODO: masks entropy
-        action_entropy = trajectory_avg_entropy(torch.cat(all_action_scores))
-    trajectory_results['action_entropy'] = action_entropy.item()
+        mask_entropy = per_step_entropy(all_mask_scores)
+        action_entropy = per_step_entropy(all_action_scores)
+    trajectory_results['action_entropy'] = action_entropy
+    trajectory_results['mask_entropy'] = mask_entropy
     return trajectory_results
 
 def train(model, env, optimizer, gamma=1.0, tau=1.0,
@@ -178,7 +179,8 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
     last_metrics['success'] = []
     last_metrics['rewards'] = []
     last_metrics['trajectory_length'] = []
-    last_metrics['action_entropy'] = []
+    last_metrics['avg_action_entropy'] = []
+    last_metrics['avg_mask_entropy'] = []
     last_metrics['num_masks'] = []
 
     # TODO: want a replay memory?
@@ -198,37 +200,33 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
         # https://github.com/ikostrikov/pytorch-a3c/blob/master/train.py
         policy_loss = 0
         value_loss = 0
-        gae = torch.zeros(1)
-        R = trajectory_results['values'][-1].cpu()
-        # TODO: can we not have .cpu() everywhere?
-        for i in reversed(range(len(trajectory_results['rewards']))):
-            R = gamma * R + trajectory_results['rewards'][i]
-            advantage = R - trajectory_results['values'][i].cpu()
+        gae = torch.zeros(1).to(device)
+        R = trajectory_results['values'][-1]
+        rewards = torch.Tensor(trajectory_results['rewards']).to(device)
+        for i in reversed(range(len(rewards))):
+            R = gamma * R + rewards[i]
+            advantage = R - trajectory_results['values'][i]
             value_loss = value_loss + 0.5 * advantage.pow(2)
 
             # Generalized Advantage Estimataion
-            delta_t = (trajectory_results['rewards'][i] + gamma *
-                trajectory_results['values'][i + 1].cpu() -
-                trajectory_results['values'][i].cpu())
+            delta_t = (rewards[i] + gamma *
+                trajectory_results['values'][i + 1] -
+                trajectory_results['values'][i])
 
             gae = gae * gamma * tau + delta_t
 
             chosen_action_index = trajectory_results['pred_action_indexes'][i]
             action_log_prob = trajectory_results['all_action_scores'][i][
-                    chosen_action_index].cpu()
-            # TODO: change(?) trajectory_avg_entropy to have single step
-            # entropy calculation
-            probs = F.softmax(trajectory_results['all_action_scores'][i].cpu(), dim=-1)
-            log_probs = F.log_softmax(trajectory_results['all_action_scores'][i].cpu(), dim=-1)
-            entropy = torch.sum(-(log_probs * probs))
+                    chosen_action_index]
+            action_entropy = trajectory_results['action_entropy'][i]
+            mask_entropy = trajectory_results['mask_entropy'][i]
             policy_loss = (policy_loss - action_log_prob * gae -
-                    entropy_coefficient * entropy)
+                    entropy_coefficient * (action_entropy + mask_entropy))
 
         loss = policy_loss + value_loss_coefficient * value_loss
 
         optimizer.zero_grad()
-        # TODO: RuntimeError: cuDNN error: CUDNN_STATUS_EXECUTION_FAILED
-        #loss.backward()
+        # RuntimeError: cuDNN error: CUDNN_STATUS_EXECUTION_FAILED
         try:
             loss.backward(retain_graph=True)
         except:
@@ -244,10 +242,10 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
         last_metrics['rewards'].append(float(sum(trajectory_results['rewards'])))
         last_metrics['trajectory_length'].append(
                 len(trajectory_results['frames']))
-        # Record average policy entropy over an episode
-        with torch.no_grad():
-            action_entropy = trajectory_avg_entropy(all_action_scores)
-        last_metrics['action_entropy'].append(action_entropy.item())
+        last_metrics['avg_mask_entropy'].append(
+                torch.mean(trajectory_results['mask_entropy']).item())
+        last_metrics['avg_action_entropy'].append(
+                torch.mean(trajectory_results['action_entropy']).item())
         last_metrics['num_masks'].append(np.mean([len(scores) for scores in
             trajectory_results['all_mask_scores']]))
 
@@ -312,7 +310,6 @@ def evaluate(env, model, single_interact=False, use_masks=True,
     model.eval()
     metrics = {}
     # Use DATASET_*_SCENE_NUMBERS for now
-    # TODO: can we use different train/valid splits without touching test?
     for split, episodes, scene_numbers in zip(
             ['train', 'valid_seen', 'valid_unseen'],
             [train_episodes, valid_seen_episodes, valid_unseen_episodes],
@@ -322,7 +319,8 @@ def evaluate(env, model, single_interact=False, use_masks=True,
         metrics[split] = {}
         metrics[split]['success'] = []
         metrics[split]['rewards'] = []
-        metrics[split]['action_entropy'] = []
+        metrics[split]['avg_action_entropy'] = []
+        metrics[split]['avg_mask_entropy'] = []
         metrics[split]['trajectory_length'] = []
         metrics[split]['frames'] = []
         metrics[split]['scene_name_or_num'] = []
@@ -337,9 +335,12 @@ def evaluate(env, model, single_interact=False, use_masks=True,
                         device=device)
             # TODO: append in a loop over keys here and elsewhere
             metrics[split]['success'].append(trajectory_results['success'])
-            metrics[split]['rewards'].append(trajectory_results['rewards'])
-            metrics[split]['action_entropy'].append(
-                    trajectory_results['action_entropy'])
+            metrics[split]['rewards'].append(
+                    float(sum(trajectory_results['rewards'])))
+            metrics[split]['avg_action_entropy'].append(
+                    torch.mean(trajectory_results['action_entropy']).item())
+            metrics[split]['avg_mask_entropy'].append(
+                    torch.mean(trajectory_results['mask_entropy']).item())
             metrics[split]['trajectory_length'].append(
                     float(len(trajectory_results['frames'])))
             metrics[split]['frames'].append(trajectory_results['frames'])
@@ -353,10 +354,7 @@ def evaluate(env, model, single_interact=False, use_masks=True,
 def write_results(writer, results, train_steps, train_frames,
         train_trajectories=None, save_path=None):
     """
-    Write results to SummaryWriter. Method is either "dataset" or "online"
-    depending on whether the metrics were acquired in a traditional
-    supervised-learning method or are from unrolling (with expert trajectories)
-    in the environment.
+    Write results to SummaryWriter.
     """
     for split in results.keys():
         for metric, values in results[split].items():
@@ -511,8 +509,8 @@ if __name__ == '__main__':
           policy_model=policy_model, slic_kwargs=slic_kwargs,
           boundary_pixels=args.boundary_pixels,
           neighbor_depth=args.neighbor_depth,
-          neighbor_connectivity=args.neighbor_connectivity, black_outer=False)
-
+          neighbor_connectivity=args.neighbor_connectivity, black_outer=False,
+          device=device)
     try:
         sf = sf.to(device)
     except:
