@@ -105,6 +105,7 @@ parser.add_argument('--superpixel-model', type=str, default='resnet', help='whic
 parser.add_argument('--superpixel-feature-size', type=int, default=512, help='dimension for superpixel features (default: 512, will be 512 if superpixel-model is \'resnet\')')
 parser.add_argument('--action-embedding-dim', type=int, default=16, help='dimension for action embeddings (default: 16)')
 parser.add_argument('--action-fc-units', type=int, nargs='+', default=512, help='dimensions for action fc layers before logits (default: 512)')
+parser.add_argument('--value-fc-units', type=int, nargs='+', default=512, help='dimensions for value fc layers before final value (default: 512)')
 parser.add_argument('--visual-fc-units', type=int, nargs='+', default=512, help='dimensions for visual fc layers (default: 512)')
 parser.add_argument('--prev-action-after-lstm', dest='prev_action_after_lstm', action='store_true', help='concatenate previous action to lstm output (hidden state)')
 parser.add_argument('--no-prev-action-after-lstm', dest='prev_action_after_lstm', action='store_false', help='do not concatenate previous action to lstm output (hidden state)')
