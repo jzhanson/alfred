@@ -115,6 +115,12 @@ parser.add_argument('--gamma', type=float, default=1.0, help='discount factor (d
 parser.add_argument('--tau', type=float, default=1.0, help='decay term (bias/variance tradeoff) for GAE, lambda in the paper (default: 1.0)')
 parser.add_argument('--value-loss-coefficient', type=float, default=0.5, help='coefficient for value loss (default: 0.5)')
 parser.add_argument('--entropy-coefficient', type=float, default=0.01, help='coefficient for entropy in loss (default: 0.01)')
+parser.add_argument('--sample-action', dest='sample_action', action='store_true', help='sample action from softmax logits')
+parser.add_argument('--no-sample-action', dest='sample_action', action='store_false', help='take argmax of action logits')
+parser.set_defaults(sample_action=True)
+parser.add_argument('--sample-mask', dest='sample_mask', action='store_true', help='sample mask from softmax logits')
+parser.add_argument('--no-sample-mask', dest='sample_mask', action='store_false', help='take argmax of mask logits')
+parser.set_defaults(sample_mask=True)
 
 def parse_args():
     return parser.parse_args()
