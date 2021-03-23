@@ -143,9 +143,9 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
     trajectory_results['success'] = float(success)
     trajectory_results['rewards'] = rewards
     # Record average policy entropy over an episode
-    with torch.no_grad():
-        mask_entropy = per_step_entropy(all_mask_scores)
-        action_entropy = per_step_entropy(all_action_scores)
+    # Need to keep grad since these entropies are used for the loss
+    mask_entropy = per_step_entropy(all_mask_scores)
+    action_entropy = per_step_entropy(all_action_scores)
     trajectory_results['action_entropy'] = action_entropy
     trajectory_results['mask_entropy'] = mask_entropy
     return trajectory_results
@@ -182,6 +182,8 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
     last_metrics['avg_action_entropy'] = []
     last_metrics['avg_mask_entropy'] = []
     last_metrics['num_masks'] = []
+    last_metrics['all_action_scores'] = []
+    last_metrics['all_mask_scores'] = []
 
     # TODO: want a replay memory?
     while train_steps < max_steps:
@@ -248,11 +250,15 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
                 torch.mean(trajectory_results['action_entropy']).item())
         last_metrics['num_masks'].append(np.mean([len(scores) for scores in
             trajectory_results['all_mask_scores']]))
+        last_metrics['all_action_scores'].append([action_scores.detach().cpu()
+            for action_scores in trajectory_results['all_action_scores']])
+        last_metrics['all_mask_scores'].append([mask_scores.detach().cpu() for
+            mask_scores in trajectory_results['all_mask_scores']])
 
         results = {}
         results['train'] = {}
         for metric in last_metrics.keys():
-            results['train'][metric] = last_metrics[metric][-1]
+            results['train'][metric] = [last_metrics[metric][-1]]
         # Don't write training results to file
         write_results(writer, results, train_steps, train_frames,
                 save_path=None)
@@ -321,6 +327,8 @@ def evaluate(env, model, single_interact=False, use_masks=True,
         metrics[split]['rewards'] = []
         metrics[split]['avg_action_entropy'] = []
         metrics[split]['avg_mask_entropy'] = []
+        metrics[split]['all_action_scores'] = []
+        metrics[split]['all_mask_scores'] = []
         metrics[split]['trajectory_length'] = []
         metrics[split]['frames'] = []
         metrics[split]['scene_name_or_num'] = []
@@ -341,6 +349,12 @@ def evaluate(env, model, single_interact=False, use_masks=True,
                     torch.mean(trajectory_results['action_entropy']).item())
             metrics[split]['avg_mask_entropy'].append(
                     torch.mean(trajectory_results['mask_entropy']).item())
+            metrics[split]['all_action_scores'].append(
+                    [action_scores.detach().cpu() for action_scores in
+                        trajectory_results['all_action_scores']])
+            metrics[split]['all_mask_scores'].append(
+                    [mask_scores.detach().cpu() for mask_scores in
+                        trajectory_results['all_mask_scores']])
             metrics[split]['trajectory_length'].append(
                     float(len(trajectory_results['frames'])))
             metrics[split]['frames'].append(trajectory_results['frames'])
@@ -358,27 +372,69 @@ def write_results(writer, results, train_steps, train_frames,
     """
     for split in results.keys():
         for metric, values in results[split].items():
+            steps_name = 'steps/' + split + '/' + metric
+            frames_name = 'frames/' + split + '/' + metric
+            trajectories_name = 'trajectories/' + split + '/' + metric
+
             if metric in ['frames', 'scene_name_or_num']:
                 continue
-            mean = np.mean(values)
-            writer.add_scalar('steps/' + split + '/' + metric, mean,
-                    train_steps)
-            writer.add_scalar('frames/' + split + '/' + metric, mean,
-                    train_frames)
-            if train_trajectories is not None:
-                writer.add_scalar('trajectories/' + split + '/' + metric, mean,
-                        train_trajectories)
+            # all_mask_scores can be variably sized so it won't work with
+            # histogram unless we take the top k, but in that case entropy
+            # works fine as a measure
+            if metric == 'all_action_scores':
+                # all_action_scores is a list of lists (for each trajectory) of
+                # tensors (for each step)
+                trajectory_flat_action_scores = []
+                for action_scores in values:
+                    trajectory_flat_action_scores.extend(action_scores)
+                writer.add_histogram(steps_name,
+                        torch.stack(trajectory_flat_action_scores),
+                        train_steps)
+                writer.add_histogram(frames_name,
+                        torch.stack(trajectory_flat_action_scores),
+                        train_frames)
+
+                # Also histogram the top (chosen) action
+                chosen_actions = [torch.argmax(action_scores).item() for
+                        action_scores in trajectory_flat_action_scores]
+                chosen_actions_steps_name = ('steps/' + split + '/' +
+                        'chosen_actions')
+                chosen_actions_frames_name = ('frames/' + split + '/' +
+                        'chosen_actions')
+                chosen_actions_trajectories_name = ('trajectories/' + split +
+                        '/' + 'chosen_actions')
+                writer.add_histogram(chosen_actions_steps_name, chosen_actions,
+                        train_steps, bins='fd')
+                writer.add_histogram(chosen_actions_frames_name,
+                        chosen_actions, train_frames, bins='fd')
+                if train_trajectories is not None:
+                    writer.add_histogram(trajectories_name, chosen_actions,
+                            train_trajectories)
+                writer.add_histogram(chosen_actions_trajectories_name,
+                        chosen_actions, train_trajectories, bins='fd')
+
+            elif 'scores' in metric: # Skip all_mask_scores
+                continue
+            else:
+                mean = np.mean(values)
+                writer.add_scalar(steps_name, mean, train_steps)
+                writer.add_scalar(frames_name, mean, train_frames)
+                if train_trajectories is not None:
+                    writer.add_scalar(trajectories_name, mean,
+                            train_trajectories)
+
     # Also write output to saved file
     if save_path is not None:
         results_path = os.path.join(save_path, str(train_steps))
         # Exclude frames from results
         json_results = {}
         for split in results.keys():
+            # Don't save scores
             json_results[split] = {k:v for k, v in results[split].items() if k
-                    != 'frames'}
+                    != 'frames' and 'scores' not in k}
         if not os.path.isdir(results_path):
             os.makedirs(results_path)
-        with open(os.path.join(results_path, method + '.json'), 'w') as \
+        with open(os.path.join(results_path, 'results.json'), 'w') as \
                 jsonfile:
             json.dump(json_results, jsonfile)
 
