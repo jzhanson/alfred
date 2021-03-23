@@ -432,7 +432,8 @@ if __name__ == '__main__':
     with open(args.reward_config_path, 'r') as jsonfile:
         reward_config = json.load(jsonfile)['InteractionExploration']
 
-    # TODO: add support for running on multiple gpus, e.g. gpu_ids like
+    # TODO: if adding threads, add support for running on multiple gpus, e.g.
+    # gpu_ids like
     # https://github.com/dgriff777/rl_a3c_pytorch/blob/master/train.py
     if args.gpu >= 0:
         device = torch.device('cuda:' + str(args.gpu))
@@ -501,6 +502,7 @@ if __name__ == '__main__':
             prev_action_size=args.action_embedding_dim,
             lstm_hidden_size=args.lstm_hidden_dim, dropout=args.dropout,
             action_fc_units=args.action_fc_units,
+            value_fc_units=args.value_fc_units,
             visual_fc_units=args.visual_fc_units,
             prev_action_after_lstm=args.prev_action_after_lstm).to(device)
 
