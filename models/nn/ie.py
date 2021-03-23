@@ -42,6 +42,7 @@ class LSTMPolicy(nn.Module):
         self.lstm_hidden_size = lstm_hidden_size
         self.dropout = dropout
         self.action_fc_units = action_fc_units
+        self.value_fc_units = value_fc_units
         self.visual_fc_units = visual_fc_units
         self.prev_action_after_lstm = prev_action_after_lstm
 
@@ -61,7 +62,7 @@ class LSTMPolicy(nn.Module):
 
         # TODO: shared fc layers for action and visual vector?
         self.action_fc_layers = nn.ModuleList()
-        for i in range(len(action_fc_units)):
+        for i in range(len(self.action_fc_units)):
             if i == 0:
                 in_features = fc_input_size
             else:
@@ -74,7 +75,7 @@ class LSTMPolicy(nn.Module):
             0 else fc_input_size, out_features=self.num_actions, bias=True))
 
         self.value_fc_layers = nn.ModuleList()
-        for i in range(len(value_fc_units)):
+        for i in range(len(self.value_fc_units)):
             if i == 0:
                 in_features = fc_input_size
             else:
@@ -87,7 +88,7 @@ class LSTMPolicy(nn.Module):
             0 else fc_input_size, out_features=1, bias=True))
 
         self.visual_fc_layers = nn.ModuleList()
-        for i in range(len(visual_fc_units)):
+        for i in range(len(self.visual_fc_units)):
             if i == 0:
                 in_features = fc_input_size
             else:
