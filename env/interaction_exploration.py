@@ -88,6 +88,7 @@ class InteractionExploration(object):
                   }
         event = self.env.step(action)
 
+        self.reward.reset()
         self.steps_taken = 0
         self.done = False
 
