@@ -25,8 +25,8 @@ from args import parse_args
 
 def rollout_trajectory(env, model, single_interact=False, use_masks=True,
         max_trajectory_length=None, frame_stack=1, zero_fill_frame_stack=False,
-        teacher_force=False, scene_name_or_num=None,
-        device=torch.device('cpu')):
+        teacher_force=False, sample_action=True, sample_mask=True,
+        scene_name_or_num=None, device=torch.device('cpu')):
     """
     Returns dictionary of trajectory results.
     """
@@ -70,41 +70,40 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
         action_scores, value, mask_scores, masks, hidden_state = model(
                 stacked_frames, prev_action_index, policy_hidden=hidden_state,
                 device=device)
-        # Sorted in increasing order (rightmost is highest scoring action)
-        sorted_scores, top_indices = torch.sort(action_scores[0],
-                descending=True)
-        top_indices = top_indices.flatten()
-        # Try each action until success
-        pred_action_index = None
-        # TODO: add action sampling and mask sampling
-        #pred_action_index = torch.multinomial(F.softmax(action_scores[0]), num_samples=1)
         current_expert_actions, _ = env.get_current_expert_actions_path()
-        for i in range(len(actions)):
-            pred_action_index = top_indices[i]
-            # Only pass mask on interact action so InteractionExploration won't
-            # complain
-            if (actions[pred_action_index] == constants.ACTIONS_INTERACT or
-                    actions[pred_action_index] in constants.INT_ACTIONS):
-                # TODO: try each mask?
+
+        # Only attempt one action (which might fail) instead of trying all
+        # actions in order
+        if sample_action:
+            pred_action_index = torch.multinomial(F.softmax(action_scores[0],
+                dim=-1), num_samples=1)
+        else:
+            pred_action_index = torch.argmax(action_scores[0])
+
+        # Only pass mask on interact action so InteractionExploration won't
+        # complain
+        if (actions[pred_action_index] == constants.ACTIONS_INTERACT or
+                actions[pred_action_index] in constants.INT_ACTIONS):
+            if sample_mask:
+                pred_mask_index = torch.multinomial(F.softmax(mask_scores[0],
+                    dim=-1), num_samples=1)
+                selected_mask = masks[0][pred_mask_index]
+            else:
                 selected_mask = masks[0][torch.argmax(mask_scores[0])]
-            else:
-                selected_mask = None
-            if teacher_force:
-                selected_action = current_expert_actions[0]['action']
-                # TODO: add expert superpixel mask
-            else:
-                selected_action = actions[pred_action_index]
-            frame, reward, done, (action_success, event, err) = (
-                    env.step(selected_action, interact_mask=selected_mask))
-            if action_success:
-                print(selected_action)
-                # TODO: consider penalizing failed actions more or only allow
-                # one failed action
-                # TODO: report failed actions
-                # TODO: keep track of chosen action distribution with
-                # tensorboard
-                break
-        assert pred_action_index is not None
+        else:
+            selected_mask = None
+
+        if teacher_force:
+            selected_action = current_expert_actions[0]['action']
+            # TODO: add expert superpixel mask
+        else:
+            selected_action = actions[pred_action_index]
+        frame, reward, done, (action_success, event, err) = (
+                env.step(selected_action, interact_mask=selected_mask))
+        print(selected_action, action_success, reward, err)
+            # TODO: report failed actions
+            # TODO: keep track of chosen action distribution with
+            # tensorboard
         all_action_scores.append(action_scores[0])
         values.append(value[0])
         pred_action_indexes.append(pred_action_index)
@@ -155,10 +154,10 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
         value_loss_coefficient=0.5, entropy_coefficient=0.01, max_grad_norm=50,
         single_interact=False, use_masks=True, max_trajectory_length=None,
         frame_stack=1, zero_fill_frame_stack=False, teacher_force=False,
-        train_episodes=10, valid_seen_episodes=10, valid_unseen_episodes=10,
-        eval_interval=1000, max_steps=1000000, device=torch.device('cpu'),
-        save_path=None, save_intermediate=False, save_images_video=False,
-        load_path=None):
+        sample_action=True, sample_mask=True, train_episodes=10,
+        valid_seen_episodes=10, valid_unseen_episodes=10, eval_interval=1000,
+        max_steps=1000000, device=torch.device('cpu'), save_path=None,
+        save_intermediate=False, save_images_video=False, load_path=None):
     writer = SummaryWriter(log_dir='tensorboard_logs' if save_path is None else
             os.path.join(save_path, 'tensorboard_logs'))
 
@@ -172,8 +171,9 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
     else:
         train_steps = 0
         train_frames = 0
-    # TODO: save/load metrics instead of relying on tensorboard and make metric
-    # loading work well with tensorboard
+    # If loading from file, metrics will be blank, but that's okay because
+    # train_steps and train_frames will be accurate, so it will just pick up
+    # where it left off
     last_metrics = {}
     last_metrics['loss'] = []
     last_metrics['success'] = []
@@ -191,8 +191,8 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
                 max_trajectory_length=max_trajectory_length,
                 frame_stack=frame_stack,
                 zero_fill_frame_stack=zero_fill_frame_stack,
-                teacher_force=teacher_force,
-                scene_name_or_num=random.choice(
+                teacher_force=teacher_force, sample_action=sample_action,
+                sample_mask=sample_mask, scene_name_or_num=random.choice(
                     constants.TRAIN_SCENE_NUMBERS), device=device)
         all_action_scores = torch.cat(trajectory_results['all_action_scores'])
 
@@ -331,9 +331,9 @@ def evaluate(env, model, single_interact=False, use_masks=True,
                         max_trajectory_length=max_trajectory_length,
                         frame_stack=frame_stack,
                         zero_fill_frame_stack=zero_fill_frame_stack,
+                        sample_action=False, sample_mask=False,
                         scene_name_or_num=random.choice(scene_numbers),
                         device=device)
-            # TODO: append in a loop over keys here and elsewhere
             metrics[split]['success'].append(trajectory_results['success'])
             metrics[split]['rewards'].append(
                     float(sum(trajectory_results['rewards'])))
@@ -537,8 +537,8 @@ if __name__ == '__main__':
             max_trajectory_length=args.max_trajectory_length,
             frame_stack=args.frame_stack,
             zero_fill_frame_stack=args.zero_fill_frame_stack,
-            teacher_force=args.teacher_force,
-            train_episodes=args.train_episodes,
+            teacher_force=args.teacher_force, sample_action=args.sample_action,
+            sample_mask=args.sample_mask, train_episodes=args.train_episodes,
             valid_seen_episodes=args.valid_seen_episodes,
             valid_unseen_episodes=args.valid_unseen_episodes,
             eval_interval=args.eval_interval, max_steps=args.max_steps,
