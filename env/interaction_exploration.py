@@ -210,7 +210,7 @@ class InteractionExploration(object):
 
         self.steps_taken += 1
         reward = self.reward.get_reward(self.env.last_event, action,
-                target_instance_id=target_instance_id,
+                api_success=success, target_instance_id=target_instance_id,
                 interact_mask=interact_mask)
 
         # obs, rew, done, info
