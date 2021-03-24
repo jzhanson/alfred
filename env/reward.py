@@ -20,16 +20,20 @@ class InteractionReward(object):
         self.reward_look_angle = reward_look_angle
         self.reset()
 
-    def get_reward(self, state, action, target_instance_id=None,
-            interact_mask=None):
+    def get_reward(self, state, action, api_success=True,
+            target_instance_id=None, interact_mask=None):
         """
         state.metadata['lastAction'] has TeleportFull for navigation actions
         and is consistent with what was executed in the environment, while our
         action argument is consistent with the actions exposed to the
         agent/user.
+
+        api_success is needed whether the THOR API rejected the action before
+        the action was applied in the environment, since failed actions due to
+        API rejection don't show up in last_action(state)'s metadata
         """
         reward = self.rewards['step_penalty']
-        if not state.metadata['lastActionSuccess']:
+        if not state.metadata['lastActionSuccess'] or not api_success:
             reward = self.rewards['invalid_action']
         elif (state.metadata['lastActionSuccess'] and
                 state.metadata['lastAction'] in constants.INT_ACTIONS):
