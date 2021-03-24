@@ -23,6 +23,14 @@ from tensorboardX import SummaryWriter
 
 from args import parse_args
 
+"""
+There's a "bug" where the underlying Unity environment doesn't like being
+passed objects for ToggleObjectOn/Off that aren't visible and throws an
+exception that's caught by env/thor_env.py, but seems to work fine for other
+interactions with not visible objects. This is a small issue since the
+"visible" distance is not very large in the THOR environment.
+"""
+
 def rollout_trajectory(env, model, single_interact=False, use_masks=True,
         max_trajectory_length=None, frame_stack=1, zero_fill_frame_stack=False,
         teacher_force=False, sample_action=True, sample_mask=True,
@@ -102,8 +110,6 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
                 env.step(selected_action, interact_mask=selected_mask))
         print(selected_action, action_success, reward, err)
             # TODO: report failed actions
-            # TODO: keep track of chosen action distribution with
-            # tensorboard
         all_action_scores.append(action_scores[0])
         values.append(value[0])
         pred_action_indexes.append(pred_action_index)
