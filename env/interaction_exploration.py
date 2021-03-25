@@ -381,9 +381,9 @@ class InteractionExploration(object):
         return [{'action' : 'MoveAhead'}], []
 
 if __name__ == '__main__':
-    single_interact = True
-    use_masks = False
-    accept_input = False
+    single_interact = False
+    use_masks = True
+    accept_input = True
     env = ThorEnv()
 
     import json
@@ -410,6 +410,14 @@ if __name__ == '__main__':
             key_action = input("Input action: ")
             action = (constants.KEY_TO_ACTION[key_action] if key_action in
                     constants.KEY_TO_ACTION else key_action)
+            if action == 'reset':
+                scene_num = input("Input new scene num, nothing for random: ")
+                if len(scene_num) == 0:
+                    scene_num = None
+                else:
+                    scene_num = int(scene_num)
+                frame = ie.reset(scene_name_or_num=scene_num)
+                continue
         else:
             action = random.choice(constants.SIMPLE_ACTIONS if single_interact
                     else constants.COMPLEX_ACTIONS)
