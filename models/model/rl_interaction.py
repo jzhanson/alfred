@@ -503,8 +503,7 @@ if __name__ == '__main__':
         device = torch.device('cpu')
 
     reward = InteractionReward(thor_env, reward_config,
-            reward_rotations=args.reward_rotations,
-            reward_look_angle=args.reward_look_angle,
+            reward_rotations=args.reward_rotations_look_angles,
             reward_state_changes=args.reward_state_changes)
 
     ie = InteractionExploration(thor_env, reward,
