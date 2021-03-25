@@ -12,13 +12,16 @@ class InteractionReward(object):
     Simple reward function for InteractionExploration that gives a reward for
     every interaction.
     """
-    def __init__(self, env, rewards, reward_rotations=False,
-            reward_look_angle=False, reward_state_changes=True):
+    def __init__(self, env, rewards, reward_rotations_look_angles=False,
+            reward_state_changes=True, persist_state=False,
+            repeat_discount=0.0):
         self.env = env
         self.rewards = rewards
-        self.reward_rotations = reward_rotations
-        self.reward_look_angle = reward_look_angle
-        self.reset()
+        self.reward_rotations_look_angles = reward_rotations_look_angles
+        self.persist_state = persist_state
+        self.repeat_discount = repeat_discount
+        self.trajectories = 0
+        self.reset(init=True)
 
     def get_reward(self, state, action, api_success=True,
             target_instance_id=None, interact_mask=None):
@@ -31,80 +34,125 @@ class InteractionReward(object):
         api_success is needed whether the THOR API rejected the action before
         the action was applied in the environment, since failed actions due to
         API rejection don't show up in last_action(state)'s metadata
+
+        Assumes invalid_action reward is not 0 and that if decayed
+        navigation/interaction reward is 0 that means that step_penalty should
+        be given instead.
         """
-        reward = self.rewards['step_penalty']
         if not state.metadata['lastActionSuccess'] or not api_success:
             reward = self.rewards['invalid_action']
         elif (state.metadata['lastActionSuccess'] and
                 state.metadata['lastAction'] in constants.INT_ACTIONS):
             interaction = (target_instance_id, state.metadata['lastAction'])
             if interaction not in self.interactions:
-                self.interactions.append(interaction)
-                reward = self.rewards['interaction']
+                self.interactions[interaction] = 1
+            else:
+                self.interactions[interaction] += 1
+            reward = self.rewards['interaction'] * pow(self.repeat_discount,
+                    self.interactions[interaction] - 1)
             # Also, if action resulted in objects becoming clean, heated, or
             # cooled, give reward for each one
             newly_cleaned = (len(self.env.cleaned_objects) -
-                    self.num_cleaned_objects)
+                    len(self.trajectory_cleaned_objects))
             newly_heated = (len(self.env.heated_objects) -
-                    self.num_heated_objects)
+                    len(self.trajectory_heated_objects))
             newly_cooled = (len(self.env.cooled_objects) -
-                    self.num_cooled_objects)
-            # A single action can only result in one type of state change
-            if newly_cleaned > 0:
-                reward += newly_cleaned * self.rewards['state_change']
-                self.num_cleaned_objects += newly_cleaned
-            if newly_heated > 0:
-                reward += newly_heated * self.rewards['state_change']
-                self.num_heated_objects += newly_heated
-            if newly_cooled > 0:
-                reward += newly_cooled * self.rewards['state_change']
-                self.num_cooled_objects += newly_cooled
+                    len(self.trajectory_cooled_objects))
+            for env_objects, trajectory_objects, memory_objects in zip(
+                    [self.env.cleaned_objects, self.env.heated_objects,
+                        self.env.cooled_objects],
+                    [self.trajectory_cleaned_objects,
+                        self.trajectory_heated_objects,
+                        self.trajectory_cooled_objects],
+                    [self.cleaned_objects, self.heated_objects,
+                        self.cooled_objects]):
+                num_new_objects = len(env_objects) - len(trajectory_objects)
+                if num_new_objects > 0:
+                    # Go through all objects marked as cleaned/heated/cooled in
+                    # the environment, and if it is newly added, add it to our
+                    # tracking set and our memory
+                    for object_id in env_objects:
+                        if object_id not in trajectory_objects:
+                            trajectory_objects.update(object_id)
+                            if object_id not in memory_objects:
+                                memory_objects[object_id] = 1
+                            else:
+                                memory_objects[object_id] += 1
+                            reward += self.rewards['state_change'] * pow(
+                                    self.repeat_discount,
+                                    memory_objects[object_id] - 1)
+                    # A single action can only result in one type of state
+                    # change
+                    break
         # Could also do state.metadata['lastAction'] == 'TeleportFull'
         elif (state.metadata['lastActionSuccess'] and action in
                 constants.NAV_ACTIONS):
             location = state.pose_discrete[:2]
+            rotation = state.pose_discrete[2]
+            look_angle = state.pose_discrete[3]
+            # The times_visited pattern is a little ugly but used because a
+            # self.visited_locations_poses being a dict of lists of poses makes
+            # getting a specific location + pose awkward
             if location not in self.visited_locations_poses:
-                reward = self.rewards['navigation']
-                self.visited_locations_poses[location] = [state.pose_discrete[2:]]
+                self.visited_locations_poses[location] = {
+                        (rotation, look_angle) : 1}
             elif location in self.visited_locations_poses:
-                rotation = state.pose_discrete[2]
-                look_angle = state.pose_discrete[3]
-                if self.reward_rotations and len([rotation_look_angle for
-                        rotation_look_angle in
-                        self.visited_locations_poses[location] if
-                        rotation_look_angle[0] == rotation]) == 0:
-                    reward = self.rewards['navigation']
-                    self.visited_locations_poses[location].append((rotation,
-                        look_angle))
-                elif self.reward_look_angle and len([rotation_look_angle for
-                        rotation_look_angle in
-                        self.visited_locations_poses[location] if
-                        rotation_look_angle[1] == look_angle]) == 0:
-                    reward = self.rewards['navigation']
-                    self.visited_locations_poses[location].append((rotation,
-                        look_angle))
-                elif ((rotation, look_angle) not in
+                if ((rotation, look_angle) not in
                         self.visited_locations_poses[location]):
-                    self.visited_locations_poses[location].append((rotation,
-                        look_angle))
+                    self.visited_locations_poses[location][(rotation,
+                        look_angle)] = 1
+                else:
+                    # Update times_visited
+                    self.visited_locations_poses[location][(rotation,
+                        look_angle)] += 1
 
+            # At this point, self.visited_locations_poses and its counts are up
+            # to date
+            if self.reward_rotations_look_angles:
+                times_visited = (self.visited_locations_poses[location][pose] -
+                        1)
+            else:
+                times_visited = sum(self.visited_locations_poses[location]
+                        .values()) - 1
+
+            reward = self.rewards['navigation'] * pow(self.repeat_discount,
+                    times_visited)
+
+        # This is a bit of a hack so that self.repeat_decay = 0.0 works as
+        # expected to make repeated actions take a step penalty instead of 0
+        # reward. Assumes rewards['invalid_action'] is not 0
+        if reward == 0:
+            reward = self.rewards['step_penalty']
         return reward
 
     def invalid_action(self):
         return self.rewards['invalid_action']
 
-    def reset(self):
-        self.interactions = [] # Tuples of object_id, action
-        self.visited_locations_poses = {} # (x, z): (rotation, looking angle)
-        # Use env/thor_env.py's cleaned_objects, heated_objects, and
+    def reset(self, init=False):
+        """
+        Call reset() before starting a new episode, after env has been set up.
+        """
+        if init or not self.persist_state:
+            # (object_id, action) : times taken
+            self.interactions = {}
+            # Dict(tuple, Dict(tuple, int))
+            # (x, z): ((rotation, looking angle) : times in position)
+            self.visited_locations_poses = {}
+            # Object id : times cleaned/heated/cooled
+            self.cleaned_objects = {}
+            self.heated_objects = {}
+            self.cooled_objects = {}
+            # Mark initial agent location as visited
+            starting_pose = self.env.last_event.pose_discrete
+            self.visited_locations_poses[starting_pose[:2]] = {
+                    starting_pose[2:] : 1}
+        # Keep a copy of env/thor_env.py's cleaned_objects, heated_objects, and
         # cooled_objects, which don't ever drop members, to track
-        # cleaned/heated/cooled state changes
-        self.num_cleaned_objects = 0
-        self.num_heated_objects = 0
-        self.num_cooled_objects = 0
-        # Do not reward initial agent location
-        starting_pose = self.env.last_event.pose_discrete
-        self.visited_locations_poses[starting_pose[:2]] = [starting_pose[2:]]
+        # cleaned/heated/cooled state changes within a trajectory
+        self.trajectory_cleaned_objects = set()
+        self.trajectory_heated_objects = set()
+        self.trajectory_cooled_objects = set()
+        self.trajectories += 1
 
 class BaseAction(object):
     '''
