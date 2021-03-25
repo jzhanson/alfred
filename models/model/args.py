@@ -67,7 +67,7 @@ parser.add_argument('--slic-max-iter', type=int, default=10, help='maximum itera
 parser.add_argument('--slic-max-size-factor', type=float, default=3, help='proportion of max connected segment size (default: 3)')
 parser.add_argument('--slic-n-segments', type=int, default=10, help='approx number of segments (default: 10)')
 parser.add_argument('--slic-compactness', type=float, default=10.0, help='balances color proximity and space proximity, higher values give more weight to space proximity, making superpixel shapes more square (default: 10.0)')
-parser.add_argument('--slic-sigma', type=float, default=0, help='width of Gaussian smoothing kernel, 0 means no smoothing (default: 0)')
+parser.add_argument('--slic-sigma', type=int, default=0, help='width of Gaussian smoothing kernel, 0 means no smoothing (default: 0)')
 parser.add_argument('--slic-min-size-factor', type=float, default=0.01, help='proportion of the minimum segment size to be removed with respect to the supposed segment size (default: 0.01)')
 # Other superpixel construction arguments
 parser.add_argument('--boundary-pixels', type=int, default=0, help='pixels to expand the boundary of superpixel bounding boxes by (default: 0)')
