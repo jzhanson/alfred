@@ -96,6 +96,10 @@ parser.set_defaults(reward_rotations_look_angles=False)
 parser.add_argument('--reward-state-changes', dest='reward_state_changes', action='store_true', help='give new state reward for object state changes')
 parser.add_argument('--no-reward-state-changes', dest='reward_state_changes', action='store_false', help='do not give new state reward for object state changes')
 parser.set_defaults(reward_state_changes=True)
+parser.add_argument('--reward-persist-state', dest='reward_persist_state', action='store_true', help='keep internal reward state over different trajectories')
+parser.add_argument('--reward-reset-state', dest='reward_persist_state', action='store_false', help='reset internal reward state every trajectory')
+parser.set_defaults(reward_persist_state=False)
+parser.add_argument('--reward-repeat-discount', type=float, default=0.0, help='the discount factor to apply to the rewards for repeated actions (default: 0.0)')
 
 # Model parameters
 parser.add_argument('--superpixel-model', type=str, default='resnet', help='which model to use for superpixels (only \'resnet\' supported for now)')
