@@ -261,7 +261,8 @@ class SuperpixelFusion(nn.Module):
         """
         # slic works fine if frame is torch.Tensor
         # Need to reshape frame from [3, 300, 300] to [300, 300, 3]
-        frame = frame.numpy().transpose(1, 2, 0)
+        # Cast to uint8 since the slic code behaves differently for float32
+        frame = frame.numpy().transpose(1, 2, 0).astype('uint8')
         segments = slic(img_as_float(frame), **self.slic_kwargs)
 
         superpixel_labels = np.unique(segments)
