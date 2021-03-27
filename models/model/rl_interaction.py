@@ -32,9 +32,10 @@ interactions with not visible objects. This is a small issue since the
 """
 
 def rollout_trajectory(env, model, single_interact=False, use_masks=True,
-        max_trajectory_length=None, frame_stack=1, zero_fill_frame_stack=False,
-        teacher_force=False, sample_action=True, sample_mask=True,
-        scene_name_or_num=None, device=torch.device('cpu')):
+        max_trajectory_length=None, frame_stack=1,
+        zero_fill_frame_stack=False, teacher_force=False, sample_action=True,
+        sample_mask=True, scene_name_or_num=None, reset_kwargs={},
+        device=torch.device('cpu')):
     """
     Returns dictionary of trajectory results.
     """
@@ -45,7 +46,7 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
     pred_action_indexes = []
     rewards = []
     expert_action_indexes = []
-    frame = env.reset(scene_name_or_num)
+    frame = env.reset(scene_name_or_num, **reset_kwargs)
     done = False
     num_steps = 0
 
@@ -158,12 +159,13 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
 
 def train(model, env, optimizer, gamma=1.0, tau=1.0,
         value_loss_coefficient=0.5, entropy_coefficient=0.01, max_grad_norm=50,
-        single_interact=False, use_masks=True, max_trajectory_length=None,
-        frame_stack=1, zero_fill_frame_stack=False, teacher_force=False,
-        sample_action=True, sample_mask=True, train_episodes=10,
-        valid_seen_episodes=10, valid_unseen_episodes=10, eval_interval=1000,
-        max_steps=1000000, device=torch.device('cpu'), save_path=None,
-        save_intermediate=False, save_images_video=False, load_path=None):
+        single_interact=False, use_masks=True, fixed_scene_num=None,
+        max_trajectory_length=None, frame_stack=1, zero_fill_frame_stack=False,
+        teacher_force=False, sample_action=True, sample_mask=True,
+        train_episodes=10, valid_seen_episodes=10, valid_unseen_episodes=10,
+        eval_interval=1000, max_steps=1000000, device=torch.device('cpu'),
+        save_path=None, save_intermediate=False, save_images_video=False,
+        load_path=None):
     writer = SummaryWriter(log_dir='tensorboard_logs' if save_path is None else
             os.path.join(save_path, 'tensorboard_logs'))
 
@@ -194,14 +196,27 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
     # TODO: want a replay memory?
     while train_steps < max_steps:
         # Collect a trajectory
+        if fixed_scene_num is not None:
+            # If fixed_scene_num is provided, set up that scene exactly the
+            # same way every time
+            scene_num = fixed_scene_num
+            reset_kwargs = {
+                    'random_object_positions' : False,
+                    'random_position' : False,
+                    'random_rotation' : False,
+                    'random_look_angle' : False
+            }
+        else:
+            scene_num = random.choice(constants.TRAIN_SCENE_NUMBERS)
+            reset_kwargs = {}
         trajectory_results = rollout_trajectory(env, model,
                 single_interact=single_interact, use_masks=use_masks,
                 max_trajectory_length=max_trajectory_length,
                 frame_stack=frame_stack,
                 zero_fill_frame_stack=zero_fill_frame_stack,
                 teacher_force=teacher_force, sample_action=sample_action,
-                sample_mask=sample_mask, scene_name_or_num=random.choice(
-                    constants.TRAIN_SCENE_NUMBERS), device=device)
+                sample_mask=sample_mask, scene_name_or_num=scene_num,
+                reset_kwargs=reset_kwargs, device=device)
         all_action_scores = torch.cat(trajectory_results['all_action_scores'])
 
         # https://github.com/dgriff777/rl_a3c_pytorch/blob/master/train.py
@@ -284,7 +299,7 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
             # Collect validation statistics and write, print
             # TODO: do we want different max trajectory lengths for eval?
             results = evaluate(env, model, single_interact=single_interact,
-                    use_masks=use_masks,
+                    use_masks=use_masks, fixed_scene_num=fixed_scene_num,
                     max_trajectory_length=max_trajectory_length,
                     frame_stack=frame_stack,
                     zero_fill_frame_stack=zero_fill_frame_stack,
@@ -313,9 +328,9 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
                     write_images_video(results, train_steps, save_path)
 
 def evaluate(env, model, single_interact=False, use_masks=True,
-        max_trajectory_length=None, frame_stack=1, zero_fill_frame_stack=False,
-        train_episodes=1, valid_seen_episodes=1, valid_unseen_episodes=1,
-        device=torch.device('cpu')):
+        fixed_scene_num=None, max_trajectory_length=None, frame_stack=1,
+        zero_fill_frame_stack=False, train_episodes=1, valid_seen_episodes=1,
+        valid_unseen_episodes=1, device=torch.device('cpu')):
     """
     Evaluate by gathering live rollouts in the environment.
     """
@@ -340,14 +355,27 @@ def evaluate(env, model, single_interact=False, use_masks=True,
         metrics[split]['scene_name_or_num'] = []
         for i in range(episodes):
             with torch.no_grad():
+                if fixed_scene_num is not None:
+                    # If fixed_scene_num is provided, set up that scene exactly the
+                    # same way every time
+                    scene_num = fixed_scene_num
+                    reset_kwargs = {
+                            'random_object_positions' : False,
+                            'random_position' : False,
+                            'random_rotation' : False,
+                            'random_look_angle' : False
+                    }
+                else:
+                    scene_num = random.choice(scene_numbers)
+                    reset_kwargs = {}
                 trajectory_results = rollout_trajectory(env, model,
                         single_interact=single_interact, use_masks=use_masks,
                         max_trajectory_length=max_trajectory_length,
                         frame_stack=frame_stack,
                         zero_fill_frame_stack=zero_fill_frame_stack,
                         sample_action=False, sample_mask=False,
-                        scene_name_or_num=random.choice(scene_numbers),
-                        device=device)
+                        scene_name_or_num=scene_num,
+                        reset_kwargs=reset_kwargs, device=device)
             metrics[split]['success'].append(trajectory_results['success'])
             metrics[split]['rewards'].append(
                     float(sum(trajectory_results['rewards'])))
@@ -597,6 +625,7 @@ if __name__ == '__main__':
             entropy_coefficient=args.entropy_coefficient,
             max_grad_norm=args.max_grad_norm,
             single_interact=args.single_interact, use_masks=args.use_masks,
+            fixed_scene_num=args.fixed_scene_num,
             max_trajectory_length=args.max_trajectory_length,
             frame_stack=args.frame_stack,
             zero_fill_frame_stack=args.zero_fill_frame_stack,
