@@ -18,6 +18,7 @@ class InteractionReward(object):
         self.env = env
         self.rewards = rewards
         self.reward_rotations_look_angles = reward_rotations_look_angles
+        # TODO: make persist_state track stats for different scenes
         self.persist_state = persist_state
         self.repeat_discount = repeat_discount
         self.trajectories = 0
@@ -66,6 +67,13 @@ class InteractionReward(object):
                         self.trajectory_cooled_objects],
                     [self.cleaned_objects, self.heated_objects,
                         self.cooled_objects]):
+                # TODO: cleaning/heating/cooling only gives reward once per
+                # episode per object (which makes sense since you can only
+                # clean/heat/cool objects once) while navigation and
+                # interaction can give decayed reward multiple times per
+                # episode. can we check cleaned/heated/cooled conditions in the
+                # same way env/thor_env.py does and apply reward per
+                # interaction?
                 num_new_objects = len(env_objects) - len(trajectory_objects)
                 if num_new_objects > 0:
                     # Go through all objects marked as cleaned/heated/cooled in
@@ -111,12 +119,18 @@ class InteractionReward(object):
             if self.reward_rotations_look_angles:
                 times_visited = (self.visited_locations_poses[location][pose] -
                         1)
+                reward = self.rewards['navigation'] * pow(self.repeat_discount,
+                        times_visited)
             else:
                 times_visited = sum(self.visited_locations_poses[location]
                         .values()) - 1
-
-            reward = self.rewards['navigation'] * pow(self.repeat_discount,
-                    times_visited)
+                # Only give rewards for rotations if option is set (otherwise
+                # rotating counts as visiting the same location again)
+                if action == 'MoveAhead':
+                    reward = self.rewards['navigation'] * pow(self.repeat_discount,
+                            times_visited)
+                else:
+                    reward = 0
 
         # This is a bit of a hack so that self.repeat_decay = 0.0 works as
         # expected to make repeated actions take a step penalty instead of 0
