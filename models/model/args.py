@@ -87,6 +87,7 @@ parser.set_defaults(sample_contextual_action=False)
 parser.add_argument('--use-masks', dest='use_masks', action='store_true', help='use interaction masks')
 parser.add_argument('--no-use-masks', dest='use_masks', action='store_false', help='do not use interaction masks (use contextual interaction with object closest to center of view)')
 parser.set_defaults(use_masks=False)
+parser.add_argument('--fixed-scene-num', type=int, default=None, help='if set, scene number of only scene to use (default: None)')
 
 # Reward config arguments
 parser.add_argument('--reward-config-path', type=str, default='models/config/rewards.json', help='path to rewards config json (default: models/config/rewards.json)')
