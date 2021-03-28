@@ -36,9 +36,8 @@ class InteractionReward(object):
         the action was applied in the environment, since failed actions due to
         API rejection don't show up in last_action(state)'s metadata
 
-        Assumes invalid_action reward is not 0 and that if decayed
-        navigation/interaction reward is 0 that means that step_penalty should
-        be given instead.
+        Assumes if decayed navigation/interaction reward is 0 or ends up really
+        small that means that step_penalty should be given instead.
         """
         if not state.metadata['lastActionSuccess'] or not api_success:
             reward = self.rewards['invalid_action']
@@ -132,10 +131,10 @@ class InteractionReward(object):
                 else:
                     reward = 0
 
-        # This is a bit of a hack so that self.repeat_decay = 0.0 works as
+        # This is a bit of a hack so that self.repeat_discount = 0.0 works as
         # expected to make repeated actions take a step penalty instead of 0
-        # reward. Assumes rewards['invalid_action'] is not 0
-        if reward == 0:
+        # reward and also so the model doesn't get a tiny tiny positive reward forever
+        if reward < 1e-5 and reward != self.rewards['invalid_action']:
             reward = self.rewards['step_penalty']
         return reward
 
