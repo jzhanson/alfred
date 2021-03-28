@@ -184,6 +184,8 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
     # where it left off
     last_metrics = {}
     last_metrics['loss'] = []
+    last_metrics['policy_loss'] = []
+    last_metrics['value_loss'] = []
     last_metrics['success'] = []
     last_metrics['rewards'] = []
     last_metrics['values'] = []
@@ -239,7 +241,6 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
 
             gae = gae * gamma * tau + delta_t
 
-            # TODO: graph policy and value loss separately?
             chosen_action_index = trajectory_results['pred_action_indexes'][i]
             action_log_prob = trajectory_results['all_action_scores'][i][
                     chosen_action_index]
@@ -263,6 +264,8 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
         train_steps += 1
         train_frames += len(trajectory_results['frames'])
         last_metrics['loss'].append(loss.item())
+        last_metrics['policy_loss'].append(policy_loss.item())
+        last_metrics['value_loss'].append(value_loss.item())
         last_metrics['success'].append(float(trajectory_results['success']))
         last_metrics['rewards'].append(float(sum(trajectory_results['rewards'])))
         last_metrics['values'].append([value.detach().cpu() for value in
