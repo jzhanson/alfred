@@ -186,6 +186,7 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
     last_metrics['loss'] = []
     last_metrics['success'] = []
     last_metrics['rewards'] = []
+    last_metrics['values'] = []
     last_metrics['trajectory_length'] = []
     last_metrics['avg_action_entropy'] = []
     last_metrics['avg_mask_entropy'] = []
@@ -238,6 +239,7 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
 
             gae = gae * gamma * tau + delta_t
 
+            # TODO: graph policy and value loss separately?
             chosen_action_index = trajectory_results['pred_action_indexes'][i]
             action_log_prob = trajectory_results['all_action_scores'][i][
                     chosen_action_index]
@@ -263,6 +265,8 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
         last_metrics['loss'].append(loss.item())
         last_metrics['success'].append(float(trajectory_results['success']))
         last_metrics['rewards'].append(float(sum(trajectory_results['rewards'])))
+        last_metrics['values'].append([value.detach().cpu() for value in
+            trajectory_results['values']])
         last_metrics['trajectory_length'].append(
                 len(trajectory_results['frames']))
         last_metrics['avg_mask_entropy'].append(
@@ -298,6 +302,7 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
 
             # Collect validation statistics and write, print
             # TODO: do we want different max trajectory lengths for eval?
+            '''
             results = evaluate(env, model, single_interact=single_interact,
                     use_masks=use_masks, fixed_scene_num=fixed_scene_num,
                     max_trajectory_length=max_trajectory_length,
@@ -309,6 +314,7 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
 
             write_results(writer, results, train_steps, train_frames,
                     save_path=save_path)
+            '''
 
             if save_path is not None:
                 if save_intermediate:
@@ -428,27 +434,92 @@ def write_results(writer, results, train_steps, train_frames,
                         torch.stack(trajectory_flat_action_scores),
                         train_frames)
 
-                # Also histogram the top (chosen) action
-                chosen_actions = [torch.argmax(action_scores).item() for
-                        action_scores in trajectory_flat_action_scores]
-                chosen_actions_steps_name = ('steps/' + split + '/' +
-                        'chosen_actions')
-                chosen_actions_frames_name = ('frames/' + split + '/' +
-                        'chosen_actions')
-                chosen_actions_trajectories_name = ('trajectories/' + split +
-                        '/' + 'chosen_actions')
-                writer.add_histogram(chosen_actions_steps_name, chosen_actions,
-                        train_steps, bins='fd')
-                writer.add_histogram(chosen_actions_frames_name,
-                        chosen_actions, train_frames, bins='fd')
-                if train_trajectories is not None:
-                    writer.add_histogram(trajectories_name, chosen_actions,
-                            train_trajectories)
-                writer.add_histogram(chosen_actions_trajectories_name,
-                        chosen_actions, train_trajectories, bins='fd')
+                # Add per-action score histograms
+                for action_i in range(len(values[0][0])):
+                    action_name = (constants.SIMPLE_ACTIONS[action_i] if
+                            len(values[0][0]) == len(constants.SIMPLE_ACTIONS)
+                            else constants.COMPLEX_ACTIONS[action_i])
+                    steps_name_action_i = steps_name + '_' + action_name
+                    frames_name_action_i = frames_name + '_' + action_name
+                    trajectories_name_action_i = (trajectories_name + '_' +
+                            action_name)
 
+                    flat_action_i_scores = []
+                    for trajectory in range(len(values)):
+                        flat_action_i_scores.extend([action_scores[action_i]
+                            for action_scores in values[trajectory]])
+
+                    writer.add_histogram(steps_name_action_i,
+                            torch.stack(flat_action_i_scores), train_steps)
+                    writer.add_histogram(frames_name_action_i,
+                            flat_action_i_scores, train_frames)
+                    if train_trajectories is not None:
+                        writer.add_histogram(trajectories_name_action_i,
+                                flat_action_i_scores, train_trajectories)
+
+                # Also histogram the top (chosen) action
+                action_argmaxes = [torch.argmax(action_scores).item() for
+                        action_scores in trajectory_flat_action_scores]
+                action_argmaxes_steps_name = ('steps/' + split + '/' +
+                        'action_argmaxes')
+                action_argmaxes_frames_name = ('frames/' + split + '/' +
+                        'action_argmaxes')
+                action_argmaxes_trajectories_name = ('trajectories/' + split +
+                        '/' + 'action_argmaxes')
+                writer.add_histogram(action_argmaxes_steps_name, action_argmaxes,
+                        train_steps, bins='fd')
+                writer.add_histogram(action_argmaxes_frames_name,
+                        action_argmaxes, train_frames, bins='fd')
+                if train_trajectories is not None:
+                    writer.add_histogram(trajectories_name, action_argmaxes,
+                            train_trajectories)
+                    writer.add_histogram(action_argmaxes_trajectories_name,
+                            action_argmaxes, train_trajectories, bins='fd')
             elif 'scores' in metric: # Skip all_mask_scores
                 continue
+            elif metric == 'values':
+                # Values is a list of lists (for each trajectory) of scalars
+                flat_value_scores = []
+                for value_scores in values:
+                    flat_value_scores.extend(value_scores)
+                writer.add_histogram(steps_name,
+                        torch.stack(flat_value_scores),
+                        train_steps)
+                writer.add_histogram(frames_name,
+                        torch.stack(flat_value_scores),
+                        train_frames)
+
+                # Add per-step state-value histograms
+                for i in range(len(values[0])):
+                    steps_name_i = steps_name + '_' + str(i)
+                    frames_name_i = frames_name + '_' + str(i)
+                    trajectories_name_i = trajectories_name + '_' + str(i)
+
+                    writer.add_histogram(steps_name_i,
+                            torch.stack([value_scores[i] for value_scores in
+                                values]), train_steps)
+                    writer.add_histogram(frames_name_i,
+                            torch.stack([value_scores[i] for value_scores in
+                                values]), train_frames)
+                    if train_trajectories is not None:
+                        writer.add_histogram(trajectories_name_i,
+                                torch.stack([value_scores[i] for value_scores in
+                                    values]), train_trajectories)
+                avg_value = torch.mean(torch.stack(flat_value_scores)).item()
+                avg_value_steps_name = ('steps/' + split + '/' +
+                        'avg_value')
+                avg_value_frames_name = ('frames/' + split + '/' +
+                        'avg_value')
+                avg_values_trajectories_name = ('trajectories/' + split +
+                        '/' + 'avg_value')
+                writer.add_scalar(avg_value_steps_name, avg_value, train_steps)
+                writer.add_scalar(avg_value_frames_name, avg_value,
+                        train_frames)
+                if train_trajectories is not None:
+                    writer.add_histogram(trajectories_name,
+                            torch.stack(flat_value_scores), train_trajectories)
+                    writer.add_scalar(avg_value_trajectories_name, avg_value,
+                            train_trajectories)
             else:
                 mean = np.mean(values)
                 writer.add_scalar(steps_name, mean, train_steps)
