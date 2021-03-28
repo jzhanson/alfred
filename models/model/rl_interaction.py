@@ -40,6 +40,7 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
     Returns dictionary of trajectory results.
     """
     frames = []
+    action_successes = []
     all_action_scores = []
     all_mask_scores = []
     values = []
@@ -110,7 +111,7 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
         frame, reward, done, (action_success, event, err) = (
                 env.step(selected_action, interact_mask=selected_mask))
         print(selected_action, action_success, reward, err)
-            # TODO: report failed actions
+        action_successes.append(action_success)
         all_action_scores.append(action_scores[0])
         values.append(value[0])
         pred_action_indexes.append(pred_action_index)
@@ -142,6 +143,7 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
     trajectory_results = {}
     trajectory_results['scene_name_or_num'] = env.get_scene_name_or_num()
     trajectory_results['frames'] = frames
+    trajectory_results['action_successes'] = action_successes
     trajectory_results['all_action_scores'] = all_action_scores
     trajectory_results['all_mask_scores'] = all_mask_scores
     trajectory_results['values'] = values
@@ -193,6 +195,7 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
     last_metrics['avg_action_entropy'] = []
     last_metrics['avg_mask_entropy'] = []
     last_metrics['num_masks'] = []
+    last_metrics['avg_action_success'] = []
     last_metrics['all_action_scores'] = []
     last_metrics['all_mask_scores'] = []
 
@@ -278,6 +281,8 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
                 torch.mean(trajectory_results['action_entropy']).item())
         last_metrics['num_masks'].append(np.mean([len(scores) for scores in
             trajectory_results['all_mask_scores']]))
+        last_metrics['avg_action_success'].append(
+                np.mean(trajectory_results['action_successes']))
         last_metrics['all_action_scores'].append([action_scores.detach().cpu()
             for action_scores in trajectory_results['all_action_scores']])
         last_metrics['all_mask_scores'].append([mask_scores.detach().cpu() for
