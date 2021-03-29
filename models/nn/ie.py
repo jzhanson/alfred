@@ -32,6 +32,15 @@ class LSTMPolicy(nn.Module):
             lstm_hidden_size=512, dropout=0, action_fc_units=[],
             value_fc_units=[], visual_fc_units=[],
             prev_action_after_lstm=False):
+        """
+        Passing num_actions=None means not to use action logits. If unified
+        action space (e.g. similarity vector to choose concatenated superpixel
+        + action embedding), can leave action_fc_units or visual_fc_units as []
+        and only use one or the other.
+
+        Or, can use num_actions=similarity_vector_dim to get action logits with
+        the desired dimension.
+        """
 
         super(LSTMPolicy, self).__init__()
 
@@ -70,9 +79,11 @@ class LSTMPolicy(nn.Module):
             self.action_fc_layers.append(nn.Sequential(nn.Linear(
                 in_features=in_features, out_features=self.action_fc_units[i],
                 bias=True), nn.ReLU(), nn.Dropout(self.dropout)))
-        self.action_logits = nn.Sequential(nn.Linear(
-            in_features=self.action_fc_units[i] if len(self.action_fc_layers) >
-            0 else fc_input_size, out_features=self.num_actions, bias=True))
+        if self.num_actions is not None:
+            self.action_logits = nn.Sequential(nn.Linear(
+                in_features=self.action_fc_units[i] if
+                len(self.action_fc_layers) > 0 else fc_input_size,
+                out_features=self.num_actions, bias=True))
 
         self.value_fc_layers = nn.ModuleList()
         for i in range(len(self.value_fc_units)):
@@ -110,7 +121,8 @@ class LSTMPolicy(nn.Module):
         action_fc_output = fc_input
         for action_fc_layer in self.action_fc_layers:
             action_fc_output = action_fc_layer(action_fc_output)
-        action_fc_output = self.action_logits(action_fc_output)
+        if self.num_actions is not None:
+            action_fc_output = self.action_logits(action_fc_output)
 
         value_fc_output = fc_input
         for value_fc_layer in self.value_fc_layers:
