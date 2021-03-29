@@ -73,7 +73,7 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
                 zero_fill_frame_stack=zero_fill_frame_stack,
                 device=torch.device('cpu'))[0][-1:]
         if prev_action_index is not None:
-            prev_action_index = torch.LongTensor([prev_action_index]).to(device)
+            prev_action_index = [torch.LongTensor([prev_action_index]).to(device)]
         else:
             # Let SuperpixelFusion's forward take care of this
             prev_action_index = [prev_action_index]
