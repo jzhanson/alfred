@@ -460,8 +460,34 @@ if __name__ == '__main__':
     '''
 
     frame = io.imread('/home/jzhanson/alfred/saved/test_frame.png')
-    masks, frame_crops = sf.forward(frame, 0)
-    print(masks)
-    print(frame_crops)
+    print(frame.shape)
 
+    print('SuperpixelFusion')
+    (action_scores, value, batch_similarity_scores, batch_superpixel_masks,
+            hidden_state) = sf.forward(torch.Tensor([frame.transpose(2, 0, 1)]),
+                    [torch.LongTensor([0])])
+    print('action_scores', action_scores.shape)
+    print('value', value.shape)
+    print('batch_similarity_scores', len(batch_similarity_scores),
+            batch_similarity_scores[0].shape)
+    print('batch_superpixel_masks', len(batch_superpixel_masks))
+
+    print('SuperpixelActionConcat')
+    policy_model = LSTMPolicy(num_actions=512+16, prev_action_size=512+16)
+    sac = SuperpixelActionConcat(action_embeddings=action_embeddings,
+            visual_model=visual_model, superpixel_model=superpixel_model,
+            policy_model=policy_model, slic_kwargs=slic_kwargs,
+            neighbor_depth=0, black_outer=True)
+
+    (action_output, value, batch_similarity_scores,
+                batch_action_mask_pairs, hidden_state) = sac.forward(
+                        torch.Tensor([frame.transpose(2, 0, 1)]),
+                        torch.cat([action_embeddings(torch.LongTensor([0])),
+                            torch.zeros((1, 512))], dim=1))
+    print('action_output', action_output.shape)
+    print('value', value.shape)
+    print('batch similarity scores', len(batch_similarity_scores),
+            batch_similarity_scores[0].shape)
+    print('batch_action_mask_pairs', len(batch_action_mask_pairs),
+            len(batch_action_mask_pairs[0]), batch_action_mask_pairs[0][0])
 
