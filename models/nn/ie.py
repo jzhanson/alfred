@@ -145,7 +145,7 @@ class SuperpixelFusion(nn.Module):
     def __init__(self, visual_model=None, superpixel_model=None,
             action_embeddings=None, policy_model=None, slic_kwargs={},
             boundary_pixels=0, neighbor_depth=0, neighbor_connectivity=2,
-            black_outer=False, sample_action=True, device=torch.device('cpu')):
+            black_outer=False, device=torch.device('cpu')):
         """
         neighbor_connectivity of 1 means don't include diagonal adjacency, 2
         means do include diagonal adjacency
@@ -165,7 +165,6 @@ class SuperpixelFusion(nn.Module):
         self.neighbor_depth = neighbor_depth
         self.neighbor_connectivity = neighbor_connectivity
         self.black_outer = black_outer
-        self.sample_action = sample_action
 
     def forward(self, frame, last_action_index, policy_hidden=None,
             device=torch.device('cpu')):
