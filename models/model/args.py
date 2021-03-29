@@ -123,6 +123,10 @@ parser.set_defaults(sample_action=True)
 parser.add_argument('--sample-mask', dest='sample_mask', action='store_true', help='sample mask from softmax logits')
 parser.add_argument('--no-sample-mask', dest='sample_mask', action='store_false', help='take argmax of mask logits')
 parser.set_defaults(sample_mask=True)
+parser.add_argument('--fusion-model', type=str, default='SuperpixelFusion', help='model to use to combine visual model, policy model, superpixel model, action embeddings (\'SuperpixelFusion\' or \'SuperpixelActionConcat\')')
+parser.add_argument('--zero-null-superpixel-features', dest='zero_null_superpixel_features', action='store_true', help='use zeroes for null superpixel feature choices in SuperpixelActionConcat')
+parser.add_argument('--average-null-superpixel-features', dest='zero_null_superpixel_features', action='store_false', help='use average of superpixel features for that image for null superpixel feature choices in SuperpixelActionConcat')
+parser.set_defaults(zero_null_superpixel_features=True)
 
 def parse_args():
     return parser.parse_args()
