@@ -332,7 +332,7 @@ class SuperpixelActionConcat(SuperpixelFusion):
             action_embeddings=None, policy_model=None, slic_kwargs={},
             boundary_pixels=0, neighbor_depth=0, neighbor_connectivity=2,
             black_outer=False, single_interact=False,
-            device=torch.device('cpu')):
+            zero_null_superpixel_features=False, device=torch.device('cpu')):
         super(SuperpixelActionConcat, self).__init__(visual_model=visual_model,
                 superpixel_model=superpixel_model,
                 action_embeddings=action_embeddings, policy_model=policy_model,
@@ -341,6 +341,7 @@ class SuperpixelActionConcat(SuperpixelFusion):
                 neighbor_connectivity=neighbor_connectivity,
                 black_outer=black_outer, device=device)
         self.single_interact = single_interact
+        self.zero_null_superpixel_features = zero_null_superpixel_features
 
     def forward(self, frame, last_action_features, policy_hidden=None,
             device=torch.device('cpu')):
@@ -383,17 +384,21 @@ class SuperpixelActionConcat(SuperpixelFusion):
 
             action_mask_pairs = []
             concatenated_features = []
+            if self.zero_null_superpixel_features:
+                null_superpixel_features = torch.zeros_like(
+                        batch_superpixel_features[0][0])
+            else:
+                null_superpixel_features = torch.mean(superpixel_features,
+                        dim=0)
+
             for action_i in range(len(constants.NAV_ACTIONS)):
                 action_mask_pairs.append((constants.NAV_ACTIONS[action_i],
                     None))
-                # TODO: make separate embedding for null superpixel, null
-                # previous action
                 # action_embeddings takes in (batch_size) and returns
                 # (batch_size, embedding_dim)
                 concatenated_features.append(torch.cat([
                     self.action_embeddings(torch.LongTensor([action_i]))
-                    .squeeze(0),
-                    torch.zeros_like(batch_superpixel_features[0][0])]))
+                    .squeeze(0), null_superpixel_features]))
             for action_i in range(len(interact_actions)):
                 for superpixel_i in range(superpixel_features.shape[0]):
                     action_mask_pairs.append((interact_actions[action_i],
@@ -477,7 +482,8 @@ if __name__ == '__main__':
     sac = SuperpixelActionConcat(action_embeddings=action_embeddings,
             visual_model=visual_model, superpixel_model=superpixel_model,
             policy_model=policy_model, slic_kwargs=slic_kwargs,
-            neighbor_depth=0, black_outer=True)
+            neighbor_depth=0, black_outer=True, single_interact=False,
+            zero_null_superpixel_features=False)
 
     (action_output, value, batch_similarity_scores,
                 batch_action_mask_pairs, hidden_state) = sac.forward(
