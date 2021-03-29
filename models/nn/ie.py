@@ -170,11 +170,11 @@ class SuperpixelFusion(nn.Module):
             device=torch.device('cpu')):
         """
         Assumes frame is already a torch tensor of floats and moved to GPU.
-        last_action_index is a list of length batch_size, some of which might
-        be None (to signal there being no previous action). We don't make it a
-        list of length batch_size and wrap the inner indexes with an extra
-        dimension (in essence [batch_size, 1] instead of [batch_size]) because
-        of the Nones - it would require extra processing "for no reason"
+        last_action_index is a list of length batch_size of tensors or Nones
+        (to signal there being no previous action). We don't make it a list of
+        length batch_size and wrap the inner indexes with an extra dimension
+        (in essence [batch_size, 1] instead of [batch_size]) because of the
+        Nones - it would require extra processing "for no reason"
         """
         visual_features = self.featurize(frame)
         #print('visual features', len(visual_features), visual_features[0].shape)
@@ -185,7 +185,7 @@ class SuperpixelFusion(nn.Module):
         for i in range(len(last_action_index)):
             if last_action_index[i] is not None:
                 last_action_embedding.append(self.action_embeddings(
-                    last_action_index[i].unsqueeze(0)))
+                    last_action_index[i]))
             else:
                 last_action_embedding.append(self.initial_action_embedding)
         last_action_embedding = torch.cat(last_action_embedding, dim=0)
@@ -194,11 +194,12 @@ class SuperpixelFusion(nn.Module):
                 visual_features, last_action_embedding, policy_hidden)
 
         #print('action scores', action_scores.shape)
-
+        batch_size = frame.shape[0]
         batch_superpixel_masks = []
         batch_frame_crops = []
-        batch_superpixel_features = []
-        for i in range(frame.shape[0]):
+        batch_superpixel_features = [] # not really needed
+        batch_similarity_scores = []
+        for i in range(batch_size):
             # Take last three channels (RGB of last stacked frame)
             superpixel_masks, frame_crops = self.get_superpixel_masks_frame_crops(
                     frame[i][-3:])
@@ -209,23 +210,21 @@ class SuperpixelFusion(nn.Module):
             # since moving and looking around changes the view so drastically
             superpixel_features = self.featurize(frame_crops,
                     superpixel_model=True)
+            # Get rid of last two dimensions since Resnet features are (512, 1, 1)
+            if isinstance(self.visual_model, Resnet):
+                superpixel_features = torch.squeeze(superpixel_features, -1)
+                superpixel_features = torch.squeeze(superpixel_features, -1)
             batch_superpixel_features.append(superpixel_features)
+            batch_similarity_scores.append(torch.sum(visual_output *
+                superpixel_features, dim=-1))
 
-        batch_superpixel_features = torch.stack(batch_superpixel_features)
         #print('batch superpixel features', batch_superpixel_features.shape)
         #print('visual output', visual_output.shape)
 
-        # Get rid of last two dimensions since Resnet features are (512, 1, 1)
-        if isinstance(self.visual_model, Resnet):
-            batch_superpixel_features = torch.squeeze(batch_superpixel_features, -1)
-            batch_superpixel_features = torch.squeeze(batch_superpixel_features, -1)
-
-        similarity_scores = torch.sum(visual_output * batch_superpixel_features,
-                dim=-1)
-
-        #print('similarity scores', similarity_scores.shape)
-
-        return (action_scores, value, similarity_scores,
+        # Because each batch can have different numbers of superpixels,
+        # batch_similarity_scores and batch_superpixel_masks have to be lists
+        # of tensors instead of tensors
+        return (action_scores, value, batch_similarity_scores,
                 batch_superpixel_masks, hidden_state)
 
     def featurize(self, stacked_frames, superpixel_model=False):
