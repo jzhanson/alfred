@@ -525,6 +525,63 @@ def write_results(writer, results, train_steps, train_frames,
                             train_trajectories)
                     writer.add_histogram(action_argmaxes_trajectories_name,
                             action_argmaxes, train_trajectories, bins='fd')
+            elif (metric == 'all_action_scores' and fusion_model ==
+                    'SuperpixelActionConcat'):
+                # all_action_scores is a list of lists (for each trajectory) of
+                # tensors (for each step). Flatten all scores, since each step
+                # can have different numbers of action+superpixel scores, so
+                # each trajectory can have different numbers of
+                # action+superpixel scores if flattened by trajectory
+                flat_action_scores = []
+                actions = (constants.SIMPLE_ACTIONS if single_interact else
+                        constants.COMPLEX_ACTIONS)
+                per_action_scores = [[] for _ in actions]
+                for trajectory_action_scores in values:
+                    for action_scores in trajectory_action_scores:
+                        flat_action_scores.extend(action_scores)
+                        for action_i in range(len(constants.NAV_ACTIONS)):
+                            per_action_scores[action_i].append(
+                                    action_scores[action_i])
+                        num_superpixels = (len(action_scores) -
+                                len(constants.NAV_ACTIONS)) / (1 if
+                                    single_interact else len(constants.INT_ACTIONS))
+                        num_interact_actions = (1 if single_interact else
+                                len(constants.INT_ACTIONS))
+                        for action_i in range(num_interact_actions):
+                            start = int(len(constants.NAV_ACTIONS) + action_i *
+                                    num_superpixels)
+                            end = int(start + num_superpixels)
+                            per_action_scores[len(constants.NAV_ACTIONS) +
+                                    action_i].extend(action_scores[start:end])
+
+                writer.add_histogram(steps_name,
+                        torch.stack(flat_action_scores), train_steps)
+                writer.add_histogram(frames_name,
+                        torch.stack(flat_action_scores), train_frames)
+                if train_trajectories is not None:
+                    writer.add_histogram(trajectories_name,
+                            torch.stack(flat_action_scores),
+                            train_trajectories)
+
+                # Add per-action score histograms
+
+                for action_i in range(len(actions)):
+                    action_name = actions[action_i]
+                    steps_name_action_i = steps_name + '_' + action_name
+                    frames_name_action_i = frames_name + '_' + action_name
+                    trajectories_name_action_i = (trajectories_name + '_' +
+                            action_name)
+
+                    writer.add_histogram(steps_name_action_i,
+                            torch.stack(per_action_scores[action_i]),
+                            train_steps)
+                    writer.add_histogram(frames_name_action_i,
+                            per_action_scores[action_i], train_frames)
+                    if train_trajectories is not None:
+                        writer.add_histogram(trajectories_name_action_i,
+                                per_action_scores[action_i],
+                                train_trajectories)
+
             elif 'scores' in metric: # Skip all_mask_scores
                 continue
             elif metric == 'values':
