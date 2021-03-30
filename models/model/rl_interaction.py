@@ -451,7 +451,8 @@ def evaluate(env, model, single_interact=False, use_masks=True,
     return metrics
 
 def write_results(writer, results, train_steps, train_frames,
-        train_trajectories=None, save_path=None):
+        train_trajectories=None, fusion_model='SuperpixelFusion',
+        single_interact=False, save_path=None):
     """
     Write results to SummaryWriter.
     """
@@ -466,12 +467,16 @@ def write_results(writer, results, train_steps, train_frames,
             # all_mask_scores can be variably sized so it won't work with
             # histogram unless we take the top k, but in that case entropy
             # works fine as a measure
-            if metric == 'all_action_scores':
+            if (metric == 'all_action_scores' and fusion_model ==
+                    'SuperpixelFusion'):
                 # all_action_scores is a list of lists (for each trajectory) of
                 # tensors (for each step)
                 trajectory_flat_action_scores = []
-                for action_scores in values:
-                    trajectory_flat_action_scores.extend(action_scores)
+                for trajectory_action_scores in values:
+                    trajectory_flat_action_scores.extend(
+                            trajectory_action_scores)
+                # Does leaving the action scores as (num_trajectories *
+                # steps_per_trajectory, num_actions) actually change anything?
                 writer.add_histogram(steps_name,
                         torch.stack(trajectory_flat_action_scores),
                         train_steps)
@@ -482,8 +487,8 @@ def write_results(writer, results, train_steps, train_frames,
                 # Add per-action score histograms
                 for action_i in range(len(values[0][0])):
                     action_name = (constants.SIMPLE_ACTIONS[action_i] if
-                            len(values[0][0]) == len(constants.SIMPLE_ACTIONS)
-                            else constants.COMPLEX_ACTIONS[action_i])
+                            single_interact else
+                            constants.COMPLEX_ACTIONS[action_i])
                     steps_name_action_i = steps_name + '_' + action_name
                     frames_name_action_i = frames_name + '_' + action_name
                     trajectories_name_action_i = (trajectories_name + '_' +
@@ -535,6 +540,7 @@ def write_results(writer, results, train_steps, train_frames,
                         train_frames)
 
                 # Add per-step state-value histograms
+                # Assumes that trajectories are all the same (fixed) length
                 for i in range(len(values[0])):
                     steps_name_i = steps_name + '_' + str(i)
                     frames_name_i = frames_name + '_' + str(i)
