@@ -32,21 +32,22 @@ interactions with not visible objects. This is a small issue since the
 """
 
 def rollout_trajectory(env, model, single_interact=False, use_masks=True,
-        max_trajectory_length=None, frame_stack=1,
-        zero_fill_frame_stack=False, teacher_force=False, sample_action=True,
-        sample_mask=True, scene_name_or_num=None, reset_kwargs={},
-        device=torch.device('cpu')):
+        fusion_model='SuperpixelFusion', max_trajectory_length=None,
+        frame_stack=1, zero_fill_frame_stack=False, teacher_force=False,
+        sample_action=True, sample_mask=True, scene_name_or_num=None,
+        reset_kwargs={}, device=torch.device('cpu')):
     """
     Returns dictionary of trajectory results.
     """
     frames = []
     action_successes = []
     all_action_scores = []
-    all_mask_scores = []
     values = []
     pred_action_indexes = []
     rewards = []
     expert_action_indexes = []
+    if fusion_model == 'SuperpixelFusion':
+        all_mask_scores = []
     frame = env.reset(scene_name_or_num, **reset_kwargs)
     done = False
     num_steps = 0
@@ -56,11 +57,16 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
     action_to_index = (constants.ACTION_TO_INDEX_SIMPLE if single_interact else
             constants.ACTION_TO_INDEX_COMPLEX)
 
-    prev_action_index = None
+    if fusion_model == 'SuperpixelFusion':
+        prev_action_index = None
+    elif fusion_model == 'SuperpixelActionConcat':
+        prev_action_features = None
     hidden_state = model.init_policy_hidden(batch_size=1, device=device)
     while not done and (max_trajectory_length is None or num_steps <
             max_trajectory_length):
         frames.append(torch.from_numpy(np.ascontiguousarray(frame)))
+        current_expert_actions, _ = env.get_current_expert_actions_path()
+
         # stack_frames takes a list of tensors, one tensor per trajectory, so
         # wrap frames in an outer list and unwrap afterwards. Also,
         # stack_frames needs the previous frame_stack frames, so pass the
@@ -72,15 +78,28 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
                 frame_stack=frame_stack,
                 zero_fill_frame_stack=zero_fill_frame_stack,
                 device=torch.device('cpu'))[0][-1:]
-        if prev_action_index is not None:
-            prev_action_index = [torch.LongTensor([prev_action_index]).to(device)]
-        else:
-            # Let SuperpixelFusion's forward take care of this
-            prev_action_index = [prev_action_index]
-        action_scores, value, mask_scores, masks, hidden_state = model(
-                stacked_frames, prev_action_index, policy_hidden=hidden_state,
-                device=device)
-        current_expert_actions, _ = env.get_current_expert_actions_path()
+
+        if fusion_model == 'SuperpixelFusion':
+            if prev_action_index is not None:
+                prev_action_index = [torch.LongTensor([prev_action_index])
+                        .to(device)]
+            else:
+                # Not super worried about null/no prev action not having a separate
+                # embedding - all zeros is fine since it's the input to the LSTM
+                # TODO: add separate embedding for null/no previous action
+                # Let SuperpixelFusion's forward take care of this
+                prev_action_index = [prev_action_index]
+            action_scores, value, mask_scores, masks, hidden_state = model(
+                    stacked_frames, prev_action_index, policy_hidden=hidden_state,
+                    device=device)
+        elif fusion_model == 'SuperpixelActionConcat':
+            # SuperpixelActionConcat's forward will deal with
+            # prev_action_features = [None]
+            prev_action_features = [prev_action_features]
+            (_, value, similarity_scores, actions_masks_features,
+                    hidden_state) = model(stacked_frames, prev_action_features,
+                            policy_hidden=hidden_state, device=device)
+            action_scores = similarity_scores
 
         # Only attempt one action (which might fail) instead of trying all
         # actions in order
@@ -90,24 +109,28 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
         else:
             pred_action_index = torch.argmax(action_scores[0])
 
-        # Only pass mask on interact action so InteractionExploration won't
-        # complain
-        if (actions[pred_action_index] == constants.ACTIONS_INTERACT or
-                actions[pred_action_index] in constants.INT_ACTIONS):
-            if sample_mask:
-                pred_mask_index = torch.multinomial(F.softmax(mask_scores[0],
-                    dim=-1), num_samples=1)
-                selected_mask = masks[0][pred_mask_index]
+        if fusion_model == 'SuperpixelFusion':
+            # Only pass mask on interact action so InteractionExploration won't
+            # complain
+            if (actions[pred_action_index] == constants.ACTIONS_INTERACT or
+                    actions[pred_action_index] in constants.INT_ACTIONS):
+                if sample_mask:
+                    pred_mask_index = torch.multinomial(F.softmax(mask_scores[0],
+                        dim=-1), num_samples=1)
+                    selected_mask = masks[0][pred_mask_index]
+                else:
+                    selected_mask = masks[0][torch.argmax(mask_scores[0])]
             else:
-                selected_mask = masks[0][torch.argmax(mask_scores[0])]
-        else:
-            selected_mask = None
+                selected_mask = None
+            selected_action = actions[pred_action_index]
+        elif fusion_model == 'SuperpixelActionConcat':
+            selected_action, selected_mask, _ = actions_masks_features[0][
+                    pred_action_index]
 
         if teacher_force:
             selected_action = current_expert_actions[0]['action']
             # TODO: add expert superpixel mask
-        else:
-            selected_action = actions[pred_action_index]
+
         frame, reward, done, (action_success, event, err) = (
                 env.step(selected_action, interact_mask=selected_mask))
         print(selected_action, action_success, reward, err)
@@ -118,8 +141,11 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
         rewards.append(reward)
         expert_action_indexes.append(action_to_index[current_expert_actions[0]
             ['action']])
-        all_mask_scores.append(mask_scores[0])
-        prev_action_index = pred_action_index
+        if fusion_model == 'SuperpixelFusion':
+            all_mask_scores.append(mask_scores[0])
+            prev_action_index = pred_action_index
+        elif fusion_model == 'SuperpixelActionConcat':
+            prev_action_features = actions_masks_features[0][pred_action_index][2]
         num_steps += 1
 
     # Run model one more time to get last value if not done
@@ -133,9 +159,14 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
                 frame_stack=frame_stack,
                 zero_fill_frame_stack=zero_fill_frame_stack,
                 device=torch.device('cpu'))[0][-1:]
-        prev_action_index = torch.LongTensor([prev_action_index]).to(device)
-        _, value, _, _, _ = model(stacked_frames, prev_action_index,
-                policy_hidden=hidden_state, device=device)
+        if fusion_model == 'SuperpixelFusion':
+            prev_action_index = [torch.LongTensor([prev_action_index]).to(device)]
+            _, value, _, _, _ = model(stacked_frames, prev_action_index,
+                    policy_hidden=hidden_state, device=device)
+        elif fusion_model == 'SuperpixelActionConcat':
+            prev_action_features = [prev_action_features]
+            _, value, _, _, _ = model(stacked_frames, prev_action_features,
+                    policy_hidden=hidden_state, device=device)
         values.append(value[0])
 
     print('trajectory len: ' + str(len(all_action_scores)))
@@ -145,7 +176,6 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
     trajectory_results['frames'] = frames
     trajectory_results['action_successes'] = action_successes
     trajectory_results['all_action_scores'] = all_action_scores
-    trajectory_results['all_mask_scores'] = all_mask_scores
     trajectory_results['values'] = values
     trajectory_results['pred_action_indexes'] = pred_action_indexes
     trajectory_results['expert_action_indexes'] = expert_action_indexes
@@ -153,10 +183,13 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
     trajectory_results['rewards'] = rewards
     # Record average policy entropy over an episode
     # Need to keep grad since these entropies are used for the loss
-    mask_entropy = per_step_entropy(all_mask_scores)
     action_entropy = per_step_entropy(all_action_scores)
     trajectory_results['action_entropy'] = action_entropy
-    trajectory_results['mask_entropy'] = mask_entropy
+
+    if fusion_model == 'SuperpixelFusion':
+        trajectory_results['all_mask_scores'] = all_mask_scores
+        mask_entropy = per_step_entropy(all_mask_scores)
+        trajectory_results['mask_entropy'] = mask_entropy
     return trajectory_results
 
 def train(model, env, optimizer, gamma=1.0, tau=1.0,
