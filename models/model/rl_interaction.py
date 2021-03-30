@@ -709,7 +709,8 @@ if __name__ == '__main__':
     from env.thor_env import ThorEnv
     from env.reward import InteractionReward
     from models.nn.resnet import Resnet
-    from models.nn.ie import LSTMPolicy, SuperpixelFusion
+    from models.nn.ie import (LSTMPolicy, SuperpixelFusion,
+            SuperpixelActionConcat)
 
     args = parse_args()
 
@@ -783,44 +784,67 @@ if __name__ == '__main__':
     if type(args.visual_fc_units) is int:
         args.visual_fc_units = [args.visual_fc_units]
 
-    policy_model = LSTMPolicy(num_actions=num_actions,
-            visual_feature_size=args.visual_feature_size,
-            superpixel_feature_size=args.superpixel_feature_size,
-            prev_action_size=args.action_embedding_dim,
-            lstm_hidden_size=args.lstm_hidden_dim, dropout=args.dropout,
-            action_fc_units=args.action_fc_units,
-            value_fc_units=args.value_fc_units,
-            visual_fc_units=args.visual_fc_units,
-            prev_action_after_lstm=args.prev_action_after_lstm).to(device)
+    if args.fusion_model == 'SuperpixelFusion':
+        policy_model = LSTMPolicy(num_actions=num_actions,
+                visual_feature_size=args.visual_feature_size,
+                prev_action_size=args.action_embedding_dim,
+                lstm_hidden_size=args.lstm_hidden_dim, dropout=args.dropout,
+                action_fc_units=args.action_fc_units,
+                value_fc_units=args.value_fc_units,
+                visual_fc_units=args.visual_fc_units,
+                prev_action_after_lstm=args.prev_action_after_lstm).to(device)
 
-    sf = SuperpixelFusion(action_embeddings=action_embeddings,
-          visual_model=visual_model, superpixel_model=superpixel_model,
-          policy_model=policy_model, slic_kwargs=slic_kwargs,
-          boundary_pixels=args.boundary_pixels,
-          neighbor_depth=args.neighbor_depth,
-          neighbor_connectivity=args.neighbor_connectivity, black_outer=False,
-          device=device)
+        model = SuperpixelFusion(action_embeddings=action_embeddings,
+              visual_model=visual_model, superpixel_model=superpixel_model,
+              policy_model=policy_model, slic_kwargs=slic_kwargs,
+              boundary_pixels=args.boundary_pixels,
+              neighbor_depth=args.neighbor_depth,
+              neighbor_connectivity=args.neighbor_connectivity,
+              black_outer=args.black_outer, device=device)
+    elif args.fusion_model == 'SuperpixelActionConcat':
+        vector_size = args.superpixel_feature_size + args.action_embedding_dim
+        policy_model = LSTMPolicy(num_actions=vector_size,
+                visual_feature_size=args.visual_feature_size,
+                prev_action_size=vector_size,
+                lstm_hidden_size=args.lstm_hidden_dim, dropout=args.dropout,
+                action_fc_units=args.action_fc_units,
+                value_fc_units=args.value_fc_units,
+                visual_fc_units=args.visual_fc_units,
+                prev_action_after_lstm=args.prev_action_after_lstm).to(device)
+
+        model = SuperpixelActionConcat(action_embeddings=action_embeddings,
+              visual_model=visual_model, superpixel_model=superpixel_model,
+              policy_model=policy_model, slic_kwargs=slic_kwargs,
+              boundary_pixels=args.boundary_pixels,
+              neighbor_depth=args.neighbor_depth,
+              neighbor_connectivity=args.neighbor_connectivity,
+              black_outer=args.black_outer,
+              single_interact=args.single_interact,
+              zero_null_superpixel_features=args.zero_null_superpixel_features,
+              device=device)
+
     try:
-        sf = sf.to(device)
+        model = model.to(device)
     except:
-        sf = sf.to(device)
+        model = model.to(device)
 
     if args.optimizer == 'sgd':
-        optimizer = optim.SGD(sf.parameters(), lr=args.lr)
+        optimizer = optim.SGD(model.parameters(), lr=args.lr)
     elif args.optimizer == 'rmsprop':
-        optimizer = optim.RMSprop(sf.parameters(), lr=args.lr)
+        optimizer = optim.RMSprop(model.parameters(), lr=args.lr)
     if 'adam' in args.optimizer:
         amsgrad = 'amsgrad' in args.optimizer
-        optimizer = optim.Adam(sf.parameters(), lr=args.lr, amsgrad=amsgrad)
+        optimizer = optim.Adam(model.parameters(), lr=args.lr, amsgrad=amsgrad)
 
-    print('model parameters: ' + str(sum(p.numel() for p in sf.parameters()
+    print('model parameters: ' + str(sum(p.numel() for p in model.parameters()
         if p.requires_grad)))
 
-    train(sf, ie, optimizer, gamma=args.gamma, tau=args.tau,
+    train(model, ie, optimizer, gamma=args.gamma, tau=args.tau,
             value_loss_coefficient=args.value_loss_coefficient,
             entropy_coefficient=args.entropy_coefficient,
             max_grad_norm=args.max_grad_norm,
             single_interact=args.single_interact, use_masks=args.use_masks,
+            fusion_model=args.fusion_model,
             fixed_scene_num=args.fixed_scene_num,
             max_trajectory_length=args.max_trajectory_length,
             frame_stack=args.frame_stack,
