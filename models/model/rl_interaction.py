@@ -375,9 +375,10 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
                     write_images_video(results, train_steps, save_path)
 
 def evaluate(env, model, single_interact=False, use_masks=True,
-        fixed_scene_num=None, max_trajectory_length=None, frame_stack=1,
-        zero_fill_frame_stack=False, train_episodes=1, valid_seen_episodes=1,
-        valid_unseen_episodes=1, device=torch.device('cpu')):
+        fusion_model='SuperpixelFusion', fixed_scene_num=None,
+        max_trajectory_length=None, frame_stack=1, zero_fill_frame_stack=False,
+        train_episodes=1, valid_seen_episodes=1, valid_unseen_episodes=1,
+        device=torch.device('cpu')):
     """
     Evaluate by gathering live rollouts in the environment.
     """
@@ -394,9 +395,10 @@ def evaluate(env, model, single_interact=False, use_masks=True,
         metrics[split]['success'] = []
         metrics[split]['rewards'] = []
         metrics[split]['avg_action_entropy'] = []
-        metrics[split]['avg_mask_entropy'] = []
         metrics[split]['all_action_scores'] = []
-        metrics[split]['all_mask_scores'] = []
+        if fusion_model == 'SuperpixelFusion':
+            metrics[split]['all_mask_scores'] = []
+            metrics[split]['avg_mask_entropy'] = []
         metrics[split]['trajectory_length'] = []
         metrics[split]['frames'] = []
         metrics[split]['scene_name_or_num'] = []
@@ -417,6 +419,7 @@ def evaluate(env, model, single_interact=False, use_masks=True,
                     reset_kwargs = {}
                 trajectory_results = rollout_trajectory(env, model,
                         single_interact=single_interact, use_masks=use_masks,
+                        fusion_model=fusion_model,
                         max_trajectory_length=max_trajectory_length,
                         frame_stack=frame_stack,
                         zero_fill_frame_stack=zero_fill_frame_stack,
@@ -428,14 +431,15 @@ def evaluate(env, model, single_interact=False, use_masks=True,
                     float(sum(trajectory_results['rewards'])))
             metrics[split]['avg_action_entropy'].append(
                     torch.mean(trajectory_results['action_entropy']).item())
-            metrics[split]['avg_mask_entropy'].append(
-                    torch.mean(trajectory_results['mask_entropy']).item())
             metrics[split]['all_action_scores'].append(
                     [action_scores.detach().cpu() for action_scores in
                         trajectory_results['all_action_scores']])
-            metrics[split]['all_mask_scores'].append(
-                    [mask_scores.detach().cpu() for mask_scores in
-                        trajectory_results['all_mask_scores']])
+            if fusion_model == 'SuperpixelFusion':
+                metrics[split]['all_mask_scores'].append(
+                        [mask_scores.detach().cpu() for mask_scores in
+                            trajectory_results['all_mask_scores']])
+                metrics[split]['avg_mask_entropy'].append(
+                        torch.mean(trajectory_results['mask_entropy']).item())
             metrics[split]['trajectory_length'].append(
                     float(len(trajectory_results['frames'])))
             metrics[split]['frames'].append(trajectory_results['frames'])
