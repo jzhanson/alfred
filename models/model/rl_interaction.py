@@ -194,13 +194,13 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
 
 def train(model, env, optimizer, gamma=1.0, tau=1.0,
         value_loss_coefficient=0.5, entropy_coefficient=0.01, max_grad_norm=50,
-        single_interact=False, use_masks=True, fixed_scene_num=None,
-        max_trajectory_length=None, frame_stack=1, zero_fill_frame_stack=False,
-        teacher_force=False, sample_action=True, sample_mask=True,
-        train_episodes=10, valid_seen_episodes=10, valid_unseen_episodes=10,
-        eval_interval=1000, max_steps=1000000, device=torch.device('cpu'),
-        save_path=None, save_intermediate=False, save_images_video=False,
-        load_path=None):
+        single_interact=False, use_masks=True, fusion_model='SuperpixelFusion',
+        fixed_scene_num=None, max_trajectory_length=None, frame_stack=1,
+        zero_fill_frame_stack=False, teacher_force=False, sample_action=True,
+        sample_mask=True, train_episodes=10, valid_seen_episodes=10,
+        valid_unseen_episodes=10, eval_interval=1000, max_steps=1000000,
+        device=torch.device('cpu'), save_path=None, save_intermediate=False,
+        save_images_video=False, load_path=None):
     writer = SummaryWriter(log_dir='tensorboard_logs' if save_path is None else
             os.path.join(save_path, 'tensorboard_logs'))
 
@@ -226,11 +226,12 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
     last_metrics['values'] = []
     last_metrics['trajectory_length'] = []
     last_metrics['avg_action_entropy'] = []
-    last_metrics['avg_mask_entropy'] = []
     last_metrics['num_masks'] = []
     last_metrics['avg_action_success'] = []
     last_metrics['all_action_scores'] = []
-    last_metrics['all_mask_scores'] = []
+    if fusion_model == 'SuperpixelFusion':
+        last_metrics['all_mask_scores'] = []
+        last_metrics['avg_mask_entropy'] = []
 
     # TODO: want a replay memory?
     while train_steps < max_steps:
@@ -250,6 +251,7 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
             reset_kwargs = {}
         trajectory_results = rollout_trajectory(env, model,
                 single_interact=single_interact, use_masks=use_masks,
+                fusion_model=fusion_model,
                 max_trajectory_length=max_trajectory_length,
                 frame_stack=frame_stack,
                 zero_fill_frame_stack=zero_fill_frame_stack,
@@ -281,7 +283,12 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
             action_log_prob = trajectory_results['all_action_scores'][i][
                     chosen_action_index]
             action_entropy = trajectory_results['action_entropy'][i]
-            mask_entropy = trajectory_results['mask_entropy'][i]
+            if fusion_model == 'SuperpixelFusion':
+                mask_entropy = trajectory_results['mask_entropy'][i]
+            elif fusion_model == 'SuperpixelActionConcat':
+                # We only need to apply entropy once over concatenated
+                # actions+masks
+                mask_entropy = 0
             policy_loss = (policy_loss - action_log_prob * gae -
                     entropy_coefficient * (action_entropy + mask_entropy))
 
@@ -308,18 +315,24 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
             trajectory_results['values']])
         last_metrics['trajectory_length'].append(
                 len(trajectory_results['frames']))
-        last_metrics['avg_mask_entropy'].append(
-                torch.mean(trajectory_results['mask_entropy']).item())
         last_metrics['avg_action_entropy'].append(
                 torch.mean(trajectory_results['action_entropy']).item())
-        last_metrics['num_masks'].append(np.mean([len(scores) for scores in
-            trajectory_results['all_mask_scores']]))
         last_metrics['avg_action_success'].append(
                 np.mean(trajectory_results['action_successes']))
         last_metrics['all_action_scores'].append([action_scores.detach().cpu()
             for action_scores in trajectory_results['all_action_scores']])
-        last_metrics['all_mask_scores'].append([mask_scores.detach().cpu() for
-            mask_scores in trajectory_results['all_mask_scores']])
+        if fusion_model == 'SuperpixelFusion':
+            last_metrics['num_masks'].append(np.mean([len(scores) for scores in
+                trajectory_results['all_mask_scores']]))
+            last_metrics['all_mask_scores'].append([mask_scores.detach().cpu() for
+                mask_scores in trajectory_results['all_mask_scores']])
+            last_metrics['avg_mask_entropy'].append(
+                    torch.mean(trajectory_results['mask_entropy']).item())
+        elif fusion_model == 'SuperpixelActionConcat':
+            last_metrics['num_masks'].append(np.mean([(len(scores) -
+                len(constants.NAV_ACTIONS)) / (1 if single_interact else
+                    len(constants.INT_ACTIONS)) for scores in
+                trajectory_results['all_action_scores']]))
 
         results = {}
         results['train'] = {}
@@ -327,6 +340,7 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
             results['train'][metric] = [last_metrics[metric][-1]]
         # Don't write training results to file
         write_results(writer, results, train_steps, train_frames,
+                fusion_model=fusion_model, single_interact=single_interact,
                 save_path=None)
 
         # Evaluate and save checkpoint every N trajectories, collect/print
@@ -339,13 +353,15 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
                 results['train']['avg/' + metric] = values
                 last_metrics[metric] = []
             write_results(writer, results, train_steps, train_frames,
+                    fusion_model=fusion_model, single_interact=single_interact,
                     save_path=None)
 
             # Collect validation statistics and write, print
             # TODO: do we want different max trajectory lengths for eval?
             '''
             results = evaluate(env, model, single_interact=single_interact,
-                    use_masks=use_masks, fixed_scene_num=fixed_scene_num,
+                    use_masks=use_masks, fusion_model=fusion_model,
+                    fixed_scene_num=fixed_scene_num,
                     max_trajectory_length=max_trajectory_length,
                     frame_stack=frame_stack,
                     zero_fill_frame_stack=zero_fill_frame_stack,
@@ -354,6 +370,7 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
                     valid_unseen_episodes=valid_unseen_episodes, device=device)
 
             write_results(writer, results, train_steps, train_frames,
+                    fusion_model=fusion_model, single_interact=single_interact,
                     save_path=save_path)
             '''
 
