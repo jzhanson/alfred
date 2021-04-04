@@ -101,6 +101,9 @@ parser.add_argument('--reward-persist-state', dest='reward_persist_state', actio
 parser.add_argument('--reward-reset-state', dest='reward_persist_state', action='store_false', help='reset internal reward state every trajectory')
 parser.set_defaults(reward_persist_state=False)
 parser.add_argument('--reward-repeat-discount', type=float, default=0.0, help='the discount factor to apply to the rewards for repeated actions (default: 0.0)')
+parser.add_argument('--reward-use-novelty', dest='reward_use_novelty', action='store_true', help='use novelty reward (proportional to 1 / sqrt(times_visited) instead of repeat discount)')
+parser.add_argument('--reward-use-discount', dest='reward_use_novelty', action='store_false', help='use exponential discount reward (proportional to reward-repeat-discount ^ times_visited)')
+parser.set_defaults(reward_use_novelty=False)
 
 # Model parameters
 parser.add_argument('--superpixel-model', type=str, default='resnet', help='which model to use for superpixels (only \'resnet\' supported for now)')
