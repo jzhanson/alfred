@@ -29,6 +29,7 @@ class InteractionExploration(object):
         self.use_masks = use_masks
         self.reward = reward
         self.done = False
+        self.scene_name_or_num = None
 
     def reset(self, scene_name_or_num=None, random_object_positions=True,
             random_position=True, random_rotation=True,
@@ -88,7 +89,7 @@ class InteractionExploration(object):
                   }
         event = self.env.step(action)
 
-        self.reward.reset()
+        self.reward.reset(scene_name_or_num=self.scene_name_or_num)
         self.steps_taken = 0
         self.done = False
 
