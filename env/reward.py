@@ -20,7 +20,6 @@ class InteractionReward(object):
         self.env = env
         self.rewards = rewards
         self.reward_rotations_look_angles = reward_rotations_look_angles
-        # TODO: make persist_state track stats for different scenes
         self.persist_state = persist_state
         self.repeat_discount = repeat_discount
         # If use_novelty=True, repeat_discount will not be used
@@ -155,24 +154,50 @@ class InteractionReward(object):
     def invalid_action(self):
         return self.rewards['invalid_action']
 
-    def reset(self, init=False):
+    def reset(self, init=False, scene_name_or_num=None):
         """
         Call reset() before starting a new episode, after env has been set up.
         """
+        self.scene_name_or_num = scene_name_or_num
         if init or not self.persist_state:
+            # scene_num : (statistic : statistics)
+            self.memory = {}
+        if self.scene_name_or_num not in self.memory:
+            self.memory[self.scene_name_or_num] = {}
             # (object_id, action) : times taken
-            self.interactions = {}
+            self.memory[self.scene_name_or_num]['interactions'] = {}
             # Dict(tuple, Dict(tuple, int))
             # (x, z): ((rotation, looking angle) : times in position)
-            self.visited_locations_poses = {}
+            self.memory[self.scene_name_or_num]['visited_locations_poses'] = {}
             # Object id : times cleaned/heated/cooled
-            self.cleaned_objects = {}
-            self.heated_objects = {}
-            self.cooled_objects = {}
-            # Mark initial agent location as visited
-            starting_pose = self.env.last_event.pose_discrete
+            self.memory[self.scene_name_or_num]['cleaned_objects'] = {}
+            self.memory[self.scene_name_or_num]['heated_objects'] = {}
+            self.memory[self.scene_name_or_num]['cooled_objects'] = {}
+        # Put a reference to self.memory's dict in easier-to-access names and
+        # also so we don't have to type out
+        # self.memory[self.scene_name_or_num]['...'] all over the place
+        self.interactions = self.memory[self.scene_name_or_num]['interactions']
+        self.visited_locations_poses = self.memory[self.scene_name_or_num][
+                'visited_locations_poses']
+        self.cleaned_objects = self.memory[self.scene_name_or_num][
+                'cleaned_objects']
+        self.heated_objects = self.memory[self.scene_name_or_num][
+                'heated_objects']
+        self.cooled_objects = self.memory[self.scene_name_or_num][
+                'cooled_objects']
+        # Mark initial agent location as visited
+        starting_pose = self.env.last_event.pose_discrete
+        if starting_pose[:2] not in self.visited_locations_poses:
             self.visited_locations_poses[starting_pose[:2]] = {
                     starting_pose[2:] : 1}
+        elif starting_pose[2:] not in self.visited_locations_poses[
+                starting_pose[:2]]:
+            self.visited_locations_poses[starting_pose[:2]][
+                    starting_pose[2:]] = 1
+        else:
+            self.visited_locations_poses[starting_pose[:2]][
+                    starting_pose[2:]] += 1
+
         # Keep a copy of env/thor_env.py's cleaned_objects, heated_objects, and
         # cooled_objects, which don't ever drop members, to track
         # cleaned/heated/cooled state changes within a trajectory
