@@ -1,3 +1,5 @@
+import numpy as np
+
 from gen.utils.game_util import get_object
 import gen.constants as constants
 
@@ -14,13 +16,15 @@ class InteractionReward(object):
     """
     def __init__(self, env, rewards, reward_rotations_look_angles=False,
             reward_state_changes=True, persist_state=False,
-            repeat_discount=0.0):
+            repeat_discount=0.0, use_novelty=False):
         self.env = env
         self.rewards = rewards
         self.reward_rotations_look_angles = reward_rotations_look_angles
         # TODO: make persist_state track stats for different scenes
         self.persist_state = persist_state
         self.repeat_discount = repeat_discount
+        # If use_novelty=True, repeat_discount will not be used
+        self.use_novelty = use_novelty
         self.trajectories = 0
         self.reset(init=True)
 
@@ -48,8 +52,9 @@ class InteractionReward(object):
                 self.interactions[interaction] = 1
             else:
                 self.interactions[interaction] += 1
-            reward = self.rewards['interaction'] * pow(self.repeat_discount,
-                    self.interactions[interaction] - 1)
+            times_visited = self.interactions[interaction]
+            reward = self.get_discounted_reward(self.rewards['interaction'],
+                    times_visited)
             # Also, if action resulted in objects becoming clean, heated, or
             # cooled, give reward for each one
             newly_cleaned = (len(self.env.cleaned_objects) -
@@ -85,9 +90,10 @@ class InteractionReward(object):
                                 memory_objects[object_id] = 1
                             else:
                                 memory_objects[object_id] += 1
-                            reward += self.rewards['state_change'] * pow(
-                                    self.repeat_discount,
-                                    memory_objects[object_id] - 1)
+                            times_visited = memory_objects[object_id]
+                            reward += self.get_discounted_reward(
+                                    self.rewards['state_change'],
+                                    times_visited)
                     # A single action can only result in one type of state
                     # change
                     break
@@ -97,9 +103,6 @@ class InteractionReward(object):
             location = state.pose_discrete[:2]
             rotation = state.pose_discrete[2]
             look_angle = state.pose_discrete[3]
-            # The times_visited pattern is a little ugly but used because a
-            # self.visited_locations_poses being a dict of lists of poses makes
-            # getting a specific location + pose awkward
             if location not in self.visited_locations_poses:
                 self.visited_locations_poses[location] = {
                         (rotation, look_angle) : 1}
@@ -116,18 +119,17 @@ class InteractionReward(object):
             # At this point, self.visited_locations_poses and its counts are up
             # to date
             if self.reward_rotations_look_angles:
-                times_visited = (self.visited_locations_poses[location][pose] -
-                        1)
-                reward = self.rewards['navigation'] * pow(self.repeat_discount,
+                times_visited = self.visited_locations_poses[location][pose]
+                reward = self.get_discounted_reward(self.rewards['navigation'],
                         times_visited)
             else:
                 times_visited = sum(self.visited_locations_poses[location]
-                        .values()) - 1
+                        .values())
                 # Only give rewards for rotations if option is set (otherwise
                 # rotating counts as visiting the same location again)
                 if action == 'MoveAhead':
-                    reward = self.rewards['navigation'] * pow(self.repeat_discount,
-                            times_visited)
+                    reward = self.get_discounted_reward(
+                            self.rewards['navigation'], times_visited)
                 else:
                     reward = 0
 
@@ -137,6 +139,18 @@ class InteractionReward(object):
         if reward < 1e-5 and reward != self.rewards['invalid_action']:
             reward = self.rewards['step_penalty']
         return reward
+
+    def get_discounted_reward(self, raw_reward, times_visited):
+        """
+        times_visited is the up-to-date times visited, including the current
+        instance.
+        """
+        if self.use_novelty:
+            return raw_reward / np.sqrt(times_visited)
+        else:
+            # Subtract the current instance/time visited
+            return raw_reward * pow(self.repeat_discount,
+                    times_visited - 1)
 
     def invalid_action(self):
         return self.rewards['invalid_action']
