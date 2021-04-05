@@ -533,42 +533,34 @@ def write_results(writer, results, train_steps, train_frames,
                     action_name = (constants.SIMPLE_ACTIONS[action_i] if
                             single_interact else
                             constants.COMPLEX_ACTIONS[action_i])
-                    steps_name_action_i = steps_name + '_' + action_name
-                    frames_name_action_i = frames_name + '_' + action_name
-                    trajectories_name_action_i = (trajectories_name + '_' +
-                            action_name)
 
                     flat_action_i_scores = []
                     for trajectory in range(len(values)):
                         flat_action_i_scores.extend([action_scores[action_i]
                             for action_scores in values[trajectory]])
 
-                    writer.add_histogram(steps_name_action_i,
+                    writer.add_histogram(steps_name + '_' + action_name,
                             torch.stack(flat_action_i_scores), train_steps)
-                    writer.add_histogram(frames_name_action_i,
+                    writer.add_histogram(frames_name + '_' + action_name,
                             flat_action_i_scores, train_frames)
                     if train_trajectories is not None:
-                        writer.add_histogram(trajectories_name_action_i,
-                                flat_action_i_scores, train_trajectories)
+                        writer.add_histogram(trajectories_name + '_' +
+                                action_name, flat_action_i_scores,
+                                train_trajectories)
 
                 # Also histogram the top (chosen) action
                 action_argmaxes = [torch.argmax(action_scores).item() for
                         action_scores in trajectory_flat_action_scores]
-                action_argmaxes_steps_name = ('steps/' + split + '/' +
-                        'action_argmaxes')
-                action_argmaxes_frames_name = ('frames/' + split + '/' +
-                        'action_argmaxes')
-                action_argmaxes_trajectories_name = ('trajectories/' + split +
-                        '/' + 'action_argmaxes')
-                writer.add_histogram(action_argmaxes_steps_name, action_argmaxes,
-                        train_steps, bins='fd')
-                writer.add_histogram(action_argmaxes_frames_name,
-                        action_argmaxes, train_frames, bins='fd')
+                writer.add_histogram('steps/' + split + '/' +
+                        'action_argmaxes', action_argmaxes, train_steps,
+                        bins='fd')
+                writer.add_histogram('frames/' + split + '/' +
+                        'action_argmaxes', action_argmaxes, train_frames,
+                        bins='fd')
                 if train_trajectories is not None:
-                    writer.add_histogram(trajectories_name, action_argmaxes,
-                            train_trajectories)
-                    writer.add_histogram(action_argmaxes_trajectories_name,
-                            action_argmaxes, train_trajectories, bins='fd')
+                    writer.add_histogram('trajectories/' + split + '/' +
+                            'action_argmaxes', action_argmaxes,
+                            train_trajectories, bins='fd')
             elif (metric == 'all_action_scores' and fusion_model ==
                     'SuperpixelActionConcat'):
                 # all_action_scores is a list of lists (for each trajectory) of
@@ -611,20 +603,14 @@ def write_results(writer, results, train_steps, train_frames,
                 # Add per-action score histograms
 
                 for action_i in range(len(actions)):
-                    action_name = actions[action_i]
-                    steps_name_action_i = steps_name + '_' + action_name
-                    frames_name_action_i = frames_name + '_' + action_name
-                    trajectories_name_action_i = (trajectories_name + '_' +
-                            action_name)
-
-                    writer.add_histogram(steps_name_action_i,
+                    writer.add_histogram(steps_name + '_' + actions[action_i],
                             torch.stack(per_action_scores[action_i]),
                             train_steps)
-                    writer.add_histogram(frames_name_action_i,
+                    writer.add_histogram(frames_name + '_' + actions[action_i],
                             per_action_scores[action_i], train_frames)
                     if train_trajectories is not None:
-                        writer.add_histogram(trajectories_name_action_i,
-                                per_action_scores[action_i],
+                        writer.add_histogram(trajectories_name + '_' +
+                                actions[action_i], per_action_scores[action_i],
                                 train_trajectories)
 
             elif 'scores' in metric: # Skip all_mask_scores
@@ -644,35 +630,26 @@ def write_results(writer, results, train_steps, train_frames,
                 # Add per-step state-value histograms
                 # Assumes that trajectories are all the same (fixed) length
                 for i in range(len(values[0])):
-                    steps_name_i = steps_name + '_' + str(i)
-                    frames_name_i = frames_name + '_' + str(i)
-                    trajectories_name_i = trajectories_name + '_' + str(i)
-
-                    writer.add_histogram(steps_name_i,
+                    writer.add_histogram(steps_name + '_' + str(i),
                             torch.stack([value_scores[i] for value_scores in
                                 values]), train_steps)
-                    writer.add_histogram(frames_name_i,
+                    writer.add_histogram(frames_name + '_' + str(i),
                             torch.stack([value_scores[i] for value_scores in
                                 values]), train_frames)
                     if train_trajectories is not None:
-                        writer.add_histogram(trajectories_name_i,
+                        writer.add_histogram(trajectories_name + '_' + str(i),
                                 torch.stack([value_scores[i] for value_scores in
                                     values]), train_trajectories)
                 avg_value = torch.mean(torch.stack(flat_value_scores)).item()
-                avg_value_steps_name = ('steps/' + split + '/' +
-                        'avg_value')
-                avg_value_frames_name = ('frames/' + split + '/' +
-                        'avg_value')
-                avg_values_trajectories_name = ('trajectories/' + split +
-                        '/' + 'avg_value')
-                writer.add_scalar(avg_value_steps_name, avg_value, train_steps)
-                writer.add_scalar(avg_value_frames_name, avg_value,
-                        train_frames)
+                writer.add_scalar('steps/' + split + '/' +
+                        'avg_value', avg_value, train_steps)
+                writer.add_scalar('frames/' + split + '/' + 'avg_value',
+                        avg_value, train_frames)
                 if train_trajectories is not None:
                     writer.add_histogram(trajectories_name,
                             torch.stack(flat_value_scores), train_trajectories)
-                    writer.add_scalar(avg_value_trajectories_name, avg_value,
-                            train_trajectories)
+                    writer.add_scalar('trajectories/' + split + '/' +
+                            'avg_value', avg_value, train_trajectories)
             elif metric == 'pred_action_indexes':
                 # pred_action_indexes is only used to compute (per action)
                 # navigation and interaction action success rates
@@ -713,15 +690,12 @@ def write_results(writer, results, train_steps, train_frames,
                     if len(action_successes[action]) == 0:
                         continue
                     action_avg_success = np.mean(action_successes[action])
-                    action_steps_name = steps_name + '_' + action
-                    action_frames_name = frames_name + '_' + action
-                    action_trajectories_name = trajectories_name + '_' + action
-                    writer.add_scalar(action_steps_name, action_avg_success,
-                            train_steps)
-                    writer.add_scalar(action_frames_name, action_avg_success,
-                            train_frames)
+                    writer.add_scalar(steps_name + '_' + action,
+                            action_avg_success, train_steps)
+                    writer.add_scalar(frames_name + '_' + action,
+                            action_avg_success, train_frames)
                     if train_trajectories is not None:
-                        writer.add_scalar(action_trajectories_name,
+                        writer.add_scalar(trajectories_name + '_' + action,
                                 action_avg_success, train_trajectories)
                     if action in constants.NAV_ACTIONS:
                         nav_successes.extend(action_successes[action])
@@ -730,30 +704,22 @@ def write_results(writer, results, train_steps, train_frames,
 
                 # Graph success rate by navigation or interaction
                 if len(nav_successes) > 0:
-                    # TODO: wrap these steps_name, frames_name into the writer
-                    # call
                     nav_avg_success = np.mean(nav_successes)
-                    nav_steps_name = steps_name + '_navigation'
-                    nav_frames_name = frames_name + '_navigation'
-                    nav_trajectories_name = trajectories_name + '_navigation'
-                    writer.add_scalar(nav_steps_name, nav_avg_success,
-                            train_steps)
-                    writer.add_scalar(nav_frames_name, nav_avg_success,
-                            train_frames)
+                    writer.add_scalar(steps_name + '_navigation',
+                            nav_avg_success, train_steps)
+                    writer.add_scalar(frames_name + '_navigation',
+                            nav_avg_success, train_frames)
                     if train_trajectories is not None:
-                        writer.add_scalar(nav_trajectories_name,
+                        writer.add_scalar(trajectories_name + '_navigation',
                                 nav_avg_success, train_trajectories)
                 if len(int_successes) > 0:
                     int_avg_success = np.mean(int_successes)
-                    int_steps_name = steps_name + '_interaction'
-                    int_frames_name = frames_name + '_interaction'
-                    int_trajectories_name = trajectories_name + '_interaction'
-                    writer.add_scalar(int_steps_name, int_avg_success,
-                            train_steps)
-                    writer.add_scalar(int_frames_name, int_avg_success,
-                            train_frames)
+                    writer.add_scalar(steps_name + '_interaction',
+                            int_avg_success, train_steps)
+                    writer.add_scalar(frames_name + '_interaction',
+                            int_avg_success, train_frames)
                     if train_trajectories is not None:
-                        writer.add_scalar(int_trajectories_name,
+                        writer.add_scalar(trajectories_name + '_interaction',
                                 int_avg_success, train_trajectories)
 
                 # Graph overall success rate
