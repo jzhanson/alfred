@@ -1,4 +1,11 @@
+import os
+import sys
+sys.path.append(os.path.join(os.environ['ALFRED_ROOT']))
+sys.path.append(os.path.join(os.environ['ALFRED_ROOT'], 'gen'))
+
 import torch
+
+import gen.constants as constants
 
 def delete_keys_from_dict(dict_del, lst_keys):
     """
@@ -73,3 +80,19 @@ def stack_frames(frames, frame_stack=1, zero_fill_frame_stack=False,
         stacked_frames.append(torch.stack(trajectory_frames).to(device=device,
             dtype=torch.float32))
     return stacked_frames
+
+def superpixelactionconcat_get_num_superpixels(num_scores,
+        single_interact=False):
+    return (num_scores - len(constants.NAV_ACTIONS)) / (1 if single_interact
+            else len(constants.INT_ACTIONS))
+
+def superpixelactionconcat_index_to_action(index, num_scores,
+        single_interact=False):
+    if index < len(constants.NAV_ACTIONS):
+        return constants.NAV_ACTIONS[index]
+    int_actions = ([constants.ACTIONS_INTERACT] if single_interact else
+            constants.INT_ACTIONS)
+    num_superpixels = superpixelactionconcat_get_num_superpixels(num_scores,
+            single_interact=single_interact)
+    return int_actions[int((index - len(constants.NAV_ACTIONS)) //
+        num_superpixels)]
