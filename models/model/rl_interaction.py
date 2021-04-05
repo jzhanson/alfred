@@ -6,6 +6,7 @@ sys.path.append(os.path.join(os.environ['ALFRED_ROOT'], 'models'))
 import json
 import random
 import copy
+from collections import defaultdict
 
 import numpy as np
 import torch
@@ -30,6 +31,22 @@ exception that's caught by env/thor_env.py, but seems to work fine for other
 interactions with not visible objects. This is a small issue since the
 "visible" distance is not very large in the THOR environment.
 """
+
+def superpixelactionconcat_get_num_superpixels(num_scores,
+        single_interact=False):
+    return (num_scores - len(constants.NAV_ACTIONS)) / (1 if single_interact
+            else len(constants.INT_ACTIONS))
+
+def superpixelactionconcat_index_to_action(index, num_scores,
+        single_interact=False):
+    if index < len(constants.NAV_ACTIONS):
+        return constants.NAV_ACTIONS[index]
+    int_actions = ([constants.ACTIONS_INTERACT] if single_interact else
+            constants.INT_ACTIONS)
+    num_superpixels = superpixelactionconcat_get_num_superpixels(num_scores,
+            single_interact=single_interact)
+    return int_actions[int((index - len(constants.NAV_ACTIONS)) //
+        num_superpixels)]
 
 def rollout_trajectory(env, model, single_interact=False, use_masks=True,
         fusion_model='SuperpixelFusion', max_trajectory_length=None,
@@ -128,6 +145,8 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
                     pred_action_index]
 
         if teacher_force:
+            # selected_action and therefore action_success will not match
+            # pred_action_index if teacher forcing!
             selected_action = current_expert_actions[0]['action']
             # TODO: add expert superpixel mask
 
@@ -227,7 +246,8 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
     last_metrics['trajectory_length'] = []
     last_metrics['avg_action_entropy'] = []
     last_metrics['num_masks'] = []
-    last_metrics['avg_action_success'] = []
+    last_metrics['action_successes'] = []
+    last_metrics['pred_action_indexes'] = []
     last_metrics['all_action_scores'] = []
     if fusion_model == 'SuperpixelFusion':
         last_metrics['all_mask_scores'] = []
@@ -269,6 +289,7 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
         rewards = torch.Tensor(trajectory_results['rewards']).to(device)
         for i in reversed(range(len(rewards))):
             R = gamma * R + rewards[i]
+            # TODO: option to normalize advantages? PPO?
             advantage = R - trajectory_results['values'][i]
             value_loss = value_loss + 0.5 * advantage.pow(2)
 
@@ -317,8 +338,11 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
                 len(trajectory_results['frames']))
         last_metrics['avg_action_entropy'].append(
                 torch.mean(trajectory_results['action_entropy']).item())
-        last_metrics['avg_action_success'].append(
-                np.mean(trajectory_results['action_successes']))
+        last_metrics['action_successes'].append(
+                trajectory_results['action_successes'])
+        last_metrics['pred_action_indexes'].append(
+                [pred_action_index.item() for pred_action_index in
+                    trajectory_results['pred_action_indexes']])
         last_metrics['all_action_scores'].append([action_scores.detach().cpu()
             for action_scores in trajectory_results['all_action_scores']])
         if fusion_model == 'SuperpixelFusion':
@@ -352,6 +376,7 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
             for metric, values in last_metrics.items():
                 results['train']['avg/' + metric] = values
                 last_metrics[metric] = []
+            # TODO: a lot of these averaged metrics don't work?
             write_results(writer, results, train_steps, train_frames,
                     fusion_model=fusion_model, single_interact=single_interact,
                     save_path=None)
@@ -409,6 +434,7 @@ def evaluate(env, model, single_interact=False, use_masks=True,
                 constants.DATASET_VALID_SEEN_SCENE_NUMBERS,
                 constants.DATASET_VALID_UNSEEN_SCENE_NUMBERS]):
         metrics[split] = {}
+        # TODO: add other metrics that are in last_metrics
         metrics[split]['success'] = []
         metrics[split]['rewards'] = []
         metrics[split]['avg_action_entropy'] = []
@@ -479,6 +505,7 @@ def write_results(writer, results, train_steps, train_frames,
             frames_name = 'frames/' + split + '/' + metric
             trajectories_name = 'trajectories/' + split + '/' + metric
 
+            # TODO: these special cases need to be helper functions
             if metric in ['frames', 'scene_name_or_num']:
                 continue
             # all_mask_scores can be variably sized so it won't work with
@@ -559,9 +586,10 @@ def write_results(writer, results, train_steps, train_frames,
                         for action_i in range(len(constants.NAV_ACTIONS)):
                             per_action_scores[action_i].append(
                                     action_scores[action_i])
-                        num_superpixels = (len(action_scores) -
-                                len(constants.NAV_ACTIONS)) / (1 if
-                                    single_interact else len(constants.INT_ACTIONS))
+                        num_superpixels = \
+                                superpixelactionconcat_get_num_superpixels(
+                                        len(action_scores),
+                                        single_interact=single_interact)
                         num_interact_actions = (1 if single_interact else
                                 len(constants.INT_ACTIONS))
                         for action_i in range(num_interact_actions):
@@ -644,6 +672,96 @@ def write_results(writer, results, train_steps, train_frames,
                     writer.add_histogram(trajectories_name,
                             torch.stack(flat_value_scores), train_trajectories)
                     writer.add_scalar(avg_value_trajectories_name, avg_value,
+                            train_trajectories)
+            elif metric == 'pred_action_indexes':
+                # pred_action_indexes is only used to compute (per action)
+                # navigation and interaction action success rates
+                continue
+            elif metric == 'action_successes':
+                action_successes = defaultdict(list)
+                for (trajectory_pred_action_indexes,
+                        trajectory_action_successes,
+                        trajectory_action_scores) in zip(
+                                results[split]['pred_action_indexes'], values,
+                                results[split]['all_action_scores']):
+                    for (pred_action_index,
+                            action_success,
+                            action_scores) in zip(
+                                trajectory_pred_action_indexes,
+                                trajectory_action_successes,
+                                trajectory_action_scores):
+                        if fusion_model == 'SuperpixelFusion':
+                            action_successes[actions[pred_action_index]] \
+                                    .append(action_success)
+                        elif fusion_model == 'SuperpixelActionConcat':
+                           action_successes[
+                                   superpixelactionconcat_index_to_action(
+                                       pred_action_index, len(action_scores),
+                                       single_interact=single_interact)] \
+                                               .append(action_success)
+
+                # Graph action success rate by action, by navigation or
+                # interaction, and in total
+                actions = (constants.SIMPLE_ACTIONS if single_interact else
+                        constants.COMPLEX_ACTIONS)
+                # We could compute the F1, but per action and for navigation
+                # and interaction separately is enough, since navigation
+                # actions aren't "the same weight" as interaction actions
+                nav_successes = []
+                int_successes = []
+                for action in actions:
+                    if len(action_successes[action]) == 0:
+                        continue
+                    action_avg_success = np.mean(action_successes[action])
+                    action_steps_name = steps_name + '_' + action
+                    action_frames_name = frames_name + '_' + action
+                    action_trajectories_name = trajectories_name + '_' + action
+                    writer.add_scalar(action_steps_name, action_avg_success,
+                            train_steps)
+                    writer.add_scalar(action_frames_name, action_avg_success,
+                            train_frames)
+                    if train_trajectories is not None:
+                        writer.add_scalar(action_trajectories_name,
+                                action_avg_success, train_trajectories)
+                    if action in constants.NAV_ACTIONS:
+                        nav_successes.extend(action_successes[action])
+                    else:
+                        int_successes.extend(action_successes[action])
+
+                # Graph success rate by navigation or interaction
+                if len(nav_successes) > 0:
+                    # TODO: wrap these steps_name, frames_name into the writer
+                    # call
+                    nav_avg_success = np.mean(nav_successes)
+                    nav_steps_name = steps_name + '_navigation'
+                    nav_frames_name = frames_name + '_navigation'
+                    nav_trajectories_name = trajectories_name + '_navigation'
+                    writer.add_scalar(nav_steps_name, nav_avg_success,
+                            train_steps)
+                    writer.add_scalar(nav_frames_name, nav_avg_success,
+                            train_frames)
+                    if train_trajectories is not None:
+                        writer.add_scalar(nav_trajectories_name,
+                                nav_avg_success, train_trajectories)
+                if len(int_successes) > 0:
+                    int_avg_success = np.mean(int_successes)
+                    int_steps_name = steps_name + '_interaction'
+                    int_frames_name = frames_name + '_interaction'
+                    int_trajectories_name = trajectories_name + '_interaction'
+                    writer.add_scalar(int_steps_name, int_avg_success,
+                            train_steps)
+                    writer.add_scalar(int_frames_name, int_avg_success,
+                            train_frames)
+                    if train_trajectories is not None:
+                        writer.add_scalar(int_trajectories_name,
+                                int_avg_success, train_trajectories)
+
+                # Graph overall success rate
+                avg_success = np.mean(nav_successes + int_successes)
+                writer.add_scalar(steps_name, avg_success, train_steps)
+                writer.add_scalar(frames_name, avg_success, train_frames)
+                if train_trajectories is not None:
+                    writer.add_scalar(trajectories_name, avg_success,
                             train_trajectories)
             else:
                 mean = np.mean(values)
