@@ -15,7 +15,9 @@ import torch.nn.functional as F
 import gen.constants as constants
 from env.interaction_exploration import InteractionExploration
 from models.utils.metric import per_step_entropy, trajectory_avg_entropy
-from models.utils.helper_utils import stack_frames
+from models.utils.helper_utils import (stack_frames,
+        superpixelactionconcat_get_num_superpixels,
+        superpixelactionconcat_index_to_action)
 from utils.video_util import VideoSaver
 
 video_saver = VideoSaver()
@@ -31,22 +33,6 @@ exception that's caught by env/thor_env.py, but seems to work fine for other
 interactions with not visible objects. This is a small issue since the
 "visible" distance is not very large in the THOR environment.
 """
-
-def superpixelactionconcat_get_num_superpixels(num_scores,
-        single_interact=False):
-    return (num_scores - len(constants.NAV_ACTIONS)) / (1 if single_interact
-            else len(constants.INT_ACTIONS))
-
-def superpixelactionconcat_index_to_action(index, num_scores,
-        single_interact=False):
-    if index < len(constants.NAV_ACTIONS):
-        return constants.NAV_ACTIONS[index]
-    int_actions = ([constants.ACTIONS_INTERACT] if single_interact else
-            constants.INT_ACTIONS)
-    num_superpixels = superpixelactionconcat_get_num_superpixels(num_scores,
-            single_interact=single_interact)
-    return int_actions[int((index - len(constants.NAV_ACTIONS)) //
-        num_superpixels)]
 
 def rollout_trajectory(env, model, single_interact=False, use_masks=True,
         fusion_model='SuperpixelFusion', max_trajectory_length=None,
