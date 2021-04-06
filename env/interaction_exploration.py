@@ -209,6 +209,12 @@ class InteractionExploration(object):
             if all(self.objects_interacted.values()):
                 self.done = True
 
+        '''
+        print('target instance id: ', target_instance_id)
+        print([obj['objectId'] for obj in
+            self.env.last_event.metadata['objects'] if obj['visible']])
+        '''
+
         self.steps_taken += 1
         reward = self.reward.get_reward(self.env.last_event, action,
                 api_success=success, target_instance_id=target_instance_id,
@@ -392,16 +398,19 @@ if __name__ == '__main__':
         'config', 'rewards.json'), 'r') as jsonfile:
         reward_config = json.load(jsonfile)['InteractionExploration']
 
-    reward = InteractionReward(env, reward_config)
+    reward = InteractionReward(env, reward_config, repeat_discount=0.99,
+            persist_state=True, use_novelty=True)
 
     ie = InteractionExploration(env, reward, single_interact=single_interact,
             use_masks=use_masks)
-    frame = ie.reset()
+    frame = ie.reset(random_object_positions=False, random_position=False,
+            random_rotation=False, random_look_angle=False)
     done = False
     import numpy as np
     while not done:
         cv2.imwrite(os.path.join(os.environ['ALFRED_ROOT'], 'saved',
-            'test_frame.png'), cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+            'test_frame.png'), cv2.cvtColor(ie.env.last_event.frame,
+                cv2.COLOR_BGR2RGB))
         cv2.imwrite(os.path.join(os.environ['ALFRED_ROOT'], 'saved',
             'test_segs.png'), cv2.cvtColor(
                 ie.env.last_event.instance_segmentation_frame,
@@ -417,7 +426,22 @@ if __name__ == '__main__':
                     scene_num = None
                 else:
                     scene_num = int(scene_num)
-                frame = ie.reset(scene_name_or_num=scene_num)
+                frame = ie.reset(scene_name_or_num=scene_num,
+                        random_object_positions=False, random_position=False,
+                        random_rotation=False, random_look_angle=False)
+                continue
+            if action == 'pose':
+                pose_0, pose_1, pose_2, pose_3 = (input("Input 4-tuple pose: ")
+                        .split(' '))
+                action = {'action': 'TeleportFull',
+                        'x': int(pose_0) * constants.AGENT_STEP_SIZE,
+                        'y': env.last_event.metadata['agent']['position']['y'],
+                        'z': int(pose_1) * constants.AGENT_STEP_SIZE,
+                        'rotateOnTeleport': True,
+                        'rotation': int(pose_2),
+                        'horizon': int(pose_3),
+                        }
+                event = env.step(action)
                 continue
         else:
             action = random.choice(constants.SIMPLE_ACTIONS if single_interact
@@ -451,6 +475,7 @@ if __name__ == '__main__':
             chosen_object_mask = None
         frame, reward, done, (success, event, err) = ie.step(action,
                 interact_mask=chosen_object_mask)
+        print('current pose:', event.pose_discrete)
 
         if chosen_object_mask is not None:
             mask_image = np.zeros((300, 300, 3))
