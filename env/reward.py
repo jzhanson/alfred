@@ -44,8 +44,11 @@ class InteractionReward(object):
         """
         if not state.metadata['lastActionSuccess'] or not api_success:
             reward = self.rewards['invalid_action']
-        elif (state.metadata['lastActionSuccess'] and
-                state.metadata['lastAction'] in constants.INT_ACTIONS):
+        # Don't state.metadata['lastAction'] since ThorEnv often sets it to
+        # weird things like 'TeleportFull' or 'Pass' (if a faucet is turned on)
+        elif ((state.metadata['lastActionSuccess'] and api_success) and
+                (action in constants.INT_ACTIONS or action ==
+                    constants.ACTIONS_INTERACT)):
             interaction = (target_instance_id, state.metadata['lastAction'])
             if interaction not in self.interactions:
                 self.interactions[interaction] = 1
