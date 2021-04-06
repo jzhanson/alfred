@@ -362,7 +362,6 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
             for metric, values in last_metrics.items():
                 results['train']['avg/' + metric] = values
                 last_metrics[metric] = []
-            # TODO: a lot of these averaged metrics don't work?
             write_results(writer, results, train_steps, train_frames,
                     fusion_model=fusion_model, single_interact=single_interact,
                     save_path=None)
@@ -497,7 +496,7 @@ def write_results(writer, results, train_steps, train_frames,
             # all_mask_scores can be variably sized so it won't work with
             # histogram unless we take the top k, but in that case entropy
             # works fine as a measure
-            if (metric == 'all_action_scores' and fusion_model ==
+            if ('all_action_scores' in metric and fusion_model ==
                     'SuperpixelFusion'):
                 # all_action_scores is a list of lists (for each trajectory) of
                 # tensors (for each step)
@@ -547,7 +546,7 @@ def write_results(writer, results, train_steps, train_frames,
                     writer.add_histogram('trajectories/' + split + '/' +
                             'action_argmaxes', action_argmaxes,
                             train_trajectories, bins='fd')
-            elif (metric == 'all_action_scores' and fusion_model ==
+            elif ('all_action_scores' in metric and fusion_model ==
                     'SuperpixelActionConcat'):
                 # all_action_scores is a list of lists (for each trajectory) of
                 # tensors (for each step). Flatten all scores, since each step
@@ -601,7 +600,7 @@ def write_results(writer, results, train_steps, train_frames,
 
             elif 'scores' in metric: # Skip all_mask_scores
                 continue
-            elif metric == 'values':
+            elif 'values' in metric:
                 # Values is a list of lists (for each trajectory) of scalars
                 flat_value_scores = []
                 for value_scores in values:
@@ -636,17 +635,26 @@ def write_results(writer, results, train_steps, train_frames,
                             torch.stack(flat_value_scores), train_trajectories)
                     writer.add_scalar('trajectories/' + split + '/' +
                             'avg_value', avg_value, train_trajectories)
-            elif metric == 'pred_action_indexes':
+            elif 'pred_action_indexes' in metric:
                 # pred_action_indexes is only used to compute (per action)
                 # navigation and interaction action success rates
                 continue
-            elif metric == 'action_successes':
+            elif 'action_successes' in metric:
                 action_successes = defaultdict(list)
+                # Hack to deal with the case when graphing averages over an
+                # eval_interval
+                if 'avg' in metric:
+                    pred_action_indexes = results[split]['avg/pred_action_indexes']
+                    all_action_scores = results[split]['avg/all_action_scores']
+                else:
+                    pred_action_indexes = results[split]['pred_action_indexes']
+                    all_action_scores = results[split]['all_action_scores']
                 for (trajectory_pred_action_indexes,
                         trajectory_action_successes,
                         trajectory_action_scores) in zip(
-                                results[split]['pred_action_indexes'], values,
-                                results[split]['all_action_scores']):
+                                pred_action_indexes,
+                                values,
+                                all_action_scores):
                     for (pred_action_index,
                             action_success,
                             action_scores) in zip(
