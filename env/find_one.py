@@ -217,7 +217,7 @@ class FindOne(object):
                   'y': agent_height,
                   'z': start_pose[1] * constants.AGENT_STEP_SIZE,
                   'rotateOnTeleport': True,
-                  'rotation': start_pose[2],
+                  'rotation': start_pose[2] * 90,
                   'horizon': start_pose[3],
                   }
         event = self.env.step(action)
