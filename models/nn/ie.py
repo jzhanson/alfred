@@ -350,6 +350,10 @@ class SuperpixelActionConcat(SuperpixelFusion):
 
     def forward(self, frame, last_action_features, policy_hidden=None,
             device=torch.device('cpu')):
+        """
+        Nav actions always come at the beginning of the returned scores,
+        followed by interact actions.
+        """
         visual_features = self.featurize(frame)
 
         batch_last_action_features = []
