@@ -16,11 +16,18 @@ while True:
             'test_segs.png')
     mask_path = os.path.join(os.environ['ALFRED_ROOT'], 'saved',
             'test_mask.png')
-    if os.path.isfile(frame_path):
-        cv2.imshow('frame', cv2.imread(frame_path))
-    if os.path.isfile(segs_path):
-        cv2.imshow('segs', cv2.imread(segs_path))
-    if os.path.isfile(mask_path):
-        cv2.imshow('mask', cv2.imread(mask_path))
+    superpixels_path = os.path.join(os.environ['ALFRED_ROOT'], 'saved',
+            'test_superpixels.png')
+    try:
+        if os.path.isfile(frame_path):
+            cv2.imshow('frame', cv2.imread(frame_path))
+        if os.path.isfile(segs_path):
+            cv2.imshow('segs', cv2.imread(segs_path))
+        if os.path.isfile(mask_path):
+            cv2.imshow('mask', cv2.imread(mask_path))
+        if os.path.isfile(superpixels_path):
+            cv2.imshow('superpixels', cv2.imread(superpixels_path))
+    except Exception as err:
+        print(err)
     cv2.waitKey(1000)
 
