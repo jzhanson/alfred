@@ -393,6 +393,22 @@ if __name__ == '__main__':
     accept_input = True
     env = ThorEnv()
 
+    # For showing sample superpixels
+    from skimage.segmentation import slic, mark_boundaries
+    from skimage.util import img_as_float
+    slic_kwargs = {
+            'max_iter' : 10,
+            'spacing' : None,
+            'multichannel' : True,
+            'convert2lab' : True,
+            'enforce_connectivity' : True,
+            'max_size_factor' : 3,
+            'n_segments' : 10,
+            'compactness' : 10.0,
+            'sigma' : 0,
+            'min_size_factor' : 0.01
+    }
+
     import json
     with open(os.path.join(os.environ['ALFRED_ROOT'], 'models',
         'config', 'rewards.json'), 'r') as jsonfile:
@@ -411,6 +427,11 @@ if __name__ == '__main__':
         cv2.imwrite(os.path.join(os.environ['ALFRED_ROOT'], 'saved',
             'test_frame.png'), cv2.cvtColor(ie.env.last_event.frame,
                 cv2.COLOR_BGR2RGB))
+        segments = slic(img_as_float(frame), **slic_kwargs)
+        cv2.imwrite(os.path.join(os.environ['ALFRED_ROOT'], 'saved',
+            'test_superpixels.png'),
+            mark_boundaries(cv2.cvtColor(ie.env.last_event.frame,
+                cv2.COLOR_BGR2RGB), segments) * 255)
         cv2.imwrite(os.path.join(os.environ['ALFRED_ROOT'], 'saved',
             'test_segs.png'), cv2.cvtColor(
                 ie.env.last_event.instance_segmentation_frame,
