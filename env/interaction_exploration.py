@@ -84,7 +84,7 @@ class InteractionExploration(object):
                   'y': event.metadata['agent']['position']['y'],
                   'z': start_pose[1] * constants.AGENT_STEP_SIZE,
                   'rotateOnTeleport': True,
-                  'rotation': start_pose[2],
+                  'rotation': start_pose[2] * 90,
                   'horizon': start_pose[3],
                   }
         event = self.env.step(action)
@@ -438,7 +438,7 @@ if __name__ == '__main__':
                         'y': env.last_event.metadata['agent']['position']['y'],
                         'z': int(pose_1) * constants.AGENT_STEP_SIZE,
                         'rotateOnTeleport': True,
-                        'rotation': int(pose_2),
+                        'rotation': int(pose_2) * 90,
                         'horizon': int(pose_3),
                         }
                 event = env.step(action)
