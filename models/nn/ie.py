@@ -168,7 +168,7 @@ class SuperpixelFusion(nn.Module):
         self.black_outer = black_outer
 
     def forward(self, frame, last_action_index, policy_hidden=None,
-            device=torch.device('cpu')):
+            gt_segmentation=None, device=torch.device('cpu')):
         """
         Assumes frame is already a torch tensor of floats and moved to GPU.
         last_action_index is a list of length batch_size of tensors or Nones
@@ -202,8 +202,13 @@ class SuperpixelFusion(nn.Module):
         batch_similarity_scores = []
         for i in range(batch_size):
             # Take last three channels (RGB of last stacked frame)
-            superpixel_masks, frame_crops = self.get_superpixel_masks_frame_crops(
-                    frame[i][-3:])
+            if gt_segmentation is not None:
+                superpixel_masks, frame_crops = (
+                        self.get_gt_segmentation_masks_frame_crops(
+                            frame[i][-3:], gt_segmentation))
+            else:
+                superpixel_masks, frame_crops = (
+                        self.get_superpixel_masks_frame_crops(frame[i][-3:]))
             batch_superpixel_masks.append(superpixel_masks)
             batch_frame_crops.append(frame_crops)
 
@@ -298,33 +303,88 @@ class SuperpixelFusion(nn.Module):
             mask = reduce(np.logical_or, [segments == label_i for label_i in
                 labels])
             ys, xs = np.nonzero(mask)
-            max_y = min(frame.shape[0], np.max(ys) + self.boundary_pixels + 1)
-            min_y = max(0, np.min(ys) - self.boundary_pixels)
-            max_x = min(frame.shape[1], np.max(xs) + self.boundary_pixels + 1)
-            min_x = max(0, np.min(xs) - self.boundary_pixels)
+            max_y, min_y, max_x, min_x = (SuperpixelFusion
+                    .get_max_min_y_x_with_boundary(frame, ys, xs,
+                        self.boundary_pixels))
             superpixel_bounding_boxes.append((min_y, max_y, min_x, max_x))
             superpixel_masks.append(mask)
 
         frame_crops = [frame[min_y:max_y, min_x:max_x, :] for (min_y, max_y,
             min_x, max_x) in superpixel_bounding_boxes]
         if self.black_outer:
-            # Copy frames so the shared frame is not blacked out all over
-            copied_frame_crops = []
-            for i in range(len(frame_crops)):
-                copied_frame_crop = np.copy(frame_crops[i])
-                min_y, max_y, min_x, max_x = superpixel_bounding_boxes[i]
-                cropped_mask = superpixel_masks[i][min_y:max_y, min_x:max_x]
-                copied_frame_crop[np.logical_not(cropped_mask)] = 0
-                copied_frame_crops.append(copied_frame_crop)
-            frame_crops = copied_frame_crops
+            frame_crops = get_black_outer_frame_crops(frame_crops,
+                    superpixel_bounding_boxes, superpixel_masks)
 
         return superpixel_masks, frame_crops
+
+    def get_gt_segmentation_masks_frame_crops(self, frame, segmentation):
+        """
+        Applies self.boundary_pixels and self.black_outer but not
+        self.neighbor_connectivity.
+        """
+        # Still reshape frame from [3, 300, 300] to [300, 300, 3], for
+        # consistency with get_superpixel_masks_frame_crops
+        frame = frame.numpy().transpose(1, 2, 0).astype('uint8')
+
+        color_to_pixel_yxs = {}
+        for y in range(segmentation.shape[0]):
+            for x in range(segmentation.shape[1]):
+                color = tuple(segmentation[y, x])
+                if color not in color_to_pixel_yxs:
+                    color_to_pixel_yxs[color] = []
+                color_to_pixel_yxs[color].append((y, x))
+        bounding_boxes = []
+        masks = []
+
+        for _, pixel_yxs in color_to_pixel_yxs.items():
+            ys = [y for (y, x) in pixel_yxs]
+            xs = [x for (y, x) in pixel_yxs]
+            max_y, min_y, max_x, min_x = (SuperpixelFusion
+                    .get_max_min_y_x_with_boundary(frame, ys, xs,
+                        self.boundary_pixels))
+            bounding_boxes.append((min_y, max_y, min_x, max_x))
+            mask = np.zeros((frame.shape[0], frame.shape[1]))
+            # Multidimensional/tuple indexing requires a list of first
+            # dimension coordinates, then a list of second dimension
+            # coordinates
+            # https://stackoverflow.com/questions/28491230/indexing-a-numpy-array-with-a-list-of-tuples
+            mask[tuple(zip(*pixel_yxs))] = 1
+            masks.append(mask)
+
+        frame_crops = [frame[min_y:max_y, min_x:max_x, :] for (min_y, max_y,
+            min_x, max_x) in bounding_boxes]
+
+        if self.black_outer:
+            frame_crops = SuperpixelFusion.get_black_outer_frame_crops(
+                    frame_crops, bounding_boxes, masks)
+
+        return masks, frame_crops
 
     def init_policy_hidden(self, batch_size=1, device=torch.device('cpu')):
         if isinstance(self.policy_model, LSTMPolicy):
             return self.policy_model.init_hidden(batch_size=batch_size,
                     device=device)
         return None
+
+    @classmethod
+    def get_max_min_y_x_with_boundary(cls, frame, ys, xs, boundary_pixels):
+        max_y = min(frame.shape[0], np.max(ys) + boundary_pixels + 1)
+        min_y = max(0, np.min(ys) - boundary_pixels)
+        max_x = min(frame.shape[1], np.max(xs) + boundary_pixels + 1)
+        min_x = max(0, np.min(xs) - boundary_pixels)
+        return max_y, min_y, max_x, min_x
+
+    @classmethod
+    def get_black_outer_frame_crops(cls, frame_crops, bounding_boxes, masks):
+        # Copy frames so the shared frame is not blacked out all over
+        copied_frame_crops = []
+        for i in range(len(frame_crops)):
+            copied_frame_crop = np.copy(frame_crops[i])
+            min_y, max_y, min_x, max_x = bounding_boxes[i]
+            cropped_mask = masks[i][min_y:max_y, min_x:max_x]
+            copied_frame_crop[np.logical_not(cropped_mask)] = 0
+            copied_frame_crops.append(copied_frame_crop)
+        return copied_frame_crops
 
 class SuperpixelActionConcat(SuperpixelFusion):
     def __init__(self, visual_model=None, superpixel_model=None,
@@ -349,7 +409,7 @@ class SuperpixelActionConcat(SuperpixelFusion):
                 dim=-1)
 
     def forward(self, frame, last_action_features, policy_hidden=None,
-            device=torch.device('cpu')):
+            gt_segmentation=None, device=torch.device('cpu')):
         """
         Nav actions always come at the beginning of the returned scores,
         followed by interact actions.
@@ -384,8 +444,14 @@ class SuperpixelActionConcat(SuperpixelFusion):
             interact_actions = constants.INT_ACTIONS
         for batch_i in range(batch_size):
             # Take last three channels (RGB of last stacked frame)
-            superpixel_masks, frame_crops = (
-                    self.get_superpixel_masks_frame_crops(frame[batch_i][-3:]))
+            if gt_segmentation is not None:
+                superpixel_masks, frame_crops = (
+                        self.get_gt_segmentation_masks_frame_crops(
+                            frame[batch_i][-3:], gt_segmentation))
+            else:
+                superpixel_masks, frame_crops = (
+                        self.get_superpixel_masks_frame_crops(
+                            frame[batch_i][-3:]))
             batch_superpixel_masks.append(superpixel_masks)
             batch_frame_crops.append(frame_crops)
 
