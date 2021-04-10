@@ -35,10 +35,10 @@ interactions with not visible objects. This is a small issue since the
 """
 
 def rollout_trajectory(env, model, single_interact=False, use_masks=True,
-        fusion_model='SuperpixelFusion', max_trajectory_length=None,
-        frame_stack=1, zero_fill_frame_stack=False, teacher_force=False,
-        sample_action=True, sample_mask=True, scene_name_or_num=None,
-        reset_kwargs={}, device=torch.device('cpu')):
+        use_gt_segmentation=False, fusion_model='SuperpixelFusion',
+        max_trajectory_length=None, frame_stack=1, zero_fill_frame_stack=False,
+        teacher_force=False, sample_action=True, sample_mask=True,
+        scene_name_or_num=None, reset_kwargs={}, device=torch.device('cpu')):
     """
     Returns dictionary of trajectory results.
     """
@@ -82,26 +82,36 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
                 zero_fill_frame_stack=zero_fill_frame_stack,
                 device=torch.device('cpu'))[0][-1:]
 
+        if use_gt_segmentation:
+            # Get ThorEnv inside InteractionExploration env
+            gt_segmentation = env.env.last_event.instance_segmentation_frame
+        else:
+            gt_segmentation = None
+
         if fusion_model == 'SuperpixelFusion':
             if prev_action_index is not None:
                 prev_action_index = [torch.LongTensor([prev_action_index])
                         .to(device)]
             else:
-                # Not super worried about null/no prev action not having a separate
-                # embedding - all zeros is fine since it's the input to the LSTM
+                # Not super worried about null/no prev action not having a
+                # separate embedding - all zeros is fine since it's the input
+                # to the LSTM
                 # TODO: add separate embedding for null/no previous action
                 # Let SuperpixelFusion's forward take care of this
                 prev_action_index = [prev_action_index]
             action_scores, value, mask_scores, masks, hidden_state = model(
-                    stacked_frames, prev_action_index, policy_hidden=hidden_state,
-                    device=device)
+                    stacked_frames, prev_action_index,
+                    policy_hidden=hidden_state,
+                    use_gt_segmentation=use_gt_segmentation, device=device)
         elif fusion_model == 'SuperpixelActionConcat':
             # SuperpixelActionConcat's forward will deal with
             # prev_action_features = [None]
             prev_action_features = [prev_action_features]
             (_, value, similarity_scores, actions_masks_features,
                     hidden_state) = model(stacked_frames, prev_action_features,
-                            policy_hidden=hidden_state, device=device)
+                            policy_hidden=hidden_state,
+                            gt_segmentation=gt_segmentation,
+                            device=device)
             action_scores = similarity_scores
 
         # Only attempt one action (which might fail) instead of trying all
@@ -199,13 +209,14 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
 
 def train(model, env, optimizer, gamma=1.0, tau=1.0,
         value_loss_coefficient=0.5, entropy_coefficient=0.01, max_grad_norm=50,
-        single_interact=False, use_masks=True, fusion_model='SuperpixelFusion',
-        fixed_scene_num=None, max_trajectory_length=None, frame_stack=1,
-        zero_fill_frame_stack=False, teacher_force=False, sample_action=True,
-        sample_mask=True, train_episodes=10, valid_seen_episodes=10,
-        valid_unseen_episodes=10, eval_interval=1000, max_steps=1000000,
-        device=torch.device('cpu'), save_path=None, save_intermediate=False,
-        save_images_video=False, load_path=None):
+        single_interact=False, use_masks=True, use_gt_segmentation=False,
+        fusion_model='SuperpixelFusion', fixed_scene_num=None,
+        max_trajectory_length=None, frame_stack=1, zero_fill_frame_stack=False,
+        teacher_force=False, sample_action=True, sample_mask=True,
+        train_episodes=10, valid_seen_episodes=10, valid_unseen_episodes=10,
+        eval_interval=1000, max_steps=1000000, device=torch.device('cpu'),
+        save_path=None, save_intermediate=False, save_images_video=False,
+        load_path=None):
     writer = SummaryWriter(log_dir='tensorboard_logs' if save_path is None else
             os.path.join(save_path, 'tensorboard_logs'))
 
@@ -257,6 +268,7 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
             reset_kwargs = {}
         trajectory_results = rollout_trajectory(env, model,
                 single_interact=single_interact, use_masks=use_masks,
+                use_gt_segmentation=use_gt_segmentation,
                 fusion_model=fusion_model,
                 max_trajectory_length=max_trajectory_length,
                 frame_stack=frame_stack,
@@ -370,8 +382,9 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
             # TODO: do we want different max trajectory lengths for eval?
             '''
             results = evaluate(env, model, single_interact=single_interact,
-                    use_masks=use_masks, fusion_model=fusion_model,
-                    fixed_scene_num=fixed_scene_num,
+                    use_masks=use_masks,
+                    use_gt_segmentation=use_gt_segmentation,
+                    fusion_model=fusion_model, fixed_scene_num=fixed_scene_num,
                     max_trajectory_length=max_trajectory_length,
                     frame_stack=frame_stack,
                     zero_fill_frame_stack=zero_fill_frame_stack,
@@ -402,10 +415,10 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
                     write_images_video(results, train_steps, save_path)
 
 def evaluate(env, model, single_interact=False, use_masks=True,
-        fusion_model='SuperpixelFusion', fixed_scene_num=None,
-        max_trajectory_length=None, frame_stack=1, zero_fill_frame_stack=False,
-        train_episodes=1, valid_seen_episodes=1, valid_unseen_episodes=1,
-        device=torch.device('cpu')):
+        use_gt_segmentation=False, fusion_model='SuperpixelFusion',
+        fixed_scene_num=None, max_trajectory_length=None, frame_stack=1,
+        zero_fill_frame_stack=False, train_episodes=1, valid_seen_episodes=1,
+        valid_unseen_episodes=1, device=torch.device('cpu')):
     """
     Evaluate by gathering live rollouts in the environment.
     """
@@ -447,6 +460,7 @@ def evaluate(env, model, single_interact=False, use_masks=True,
                     reset_kwargs = {}
                 trajectory_results = rollout_trajectory(env, model,
                         single_interact=single_interact, use_masks=use_masks,
+                        use_gt_segmentation=use_gt_segmentation,
                         fusion_model=fusion_model,
                         max_trajectory_length=max_trajectory_length,
                         frame_stack=frame_stack,
@@ -923,6 +937,7 @@ if __name__ == '__main__':
             entropy_coefficient=args.entropy_coefficient,
             max_grad_norm=args.max_grad_norm,
             single_interact=args.single_interact, use_masks=args.use_masks,
+            use_gt_segmentation=args.use_gt_segmentation,
             fusion_model=args.fusion_model,
             fixed_scene_num=args.fixed_scene_num,
             max_trajectory_length=args.max_trajectory_length,
