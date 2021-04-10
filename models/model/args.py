@@ -76,6 +76,9 @@ parser.add_argument('--neighbor-connectivity', type=int, default=2, help='2 to i
 parser.add_argument('--black-outer', dest='black_outer', action='store_true', help='set pixels inside bounding box but outside superpixel to (0, 0, 0)')
 parser.add_argument('--no-black-outer', dest='black_outer', action='store_false', help='keep pixels inside bounding box but outside superpixel as their original values')
 parser.set_defaults(black_outer=False)
+parser.add_argument('--use-gt-segmentation', dest='use_gt_segmentation', action='store_true', help='use ground truth segmentation instead of superpixels')
+parser.add_argument('--use-superpixels', dest='use_gt_segmentation', action='store_false', help='use superpixels instead of ground truth segmentations')
+parser.set_defaults(use_gt_segmentation=False)
 
 # InteractionExploration environment options
 parser.add_argument('--single-interact', dest='single_interact', action='store_true', help='only use a single action for all object interactions')
