@@ -27,6 +27,8 @@ parser.add_argument('-ei', '--eval-interval', type=int, default=100, help='numbe
 parser.add_argument('-te', '--train-episodes', type=int, default=10, help='number of episodes to evaluate live on train seen scenes and trajectories')
 parser.add_argument('-vse', '--valid-seen-episodes', type=int, default=10, help='number of episodes to evaluate live on validation seen scenes and trajectories')
 parser.add_argument('-vue', '--valid-unseen-episodes', type=int, default=10, help='number of episodes to evaluate live on validation unseen scenes and trajectories')
+parser.add_argument('--scene-numbers', type=int, nargs='+', default=None, help='if set, scene numbers of scenes to use. use either this or --scene-types argument (default: None)')
+parser.add_argument('--scene-types', type=str, nargs='+', default=['kitchen', 'living_room', 'bedroom', 'bathroom'], help='allowed scene types. use either this or --scene-numbers argument. (\'kitchen\', \'living_room\', \'bedroom\', and/or \'bathroom\')')
 parser.add_argument('-ms', '--max-steps', type=float, default=100000, help='max training gradient steps')
 parser.add_argument('-do', '--dropout', type=float, default=0.0, help='dropout prob')
 parser.add_argument('-sp', '--save-path', type=str, default=None, help='path (directory) to save models and tensorboard stats')
@@ -90,8 +92,6 @@ parser.set_defaults(sample_contextual_action=False)
 parser.add_argument('--use-masks', dest='use_masks', action='store_true', help='use interaction masks')
 parser.add_argument('--no-use-masks', dest='use_masks', action='store_false', help='do not use interaction masks (use contextual interaction with object closest to center of view)')
 parser.set_defaults(use_masks=False)
-parser.add_argument('--fixed-scene-num', type=int, default=None, help='if set, scene number of only scene to use (default: None)')
-
 # Reward config arguments
 parser.add_argument('--reward-config-path', type=str, default='models/config/rewards.json', help='path to rewards config json (default: models/config/rewards.json)')
 parser.add_argument('--reward-rotations-look-angles', dest='reward_rotations_look_angles', action='store_true', help='give new state reward for rotations and look angles')
