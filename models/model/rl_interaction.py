@@ -810,8 +810,9 @@ if __name__ == '__main__':
 
     thor_env = ThorEnv()
 
-    with open(args.reward_config_path, 'r') as jsonfile:
-        reward_config = json.load(jsonfile)['InteractionExploration']
+    with open(os.path.join(os.environ['ALFRED_ROOT'], 'models/config/rewards.json'),
+            'r') as jsonfile:
+        reward_config = json.load(jsonfile)[args.reward_config_name]
 
     # TODO: if adding threads, add support for running on multiple gpus, e.g.
     # gpu_ids like
