@@ -93,7 +93,7 @@ parser.add_argument('--use-masks', dest='use_masks', action='store_true', help='
 parser.add_argument('--no-use-masks', dest='use_masks', action='store_false', help='do not use interaction masks (use contextual interaction with object closest to center of view)')
 parser.set_defaults(use_masks=False)
 # Reward config arguments
-parser.add_argument('--reward-config-path', type=str, default='models/config/rewards.json', help='path to rewards config json (default: models/config/rewards.json)')
+parser.add_argument('--reward-config-name', type=str, default='InteractionExplorationDefault', help='name of reward config to use in models/config/rewards.json (default: InteractionExplorationDefault)')
 parser.add_argument('--reward-rotations-look-angles', dest='reward_rotations_look_angles', action='store_true', help='give new state reward for rotations and look angles')
 parser.add_argument('--no-reward-rotations-look-angles', dest='reward_rotations_look_angles', action='store_false', help='do not give new state reward for rotations and look angles')
 parser.set_defaults(reward_rotations_look_angles=False)
