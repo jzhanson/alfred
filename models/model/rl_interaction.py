@@ -210,7 +210,7 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
 def train(model, env, optimizer, gamma=1.0, tau=1.0,
         value_loss_coefficient=0.5, entropy_coefficient=0.01, max_grad_norm=50,
         single_interact=False, use_masks=True, use_gt_segmentation=False,
-        fusion_model='SuperpixelFusion', fixed_scene_num=None,
+        fusion_model='SuperpixelFusion', scene_numbers=None,
         max_trajectory_length=None, frame_stack=1, zero_fill_frame_stack=False,
         teacher_force=False, sample_action=True, sample_mask=True,
         train_episodes=10, valid_seen_episodes=10, valid_unseen_episodes=10,
@@ -253,10 +253,10 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
     # TODO: want a replay memory?
     while train_steps < max_steps:
         # Collect a trajectory
-        if fixed_scene_num is not None:
-            # If fixed_scene_num is provided, set up that scene exactly the
-            # same way every time
-            scene_num = fixed_scene_num
+        if len(scene_numbers) == 1:
+            # If only one scene_number is provided, set up that scene exactly
+            # the same way every time
+            scene_num = scene_numbers[0]
             reset_kwargs = {
                     'random_object_positions' : False,
                     'random_position' : False,
@@ -264,7 +264,7 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
                     'random_look_angle' : False
             }
         else:
-            scene_num = random.choice(constants.TRAIN_SCENE_NUMBERS)
+            scene_num = random.choice(scene_numbers)
             reset_kwargs = {}
         trajectory_results = rollout_trajectory(env, model,
                 single_interact=single_interact, use_masks=use_masks,
@@ -379,12 +379,13 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
                     save_path=None)
 
             # Collect validation statistics and write, print
-            # TODO: do we want different max trajectory lengths for eval?
+            # TODO: do we want different max trajectory lengths, scene numbers
+            # for eval?
             '''
             results = evaluate(env, model, single_interact=single_interact,
                     use_masks=use_masks,
                     use_gt_segmentation=use_gt_segmentation,
-                    fusion_model=fusion_model, fixed_scene_num=fixed_scene_num,
+                    fusion_model=fusion_model, scene_numbers=scene_numbers,
                     max_trajectory_length=max_trajectory_length,
                     frame_stack=frame_stack,
                     zero_fill_frame_stack=zero_fill_frame_stack,
@@ -414,9 +415,10 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
                 if save_images_video:
                     write_images_video(results, train_steps, save_path)
 
+# TODO: update scene_numbers argument and below
 def evaluate(env, model, single_interact=False, use_masks=True,
         use_gt_segmentation=False, fusion_model='SuperpixelFusion',
-        fixed_scene_num=None, max_trajectory_length=None, frame_stack=1,
+        scene_numbers=None, max_trajectory_length=None, frame_stack=1,
         zero_fill_frame_stack=False, train_episodes=1, valid_seen_episodes=1,
         valid_unseen_episodes=1, device=torch.device('cpu')):
     """
@@ -445,10 +447,10 @@ def evaluate(env, model, single_interact=False, use_masks=True,
         metrics[split]['scene_name_or_num'] = []
         for i in range(episodes):
             with torch.no_grad():
-                if fixed_scene_num is not None:
-                    # If fixed_scene_num is provided, set up that scene exactly the
+                if scene_numbers is not None:
+                    # If scene_numbers is provided, set up those scenes exactly the
                     # same way every time
-                    scene_num = fixed_scene_num
+                    scene_num = scene_numbers
                     reset_kwargs = {
                             'random_object_positions' : False,
                             'random_position' : False,
@@ -932,6 +934,23 @@ if __name__ == '__main__':
     print('model parameters: ' + str(sum(p.numel() for p in model.parameters()
         if p.requires_grad)))
 
+    scene_numbers = []
+    if args.scene_numbers is not None:
+        if type(args.scene_numbers) is int:
+            scene_numbers = [args.scene_numbers]
+        else:
+            scene_numbers = args.scene_numbers
+    else:
+        # "'str' in" pattern will work for both list and single string
+        if 'kitchen' in args.scene_types:
+            scene_numbers.extend(constants.KITCHEN_TRAIN_SCENE_NUMBERS)
+        elif 'living_room' in args.scene_types:
+            scene_numbers.extend(constants.LIVING_ROOM_TRAIN_SCENE_NUMBERS)
+        elif 'bedroom' in args.scene_types:
+            scene_numbers.extend(constants.BEDROOM_TRAIN_SCENE_NUMBERS)
+        elif 'bathroom' in args.scene_types:
+            scene_numbers.extend(constants.BATHROOM_TRAIN_SCENE_NUMBERS)
+
     train(model, ie, optimizer, gamma=args.gamma, tau=args.tau,
             value_loss_coefficient=args.value_loss_coefficient,
             entropy_coefficient=args.entropy_coefficient,
@@ -939,7 +958,7 @@ if __name__ == '__main__':
             single_interact=args.single_interact, use_masks=args.use_masks,
             use_gt_segmentation=args.use_gt_segmentation,
             fusion_model=args.fusion_model,
-            fixed_scene_num=args.fixed_scene_num,
+            scene_numbers=scene_numbers,
             max_trajectory_length=args.max_trajectory_length,
             frame_stack=args.frame_stack,
             zero_fill_frame_stack=args.zero_fill_frame_stack,
