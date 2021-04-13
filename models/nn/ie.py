@@ -32,7 +32,7 @@ class LSTMPolicy(nn.Module):
     def __init__(self, num_actions=12, visual_feature_size=512,
             prev_action_size=16, lstm_hidden_size=512, dropout=0,
             action_fc_units=[], value_fc_units=[], visual_fc_units=[],
-            prev_action_after_lstm=False):
+            prev_action_after_lstm=False, use_tanh=True):
         """
         Passing num_actions=None means not to use action logits. If unified
         action space (e.g. similarity vector to choose concatenated superpixel
@@ -54,6 +54,7 @@ class LSTMPolicy(nn.Module):
         self.value_fc_units = value_fc_units
         self.visual_fc_units = visual_fc_units
         self.prev_action_after_lstm = prev_action_after_lstm
+        self.use_tanh = use_tanh
 
         lstm_input_size = self.visual_feature_size + self.prev_action_size
 
@@ -78,7 +79,8 @@ class LSTMPolicy(nn.Module):
                 in_features = self.action_fc_units[i-1]
             self.action_fc_layers.append(nn.Sequential(nn.Linear(
                 in_features=in_features, out_features=self.action_fc_units[i],
-                bias=True), nn.ReLU(), nn.Dropout(self.dropout)))
+                bias=True), nn.Tanh() if self.use_tanh else nn.ReLU(),
+                nn.Dropout(self.dropout)))
         if self.num_actions is not None:
             self.action_logits = nn.Sequential(nn.Linear(
                 in_features=self.action_fc_units[i] if
@@ -93,7 +95,8 @@ class LSTMPolicy(nn.Module):
                 in_features = self.value_fc_units[i-1]
             self.value_fc_layers.append(nn.Sequential(nn.Linear(
                 in_features=in_features, out_features=self.value_fc_units[i],
-                bias=True), nn.ReLU(), nn.Dropout(self.dropout)))
+                bias=True), nn.Tanh() if self.use_tanh else nn.ReLU(),
+                nn.Dropout(self.dropout)))
         self.value = nn.Sequential(nn.Linear(
             in_features=self.value_fc_units[i] if len(self.value_fc_layers) >
             0 else fc_input_size, out_features=1, bias=True))
@@ -106,7 +109,8 @@ class LSTMPolicy(nn.Module):
                 in_features = self.visual_fc_units[i-1]
             self.visual_fc_layers.append(nn.Sequential(nn.Linear(
                 in_features=in_features, out_features=self.visual_fc_units[i],
-                bias=True), nn.ReLU(), nn.Dropout(self.dropout)))
+                bias=True), nn.Tanh() if self.use_tanh else nn.ReLU(),
+                nn.Dropout(self.dropout)))
 
     def forward(self, visual_feature, prev_action_embedding, policy_hidden):
         lstm_input = torch.cat([visual_feature, prev_action_embedding], dim=1)
