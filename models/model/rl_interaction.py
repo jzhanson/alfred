@@ -888,7 +888,8 @@ if __name__ == '__main__':
                 action_fc_units=args.action_fc_units,
                 value_fc_units=args.value_fc_units,
                 visual_fc_units=args.visual_fc_units,
-                prev_action_after_lstm=args.prev_action_after_lstm).to(device)
+                prev_action_after_lstm=args.prev_action_after_lstm,
+                use_tanh=args.use_tanh).to(device)
 
         model = SuperpixelFusion(action_embeddings=action_embeddings,
               visual_model=visual_model, superpixel_model=superpixel_model,
