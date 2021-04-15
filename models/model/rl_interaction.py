@@ -375,9 +375,11 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
             for metric, values in last_metrics.items():
                 results['train']['avg/' + metric] = values
                 last_metrics[metric] = []
+            '''
             write_results(writer, results, train_steps,
                     fusion_model=fusion_model, single_interact=single_interact,
                     save_path=None)
+            '''
 
             # Collect validation statistics and write, print
             # TODO: do we want different max trajectory lengths, scene numbers
