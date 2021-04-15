@@ -29,23 +29,18 @@ class SingleLayerCNN(nn.Module):
 
 
 class LSTMPolicy(nn.Module):
-    def __init__(self, num_actions=12, visual_feature_size=512,
+    def __init__(self, visual_feature_size=512,
             prev_action_size=16, lstm_hidden_size=512, dropout=0,
             action_fc_units=[], value_fc_units=[], visual_fc_units=[],
             prev_action_after_lstm=False, use_tanh=True):
         """
-        Passing num_actions=None means not to use action logits. If unified
-        action space (e.g. similarity vector to choose concatenated superpixel
-        + action embedding), can leave action_fc_units or visual_fc_units as []
-        and only use one or the other.
-
-        Or, can use num_actions=similarity_vector_dim to get action logits with
-        the desired dimension.
+        If unified action space (e.g. similarity vector to choose concatenated
+        superpixel + action embedding), can leave action_fc_units or
+        visual_fc_units as [] and only use one or the other.
         """
 
         super(LSTMPolicy, self).__init__()
 
-        self.num_actions = num_actions
         self.visual_feature_size = visual_feature_size
         self.prev_action_size = prev_action_size
         self.lstm_hidden_size = lstm_hidden_size
@@ -77,15 +72,16 @@ class LSTMPolicy(nn.Module):
                 in_features = fc_input_size
             else:
                 in_features = self.action_fc_units[i-1]
-            self.action_fc_layers.append(nn.Sequential(nn.Linear(
-                in_features=in_features, out_features=self.action_fc_units[i],
-                bias=True), nn.Tanh() if self.use_tanh else nn.ReLU(),
-                nn.Dropout(self.dropout)))
-        if self.num_actions is not None:
-            self.action_logits = nn.Sequential(nn.Linear(
-                in_features=self.action_fc_units[i] if
-                len(self.action_fc_layers) > 0 else fc_input_size,
-                out_features=self.num_actions, bias=True))
+            # No activation or dropout on last layer
+            if i == len(self.action_fc_units) - 1:
+                self.action_fc_layers.append(nn.Sequential(nn.Linear(
+                    in_features=in_features,
+                    out_features=self.action_fc_units[i], bias=True)))
+            else:
+                self.action_fc_layers.append(nn.Sequential(nn.Linear(
+                    in_features=in_features,
+                    out_features=self.action_fc_units[i], bias=True), nn.Tanh()
+                    if self.use_tanh else nn.ReLU(), nn.Dropout(self.dropout)))
 
         self.value_fc_layers = nn.ModuleList()
         for i in range(len(self.value_fc_units)):
@@ -107,10 +103,16 @@ class LSTMPolicy(nn.Module):
                 in_features = fc_input_size
             else:
                 in_features = self.visual_fc_units[i-1]
-            self.visual_fc_layers.append(nn.Sequential(nn.Linear(
-                in_features=in_features, out_features=self.visual_fc_units[i],
-                bias=True), nn.Tanh() if self.use_tanh else nn.ReLU(),
-                nn.Dropout(self.dropout)))
+            # No activation or dropout on last layer
+            if i == len(self.visual_fc_units) - 1:
+                self.visual_fc_layers.append(nn.Sequential(nn.Linear(
+                    in_features=in_features,
+                    out_features=self.visual_fc_units[i], bias=True)))
+            else:
+                self.visual_fc_layers.append(nn.Sequential(nn.Linear(
+                    in_features=in_features,
+                    out_features=self.visual_fc_units[i], bias=True), nn.Tanh()
+                    if self.use_tanh else nn.ReLU(), nn.Dropout(self.dropout)))
 
     def forward(self, visual_feature, prev_action_embedding, policy_hidden):
         lstm_input = torch.cat([visual_feature, prev_action_embedding], dim=1)
@@ -125,8 +127,6 @@ class LSTMPolicy(nn.Module):
         action_fc_output = fc_input
         for action_fc_layer in self.action_fc_layers:
             action_fc_output = action_fc_layer(action_fc_output)
-        if self.num_actions is not None:
-            action_fc_output = self.action_logits(action_fc_output)
 
         value_fc_output = fc_input
         for value_fc_layer in self.value_fc_layers:
@@ -570,15 +570,16 @@ if __name__ == '__main__':
     print('batch_superpixel_masks', len(batch_superpixel_masks))
 
     print('SuperpixelActionConcat')
-    policy_model = LSTMPolicy(num_actions=512+16, prev_action_size=512+16)
-    sac = SuperpixelActionConcat(action_embeddings=action_embeddings,
+    policy_model = LSTMPolicy(prev_action_size=512+16,
+            action_fc_units=[512+16])
+    model = SuperpixelActionConcat(action_embeddings=action_embeddings,
             visual_model=visual_model, superpixel_model=superpixel_model,
             policy_model=policy_model, slic_kwargs=slic_kwargs,
             neighbor_depth=0, black_outer=True, superpixel_feature_size=512,
             single_interact=False, zero_null_superpixel_features=False)
 
     (action_output, value, batch_similarity_scores,
-                batch_actions_masks_features, hidden_state) = sac.forward(
+                batch_actions_masks_features, hidden_state) = model.forward(
                         torch.Tensor([frame.transpose(2, 0, 1)]),
                         torch.cat([action_embeddings(torch.LongTensor([0])),
                             torch.zeros((1, 512))], dim=1))
