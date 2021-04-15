@@ -875,13 +875,21 @@ if __name__ == '__main__':
     else:
         print("superpixel model '" + args.superpixel_model + "' not supported")
 
-    if type(args.action_fc_units) is int:
+    if args.action_fc_units is None:
+        args.action_fc_units = []
+    elif type(args.action_fc_units) is int:
         args.action_fc_units = [args.action_fc_units]
-    if type(args.visual_fc_units) is int:
+    if args.value_fc_units is None:
+        args.value_fc_units = []
+    elif type(args.value_fc_units) is int:
+        args.value_fc_units = [args.value_fc_units]
+    if args.visual_fc_units is None:
+        args.visual_fc_units = []
+    elif type(args.visual_fc_units) is int:
         args.visual_fc_units = [args.visual_fc_units]
 
     if args.fusion_model == 'SuperpixelFusion':
-        policy_model = LSTMPolicy(num_actions=num_actions,
+        policy_model = LSTMPolicy(
                 visual_feature_size=args.visual_feature_size,
                 prev_action_size=args.action_embedding_dim,
                 lstm_hidden_size=args.lstm_hidden_dim, dropout=args.dropout,
@@ -900,7 +908,7 @@ if __name__ == '__main__':
               black_outer=args.black_outer, device=device)
     elif args.fusion_model == 'SuperpixelActionConcat':
         vector_size = args.superpixel_feature_size + args.action_embedding_dim
-        policy_model = LSTMPolicy(num_actions=vector_size,
+        policy_model = LSTMPolicy(
                 visual_feature_size=args.visual_feature_size,
                 prev_action_size=vector_size,
                 lstm_hidden_size=args.lstm_hidden_dim, dropout=args.dropout,
