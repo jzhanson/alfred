@@ -36,9 +36,10 @@ interactions with not visible objects. This is a small issue since the
 
 def rollout_trajectory(env, model, single_interact=False, use_masks=True,
         use_gt_segmentation=False, fusion_model='SuperpixelFusion',
-        max_trajectory_length=None, frame_stack=1, zero_fill_frame_stack=False,
-        teacher_force=False, sample_action=True, sample_mask=True,
-        scene_name_or_num=None, reset_kwargs={}, device=torch.device('cpu')):
+        outer_product_sampling=False, max_trajectory_length=None,
+        frame_stack=1, zero_fill_frame_stack=False, teacher_force=False,
+        sample_action=True, sample_mask=True, scene_name_or_num=None,
+        reset_kwargs={}, device=torch.device('cpu')):
     """
     Returns dictionary of trajectory results.
     """
@@ -210,13 +211,13 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
 def train(model, env, optimizer, gamma=1.0, tau=1.0,
         value_loss_coefficient=0.5, entropy_coefficient=0.01, max_grad_norm=50,
         single_interact=False, use_masks=True, use_gt_segmentation=False,
-        fusion_model='SuperpixelFusion', scene_numbers=None,
-        max_trajectory_length=None, frame_stack=1, zero_fill_frame_stack=False,
-        teacher_force=False, sample_action=True, sample_mask=True,
-        train_episodes=10, valid_seen_episodes=10, valid_unseen_episodes=10,
-        eval_interval=1000, max_steps=1000000, device=torch.device('cpu'),
-        save_path=None, save_intermediate=False, save_images_video=False,
-        load_path=None):
+        fusion_model='SuperpixelFusion', outer_product_sampling=False,
+        scene_numbers=None, max_trajectory_length=None, frame_stack=1,
+        zero_fill_frame_stack=False, teacher_force=False, sample_action=True,
+        sample_mask=True, train_episodes=10, valid_seen_episodes=10,
+        valid_unseen_episodes=10, eval_interval=1000, max_steps=1000000,
+        device=torch.device('cpu'), save_path=None, save_intermediate=False,
+        save_images_video=False, load_path=None):
     writer = SummaryWriter(log_dir='tensorboard_logs' if save_path is None else
             os.path.join(save_path, 'tensorboard_logs'))
 
@@ -270,6 +271,7 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
                 single_interact=single_interact, use_masks=use_masks,
                 use_gt_segmentation=use_gt_segmentation,
                 fusion_model=fusion_model,
+                outer_product_sampling=outer_product_sampling,
                 max_trajectory_length=max_trajectory_length,
                 frame_stack=frame_stack,
                 zero_fill_frame_stack=zero_fill_frame_stack,
@@ -364,6 +366,7 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
         # need for train_frames or train_trajectories to save on tensorboard
         # file size)
         write_results(writer, results, train_steps, fusion_model=fusion_model,
+                outer_product_sampling=outer_product_sampling,
                 single_interact=single_interact, save_path=None)
 
         # Evaluate and save checkpoint every N trajectories, collect/print
@@ -377,7 +380,9 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
                 last_metrics[metric] = []
             '''
             write_results(writer, results, train_steps,
-                    fusion_model=fusion_model, single_interact=single_interact,
+                    fusion_model=fusion_model,
+                    outer_product_sampling=outer_product_sampling,
+                    single_interact=single_interact,
                     save_path=None)
             '''
 
@@ -397,8 +402,9 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
                     valid_unseen_episodes=valid_unseen_episodes, device=device)
 
             write_results(writer, results, train_steps,
-                    fusion_model=fusion_model, single_interact=single_interact,
-                    save_path=save_path)
+                    fusion_model=fusion_model,
+                    outer_product_sampling=outer_product_sampling,
+                    single_interact=single_interact, save_path=save_path)
             '''
 
             if save_path is not None:
@@ -467,6 +473,7 @@ def evaluate(env, model, single_interact=False, use_masks=True,
                         single_interact=single_interact, use_masks=use_masks,
                         use_gt_segmentation=use_gt_segmentation,
                         fusion_model=fusion_model,
+                        outer_product_sampling=outer_product_sampling,
                         max_trajectory_length=max_trajectory_length,
                         frame_stack=frame_stack,
                         zero_fill_frame_stack=zero_fill_frame_stack,
@@ -499,7 +506,7 @@ def evaluate(env, model, single_interact=False, use_masks=True,
 
 def write_results(writer, results, train_steps, train_frames=None,
         train_trajectories=None, fusion_model='SuperpixelFusion',
-        single_interact=False, save_path=None):
+        outer_product_sampling=False, single_interact=False, save_path=None):
     """
     Write results to SummaryWriter.
     """
@@ -990,6 +997,7 @@ if __name__ == '__main__':
             single_interact=args.single_interact, use_masks=args.use_masks,
             use_gt_segmentation=args.use_gt_segmentation,
             fusion_model=args.fusion_model,
+            outer_product_sampling=args.outer_product_sampling,
             scene_numbers=scene_numbers,
             max_trajectory_length=args.max_trajectory_length,
             frame_stack=args.frame_stack,
