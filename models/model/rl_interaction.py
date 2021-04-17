@@ -103,7 +103,7 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
             action_scores, value, mask_scores, masks, hidden_state = model(
                     stacked_frames, prev_action_index,
                     policy_hidden=hidden_state,
-                    use_gt_segmentation=use_gt_segmentation, device=device)
+                    gt_segmentation=gt_segmentation, device=device)
         elif fusion_model == 'SuperpixelActionConcat':
             # SuperpixelActionConcat's forward will deal with
             # prev_action_features = [None]
@@ -111,8 +111,7 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
             (_, value, similarity_scores, actions_masks_features,
                     hidden_state) = model(stacked_frames, prev_action_features,
                             policy_hidden=hidden_state,
-                            gt_segmentation=gt_segmentation,
-                            device=device)
+                            gt_segmentation=gt_segmentation, device=device)
             action_scores = similarity_scores
 
         # Only attempt one action (which might fail) instead of trying all
@@ -301,6 +300,7 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
             gae = gae * gamma * tau + delta_t
 
             chosen_action_index = trajectory_results['pred_action_indexes'][i]
+            # TODO: are all_action_scores really the log probs? Does it matter?
             action_log_prob = trajectory_results['all_action_scores'][i][
                     chosen_action_index]
             action_entropy = trajectory_results['action_entropy'][i]
@@ -457,8 +457,8 @@ def evaluate(env, model, single_interact=False, use_masks=True,
         for i in range(episodes):
             with torch.no_grad():
                 if scene_numbers is not None:
-                    # If scene_numbers is provided, set up those scenes exactly the
-                    # same way every time
+                    # If scene_numbers is provided, set up those scenes exactly
+                    # the same way every time
                     scene_num = scene_numbers
                     reset_kwargs = {
                             'random_object_positions' : False,
@@ -681,6 +681,8 @@ def write_results(writer, results, train_steps, train_frames=None,
                 continue
             elif 'action_successes' in metric:
                 action_successes = defaultdict(list)
+                actions = (constants.SIMPLE_ACTIONS if single_interact else
+                        constants.COMPLEX_ACTIONS)
                 # Hack to deal with the case when graphing averages over an
                 # eval_interval
                 if 'avg' in metric:
