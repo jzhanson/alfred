@@ -136,6 +136,9 @@ parser.add_argument('--fusion-model', type=str, default='SuperpixelFusion', help
 parser.add_argument('--zero-null-superpixel-features', dest='zero_null_superpixel_features', action='store_true', help='use zeroes for null superpixel feature choices in SuperpixelActionConcat')
 parser.add_argument('--average-null-superpixel-features', dest='zero_null_superpixel_features', action='store_false', help='use average of superpixel features for that image for null superpixel feature choices in SuperpixelActionConcat')
 parser.set_defaults(zero_null_superpixel_features=True)
+parser.add_argument('--outer-product-sampling', dest='outer_product_sampling', action='store_true', help='use outer product of softmax of superpixel scores and softmax of action output logits for sampling - only works with SuperpixelFusion')
+parser.add_argument('--separate-action-mask-sampling', dest='outer_product_sampling', action='store_false', help='sample action from action logits separately from mask and mask logits - only works with SuperpixelFusion')
+parser.set_defaults(outer_product_sampling=False)
 
 def parse_args():
     return parser.parse_args()
