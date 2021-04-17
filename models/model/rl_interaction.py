@@ -104,6 +104,61 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
                     stacked_frames, prev_action_index,
                     policy_hidden=hidden_state,
                     gt_segmentation=gt_segmentation, device=device)
+            # Only attempt one action (which might fail) instead of trying all
+            # actions in order
+            if outer_product_sampling:
+                # Only outer product interaction actions with masks, after
+                # softmaxing both actions and masks so when we concatenate
+                # navigation actions and (interaction actions x masks) the
+                # probability distribution is valid
+                actions_softmax = F.softmax(action_scores, dim=-1)
+                # Keep batch dimension for consistency
+                masks_softmax = [F.softmax(mask_scores[0], dim=-1)]
+
+                # First dimension is actions, second dimension is masks.
+                # torch.outer (torch.ger in 1.1.0) wants two 1D vectors
+                outer_scores = torch.ger(
+                        actions_softmax[0][len(constants.NAV_ACTIONS):],
+                        masks_softmax[0])
+                # Still keep batch dimension
+                concatenated_softmax = [torch.cat([
+                    actions_softmax[0][:len(constants.NAV_ACTIONS)],
+                    torch.flatten(outer_scores)])]
+                if sample_action:
+                    pred_action_index = torch.multinomial(
+                            concatenated_softmax[0], num_samples=1)
+                else:
+                    pred_action_index = torch.argmax(concatenated_softmax[0])
+
+                if pred_action_index < len(constants.NAV_ACTIONS):
+                    selected_action = actions[pred_action_index]
+                    selected_mask = None
+                else:
+                    selected_action = superpixelactionconcat_index_to_action(
+                            pred_action_index, len(concatenated_softmax[0]),
+                            single_interact=single_interact)
+                    selected_mask_index = (pred_action_index -
+                            len(constants.NAV_ACTIONS)) % len(masks[0])
+                    selected_mask = masks[0][selected_mask_index]
+            else:
+                if sample_action:
+                    pred_action_index = torch.multinomial(F.softmax(
+                        action_scores[0], dim=-1), num_samples=1)
+                else:
+                    pred_action_index = torch.argmax(action_scores[0])
+                # Also sample a mask - only on interact action so
+                # InteractionExploration won't complain
+                if (actions[pred_action_index] == constants.ACTIONS_INTERACT or
+                        actions[pred_action_index] in constants.INT_ACTIONS):
+                    if sample_mask:
+                        pred_mask_index = torch.multinomial(F.softmax(mask_scores[0],
+                            dim=-1), num_samples=1)
+                        selected_mask = masks[0][pred_mask_index]
+                    else:
+                        selected_mask = masks[0][torch.argmax(mask_scores[0])]
+                else:
+                    selected_mask = None
+                selected_action = actions[pred_action_index]
         elif fusion_model == 'SuperpixelActionConcat':
             # SuperpixelActionConcat's forward will deal with
             # prev_action_features = [None]
@@ -113,30 +168,12 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
                             policy_hidden=hidden_state,
                             gt_segmentation=gt_segmentation, device=device)
             action_scores = similarity_scores
-
-        # Only attempt one action (which might fail) instead of trying all
-        # actions in order
-        if sample_action:
-            pred_action_index = torch.multinomial(F.softmax(action_scores[0],
-                dim=-1), num_samples=1)
-        else:
-            pred_action_index = torch.argmax(action_scores[0])
-
-        if fusion_model == 'SuperpixelFusion':
-            # Only pass mask on interact action so InteractionExploration won't
-            # complain
-            if (actions[pred_action_index] == constants.ACTIONS_INTERACT or
-                    actions[pred_action_index] in constants.INT_ACTIONS):
-                if sample_mask:
-                    pred_mask_index = torch.multinomial(F.softmax(mask_scores[0],
-                        dim=-1), num_samples=1)
-                    selected_mask = masks[0][pred_mask_index]
-                else:
-                    selected_mask = masks[0][torch.argmax(mask_scores[0])]
+            if sample_action:
+                pred_action_index = torch.multinomial(F.softmax(
+                    action_scores[0], dim=-1), num_samples=1)
             else:
-                selected_mask = None
-            selected_action = actions[pred_action_index]
-        elif fusion_model == 'SuperpixelActionConcat':
+                pred_action_index = torch.argmax(action_scores[0])
+
             selected_action, selected_mask, _ = actions_masks_features[0][
                     pred_action_index]
 
@@ -150,7 +187,6 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
                 env.step(selected_action, interact_mask=selected_mask))
         print(selected_action, action_success, reward, err)
         action_successes.append(action_success)
-        all_action_scores.append(action_scores[0])
         values.append(value[0])
         pred_action_indexes.append(pred_action_index)
         rewards.append(reward)
@@ -158,9 +194,21 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
             ['action']])
         if fusion_model == 'SuperpixelFusion':
             all_mask_scores.append(mask_scores[0])
-            prev_action_index = pred_action_index
+            if outer_product_sampling:
+                # We have to use the softmax scores here because there isn't a
+                # unified actions+masks score. Fortunately, softmax is
+                # differentiable
+                all_action_scores.append(concatenated_softmax[0])
+                # prev_action_index is only used for embedding lookup, so I
+                # don't think it needs gradient flow. This will go away after I
+                # (TODO) change SuperpixelFusion to take the concatenated previous
+                # action embedding and features
+                prev_action_index = action_to_index[selected_action]
+            else:
+                all_action_scores.append(action_scores[0])
         elif fusion_model == 'SuperpixelActionConcat':
             prev_action_features = actions_masks_features[0][pred_action_index][2]
+            all_action_scores.append(action_scores[0])
         num_steps += 1
 
     # Run model one more time to get last value if not done
@@ -523,7 +571,7 @@ def write_results(writer, results, train_steps, train_frames=None,
             # histogram unless we take the top k, but in that case entropy
             # works fine as a measure
             if ('all_action_scores' in metric and fusion_model ==
-                    'SuperpixelFusion'):
+                    'SuperpixelFusion' and not outer_product_sampling):
                 # all_action_scores is a list of lists (for each trajectory) of
                 # tensors (for each step)
                 trajectory_flat_action_scores = []
@@ -579,8 +627,8 @@ def write_results(writer, results, train_steps, train_frames=None,
                     writer.add_histogram('trajectories/' + split + '/' +
                             'action_argmaxes', action_argmaxes,
                             train_trajectories, bins='fd')
-            elif ('all_action_scores' in metric and fusion_model ==
-                    'SuperpixelActionConcat'):
+            elif ('all_action_scores' in metric and (fusion_model ==
+                    'SuperpixelActionConcat' or outer_product_sampling)):
                 # all_action_scores is a list of lists (for each trajectory) of
                 # tensors (for each step). Flatten all scores, since each step
                 # can have different numbers of action+superpixel scores, so
@@ -703,10 +751,13 @@ def write_results(writer, results, train_steps, train_frames=None,
                                 trajectory_pred_action_indexes,
                                 trajectory_action_successes,
                                 trajectory_action_scores):
-                        if fusion_model == 'SuperpixelFusion':
+                        if (fusion_model == 'SuperpixelFusion' and not
+                                outer_product_sampling):
                             action_successes[actions[pred_action_index]] \
                                     .append(action_success)
-                        elif fusion_model == 'SuperpixelActionConcat':
+                        elif fusion_model == 'SuperpixelActionConcat' or (
+                                fusion_model == 'SuperpixelFusion' and
+                                outer_product_sampling):
                            action_successes[
                                    superpixelactionconcat_index_to_action(
                                        pred_action_index, len(action_scores),
