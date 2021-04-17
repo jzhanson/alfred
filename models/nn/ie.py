@@ -114,13 +114,15 @@ class LSTMPolicy(nn.Module):
                     out_features=self.visual_fc_units[i], bias=True), nn.Tanh()
                     if self.use_tanh else nn.ReLU(), nn.Dropout(self.dropout)))
 
-    def forward(self, visual_feature, prev_action_embedding, policy_hidden):
-        lstm_input = torch.cat([visual_feature, prev_action_embedding], dim=1)
+    def forward(self, visual_feature, prev_action_feature, policy_hidden):
+        #print('visual feature', visual_feature.shape)
+        #print('prev action feature', prev_action_feature.shape)
+        lstm_input = torch.cat([visual_feature, prev_action_feature], dim=1)
 
         hidden_state, cell_state = self.lstm(lstm_input, policy_hidden)
 
         if self.prev_action_after_lstm:
-            fc_input = torch.cat([hidden_state, prev_action_embedding], dim=1)
+            fc_input = torch.cat([hidden_state, prev_action_feature], dim=1)
         else:
             fc_input = hidden_state
 
