@@ -36,10 +36,10 @@ interactions with not visible objects. This is a small issue since the
 
 def rollout_trajectory(env, model, single_interact=False, use_masks=True,
         use_gt_segmentation=False, fusion_model='SuperpixelFusion',
-        outer_product_sampling=False, max_trajectory_length=None,
-        frame_stack=1, zero_fill_frame_stack=False, teacher_force=False,
-        sample_action=True, sample_mask=True, scene_name_or_num=None,
-        reset_kwargs={}, device=torch.device('cpu')):
+        outer_product_sampling=False, zero_null_superpixel_features=True,
+        max_trajectory_length=None, frame_stack=1, zero_fill_frame_stack=False,
+        teacher_force=False, sample_action=True, sample_mask=True,
+        scene_name_or_num=None, reset_kwargs={}, device=torch.device('cpu')):
     """
     Returns dictionary of trajectory results.
     """
@@ -55,16 +55,14 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
     frame = env.reset(scene_name_or_num, **reset_kwargs)
     done = False
     num_steps = 0
+    prev_action_features = torch.zeros(1, model.policy_model.prev_action_size,
+            device=device)
 
     actions = (constants.SIMPLE_ACTIONS if single_interact else
             constants.COMPLEX_ACTIONS)
     action_to_index = (constants.ACTION_TO_INDEX_SIMPLE if single_interact else
             constants.ACTION_TO_INDEX_COMPLEX)
 
-    if fusion_model == 'SuperpixelFusion':
-        prev_action_index = None
-    elif fusion_model == 'SuperpixelActionConcat':
-        prev_action_features = None
     hidden_state = model.init_policy_hidden(batch_size=1, device=device)
     while not done and (max_trajectory_length is None or num_steps <
             max_trajectory_length):
@@ -90,18 +88,9 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
             gt_segmentation = None
 
         if fusion_model == 'SuperpixelFusion':
-            if prev_action_index is not None:
-                prev_action_index = [torch.LongTensor([prev_action_index])
-                        .to(device)]
-            else:
-                # Not super worried about null/no prev action not having a
-                # separate embedding - all zeros is fine since it's the input
-                # to the LSTM
-                # TODO: add separate embedding for null/no previous action
-                # Let SuperpixelFusion's forward take care of this
-                prev_action_index = [prev_action_index]
-            action_scores, value, mask_scores, masks, hidden_state = model(
-                    stacked_frames, prev_action_index,
+            action_scores, value, mask_scores, masks, (action_features,
+                    mask_features), hidden_state = model(
+                    stacked_frames, prev_action_features,
                     policy_hidden=hidden_state,
                     gt_segmentation=gt_segmentation, device=device)
             # Only attempt one action (which might fail) instead of trying all
@@ -137,9 +126,9 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
                     selected_action = superpixelactionconcat_index_to_action(
                             pred_action_index, len(concatenated_softmax[0]),
                             single_interact=single_interact)
-                    selected_mask_index = (pred_action_index -
+                    pred_mask_index = (pred_action_index -
                             len(constants.NAV_ACTIONS)) % len(masks[0])
-                    selected_mask = masks[0][selected_mask_index]
+                    selected_mask = masks[0][pred_mask_index]
             else:
                 if sample_action:
                     pred_action_index = torch.multinomial(F.softmax(
@@ -153,16 +142,33 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
                     if sample_mask:
                         pred_mask_index = torch.multinomial(F.softmax(mask_scores[0],
                             dim=-1), num_samples=1)
-                        selected_mask = masks[0][pred_mask_index]
                     else:
-                        selected_mask = masks[0][torch.argmax(mask_scores[0])]
+                        pred_mask_index = torch.argmax(mask_scores[0])
+                    selected_mask = masks[0][pred_mask_index]
                 else:
                     selected_mask = None
                 selected_action = actions[pred_action_index]
+
+            # Construct prev_action_features
+            if selected_mask is None:
+                if zero_null_superpixel_features:
+                    null_mask_features = torch.zeros_like(mask_features[0][0],
+                            device=device)
+                else:
+                    null_mask_features = torch.mean(mask_features[0], dim=-1)
+                prev_action_features = torch.cat([
+                    action_features[0][action_to_index[selected_action]],
+                    null_mask_features])
+            else:
+                # pred_mask_index is a 1D tensor, which makes tensor indexing
+                # include the indexed dimension (so the shape is (1, 512)), so
+                # we have to index it to get the 0D tensor so the indexed
+                # tensor's shape is (512)
+                prev_action_features = torch.cat([
+                    action_features[0][action_to_index[selected_action]],
+                    mask_features[0][pred_mask_index[0]]])
+            prev_action_features = torch.unsqueeze(prev_action_features, 0)
         elif fusion_model == 'SuperpixelActionConcat':
-            # SuperpixelActionConcat's forward will deal with
-            # prev_action_features = [None]
-            prev_action_features = [prev_action_features]
             (_, value, similarity_scores, actions_masks_features,
                     hidden_state) = model(stacked_frames, prev_action_features,
                             policy_hidden=hidden_state,
@@ -176,6 +182,10 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
 
             selected_action, selected_mask, _ = actions_masks_features[0][
                     pred_action_index]
+
+            prev_action_features = actions_masks_features[0][
+                    pred_action_index][2]
+            prev_action_features = torch.unsqueeze(prev_action_features, 0)
 
         if teacher_force:
             # selected_action and therefore action_success will not match
@@ -199,15 +209,9 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
                 # unified actions+masks score. Fortunately, softmax is
                 # differentiable
                 all_action_scores.append(concatenated_softmax[0])
-                # prev_action_index is only used for embedding lookup, so I
-                # don't think it needs gradient flow. This will go away after I
-                # (TODO) change SuperpixelFusion to take the concatenated previous
-                # action embedding and features
-                prev_action_index = action_to_index[selected_action]
             else:
                 all_action_scores.append(action_scores[0])
         elif fusion_model == 'SuperpixelActionConcat':
-            prev_action_features = actions_masks_features[0][pred_action_index][2]
             all_action_scores.append(action_scores[0])
         num_steps += 1
 
@@ -223,11 +227,9 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
                 zero_fill_frame_stack=zero_fill_frame_stack,
                 device=torch.device('cpu'))[0][-1:]
         if fusion_model == 'SuperpixelFusion':
-            prev_action_index = [torch.LongTensor([prev_action_index]).to(device)]
-            _, value, _, _, _ = model(stacked_frames, prev_action_index,
+            _, value, _, _, _, _ = model(stacked_frames, prev_action_features,
                     policy_hidden=hidden_state, device=device)
         elif fusion_model == 'SuperpixelActionConcat':
-            prev_action_features = [prev_action_features]
             _, value, _, _, _ = model(stacked_frames, prev_action_features,
                     policy_hidden=hidden_state, device=device)
         values.append(value[0])
@@ -259,12 +261,13 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
         value_loss_coefficient=0.5, entropy_coefficient=0.01, max_grad_norm=50,
         single_interact=False, use_masks=True, use_gt_segmentation=False,
         fusion_model='SuperpixelFusion', outer_product_sampling=False,
-        scene_numbers=None, max_trajectory_length=None, frame_stack=1,
-        zero_fill_frame_stack=False, teacher_force=False, sample_action=True,
-        sample_mask=True, train_episodes=10, valid_seen_episodes=10,
-        valid_unseen_episodes=10, eval_interval=1000, max_steps=1000000,
-        device=torch.device('cpu'), save_path=None, save_intermediate=False,
-        save_images_video=False, load_path=None):
+        zero_null_superpixel_features=True, scene_numbers=None,
+        max_trajectory_length=None, frame_stack=1, zero_fill_frame_stack=False,
+        teacher_force=False, sample_action=True, sample_mask=True,
+        train_episodes=10, valid_seen_episodes=10, valid_unseen_episodes=10,
+        eval_interval=1000, max_steps=1000000, device=torch.device('cpu'),
+        save_path=None, save_intermediate=False, save_images_video=False,
+        load_path=None):
     writer = SummaryWriter(log_dir='tensorboard_logs' if save_path is None else
             os.path.join(save_path, 'tensorboard_logs'))
 
@@ -319,6 +322,7 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
                 use_gt_segmentation=use_gt_segmentation,
                 fusion_model=fusion_model,
                 outer_product_sampling=outer_product_sampling,
+                zero_null_superpixel_features=zero_null_superpixel_features,
                 max_trajectory_length=max_trajectory_length,
                 frame_stack=frame_stack,
                 zero_fill_frame_stack=zero_fill_frame_stack,
@@ -441,7 +445,10 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
             results = evaluate(env, model, single_interact=single_interact,
                     use_masks=use_masks,
                     use_gt_segmentation=use_gt_segmentation,
-                    fusion_model=fusion_model, scene_numbers=scene_numbers,
+                    fusion_model=fusion_model,
+                    outer_product_sampling=outer_product_sampling,
+                    zero_null_superpixel_features=zero_null_superpixel_features,
+                    scene_numbers=scene_numbers,
                     max_trajectory_length=max_trajectory_length,
                     frame_stack=frame_stack,
                     zero_fill_frame_stack=zero_fill_frame_stack,
@@ -475,6 +482,7 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
 # TODO: update scene_numbers argument and below
 def evaluate(env, model, single_interact=False, use_masks=True,
         use_gt_segmentation=False, fusion_model='SuperpixelFusion',
+        outer_product_sampling=False, zero_null_superpixel_features=True,
         scene_numbers=None, max_trajectory_length=None, frame_stack=1,
         zero_fill_frame_stack=False, train_episodes=1, valid_seen_episodes=1,
         valid_unseen_episodes=1, device=torch.device('cpu')):
@@ -522,6 +530,7 @@ def evaluate(env, model, single_interact=False, use_masks=True,
                         use_gt_segmentation=use_gt_segmentation,
                         fusion_model=fusion_model,
                         outer_product_sampling=outer_product_sampling,
+                        zero_null_superpixel_features=zero_null_superpixel_features,
                         max_trajectory_length=max_trajectory_length,
                         frame_stack=frame_stack,
                         zero_fill_frame_stack=zero_fill_frame_stack,
@@ -973,7 +982,8 @@ if __name__ == '__main__':
     if args.fusion_model == 'SuperpixelFusion':
         policy_model = LSTMPolicy(
                 visual_feature_size=args.visual_feature_size,
-                prev_action_size=args.action_embedding_dim,
+                prev_action_size=args.action_embedding_dim +
+                    args.superpixel_feature_size,
                 lstm_hidden_size=args.lstm_hidden_dim, dropout=args.dropout,
                 action_fc_units=args.action_fc_units,
                 value_fc_units=args.value_fc_units,
@@ -1051,6 +1061,7 @@ if __name__ == '__main__':
             use_gt_segmentation=args.use_gt_segmentation,
             fusion_model=args.fusion_model,
             outer_product_sampling=args.outer_product_sampling,
+            zero_null_superpixel_features=args.zero_null_superpixel_features,
             scene_numbers=scene_numbers,
             max_trajectory_length=args.max_trajectory_length,
             frame_stack=args.frame_stack,
