@@ -318,8 +318,8 @@ class SuperpixelFusion(nn.Module):
         frame_crops = [frame[min_y:max_y, min_x:max_x, :] for (min_y, max_y,
             min_x, max_x) in superpixel_bounding_boxes]
         if self.black_outer:
-            frame_crops = get_black_outer_frame_crops(frame_crops,
-                    superpixel_bounding_boxes, superpixel_masks)
+            frame_crops = SuperpixelFusion.get_black_outer_frame_crops(
+                    frame_crops, superpixel_bounding_boxes, superpixel_masks)
 
         return superpixel_masks, frame_crops
 
