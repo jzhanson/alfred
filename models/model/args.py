@@ -141,5 +141,16 @@ parser.add_argument('--outer-product-sampling', dest='outer_product_sampling', a
 parser.add_argument('--separate-action-mask-sampling', dest='outer_product_sampling', action='store_false', help='sample action from action logits separately from mask and mask logits - only works with SuperpixelFusion')
 parser.set_defaults(outer_product_sampling=False)
 
+# Curiosity (intrinsic reward) config
+parser.add_argument('--use-curiosity', dest='use_curiosity', action='store_true', help='use curiosity intrinsic reward')
+parser.add_argument('--no-use-curiosity', dest='use_curiosity', action='store_false', help='don\'t use curiosity intrinsic reward')
+parser.set_defaults(use_curiosity=False)
+parser.add_argument('--curiosity-forward-fc-units', type=int, nargs='+', default=[256, 512], help='dimensions for curiosity forward model fc layers, last must be size of visual feature (default: [256, 512])')
+parser.add_argument('--curiosity-inverse-fc-units', type=int, nargs='+', default=[256, 16], help='dimensions for curiosity inverse model fc layers, last must be size of action embeddings (default: [256, 16])')
+parser.add_argument('--curiosity-eta', type=float, default=0.01, help='coefficient for scaling curiosity reward (default: 0.01)')
+parser.add_argument('--curiosity-beta', type=float, default=0.2, help='how much to use inverse loss for curiosity (1 - beta) versus forward loss (beta) (default: 0.01)')
+parser.add_argument('--curiosity-visual-encoder', type=str, default='resnet', help='which visual encoder to use for curiosity (\'resnet\' only supported for now)')
+parser.add_argument('--curiosity-lambda', type=float, default=0.1, help='how much to use policy gradient loss (lambda) versus curiosity reward (1) (default: 0.1)')
+
 def parse_args():
     return parser.parse_args()
