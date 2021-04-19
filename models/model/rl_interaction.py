@@ -927,8 +927,8 @@ if __name__ == '__main__':
     from env.thor_env import ThorEnv
     from env.reward import InteractionReward
     from models.nn.resnet import Resnet
-    from models.nn.ie import (LSTMPolicy, SuperpixelFusion,
-            SuperpixelActionConcat)
+    from models.nn.ie import (LSTMPolicy, ResnetSuperpixelWrapper,
+            SuperpixelFusion, SuperpixelActionConcat)
 
     args = parse_args()
 
@@ -998,6 +998,15 @@ if __name__ == '__main__':
         superpixel_model = Resnet(resnet_args, use_conv_feat=False)
     else:
         print("superpixel model '" + args.superpixel_model + "' not supported")
+
+    if args.superpixel_fc_units is None:
+        args.superpixel_fc_units = []
+    elif type(args.superpixel_fc_units) is int:
+        args.superpixel_fc_units = [args.superpixel_fc_units]
+    superpixel_model = ResnetSuperpixelWrapper(
+            superpixel_model=superpixel_model,
+            superpixel_fc_units=args.superpixel_fc_units, dropout=args.dropout,
+            use_tanh=args.use_tanh)
 
     if args.action_fc_units is None:
         args.action_fc_units = []
