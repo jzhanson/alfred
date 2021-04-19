@@ -45,6 +45,59 @@ class SingleLayerCNN(nn.Module):
     def forward(self, frame):
         pass
 
+class CuriosityIntrinsicReward(nn.Module):
+    def __init__(self, visual_encoder=None, action_embedding_dim=16,
+            forward_fc_units=[256, 512], inverse_fc_units=[256, 16],
+            eta=1e-2, beta=0.2, use_tanh=True, dropout=0.0):
+        super(CuriosityIntrinsicReward, self).__init__()
+        self.visual_encoder = visual_encoder
+        self.action_embedding_dim = action_embedding_dim
+        self.forward_fc_units = forward_fc_units
+        self.inverse_fc_units = inverse_fc_units
+        self.eta = eta
+        self.beta = beta
+        self.use_tanh = use_tanh
+        self.dropout = dropout
+
+        feature_size = self.visual_encoder.output_size
+        self.forward_fc_layers = init_fc_layers(self.forward_fc_units,
+                feature_size + self.action_embedding_dim,
+                use_tanh=self.use_tanh, dropout=self.dropout,
+                last_activation=False)
+        self.inverse_fc_layers = init_fc_layers(self.inverse_fc_units, 2 *
+                feature_size, use_tanh=self.use_tanh, dropout=self.dropout,
+                last_activation=False)
+
+    def forward(self, state, action, next_state):
+        state_feature = self.visual_encoder(state)
+        next_state_feature = self.visual_encoder(next_state)
+        # We only need to do this if it's a raw Resnet and not a
+        # ResnetSuperpixelWrapper
+        if isinstance(self.visual_encoder, Resnet):
+            state_feature = torch.squeeze(state_feature, -1)
+            state_feature = torch.squeeze(state_feature, -1)
+            next_state_feature = torch.squeeze(next_state_feature, -1)
+            next_state_feature = torch.squeeze(next_state_feature, -1)
+
+        pred_next_state_feature = torch.cat([state_feature, action], dim=1)
+        for forward_fc_layer in self.forward_fc_layers:
+            pred_next_state_feature = forward_fc_layer(pred_next_state_feature)
+
+        pred_action = torch.cat([state_feature, next_state_feature], dim=1)
+        for inverse_fc_layer in self.inverse_fc_layers:
+            pred_action = inverse_fc_layer(pred_action)
+
+        forward_loss = 0.5 * F.mse_loss(pred_next_state_feature,
+                next_state_feature)
+        # We use mse_loss and action embeddings instead of nll_loss and action
+        # one-hots since action embeddings are pretty much always action +
+        # superpixel features, now
+        inverse_loss = F.mse_loss(pred_action, action)
+        loss = (1 - self.beta) * inverse_loss + self.beta * forward_loss
+
+        reward = self.eta * forward_loss
+
+        return reward, loss
 
 class LSTMPolicy(nn.Module):
     def __init__(self, visual_feature_size=512,
