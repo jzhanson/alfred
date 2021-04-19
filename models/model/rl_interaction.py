@@ -37,9 +37,10 @@ interactions with not visible objects. This is a small issue since the
 def rollout_trajectory(env, model, single_interact=False, use_masks=True,
         use_gt_segmentation=False, fusion_model='SuperpixelFusion',
         outer_product_sampling=False, zero_null_superpixel_features=True,
-        max_trajectory_length=None, frame_stack=1, zero_fill_frame_stack=False,
-        teacher_force=False, sample_action=True, sample_mask=True,
-        scene_name_or_num=None, reset_kwargs={}, device=torch.device('cpu')):
+        curiosity_model=None, max_trajectory_length=None, frame_stack=1,
+        zero_fill_frame_stack=False, teacher_force=False, sample_action=True,
+        sample_mask=True, scene_name_or_num=None, reset_kwargs={},
+        device=torch.device('cpu')):
     """
     Returns dictionary of trajectory results.
     """
@@ -56,6 +57,9 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
             # Keep track of logits for interaction actions also instead of just
             # individual (action x superpixel) softmax scores
             discrete_action_logits = []
+    if curiosity_model is not None:
+        curiosity_rewards = []
+        curiosity_losses = []
     frame = env.reset(scene_name_or_num, **reset_kwargs)
     done = False
     num_steps = 0
@@ -197,9 +201,22 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
             selected_action = current_expert_actions[0]['action']
             # TODO: add expert superpixel mask
 
-        frame, reward, done, (action_success, event, err) = (
+        next_frame, reward, done, (action_success, event, err) = (
                 env.step(selected_action, interact_mask=selected_mask))
         print(selected_action, action_success, reward, err)
+
+        if curiosity_model is not None:
+            next_stacked_frames = stack_frames([frames[-frame_stack+1:] +
+                [torch.from_numpy(np.ascontiguousarray(next_frame))]],
+                frame_stack=frame_stack,
+                zero_fill_frame_stack=zero_fill_frame_stack,
+                device=torch.device('cpu'))[0][-1:]
+            curiosity_reward, curiosity_loss = curiosity_model(stacked_frames,
+                    prev_action_features, next_stacked_frames)
+            curiosity_rewards.append(curiosity_reward)
+            curiosity_losses.append(curiosity_loss)
+
+        frame = next_frame
         action_successes.append(action_success)
         values.append(value[0])
         pred_action_indexes.append(pred_action_index)
@@ -255,7 +272,6 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
     # Need to keep grad since these entropies are used for the loss
     action_entropy = per_step_entropy(all_action_scores)
     trajectory_results['action_entropy'] = action_entropy
-
     if fusion_model == 'SuperpixelFusion':
         trajectory_results['all_mask_scores'] = all_mask_scores
         mask_entropy = per_step_entropy(all_mask_scores)
@@ -263,19 +279,22 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
         if outer_product_sampling:
             trajectory_results['discrete_action_logits'] = (
                     discrete_action_logits)
+    if curiosity_model is not None:
+        trajectory_results['curiosity_rewards'] = curiosity_rewards
+        trajectory_results['curiosity_losses'] = curiosity_losses
     return trajectory_results
 
 def train(model, env, optimizer, gamma=1.0, tau=1.0,
         value_loss_coefficient=0.5, entropy_coefficient=0.01, max_grad_norm=50,
         single_interact=False, use_masks=True, use_gt_segmentation=False,
         fusion_model='SuperpixelFusion', outer_product_sampling=False,
-        zero_null_superpixel_features=True, scene_numbers=None,
-        max_trajectory_length=None, frame_stack=1, zero_fill_frame_stack=False,
-        teacher_force=False, sample_action=True, sample_mask=True,
-        train_episodes=10, valid_seen_episodes=10, valid_unseen_episodes=10,
-        eval_interval=1000, max_steps=1000000, device=torch.device('cpu'),
-        save_path=None, save_intermediate=False, save_images_video=False,
-        load_path=None):
+        zero_null_superpixel_features=True, curiosity_model=None,
+        curiosity_lambda=0.1, scene_numbers=None, max_trajectory_length=None,
+        frame_stack=1, zero_fill_frame_stack=False, teacher_force=False,
+        sample_action=True, sample_mask=True, train_episodes=10,
+        valid_seen_episodes=10, valid_unseen_episodes=10, eval_interval=1000,
+        max_steps=1000000, device=torch.device('cpu'), save_path=None,
+        save_intermediate=False, save_images_video=False, load_path=None):
     writer = SummaryWriter(log_dir='tensorboard_logs' if save_path is None else
             os.path.join(save_path, 'tensorboard_logs'))
 
@@ -310,6 +329,9 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
         last_metrics['avg_mask_entropy'] = []
         if outer_product_sampling:
             last_metrics['discrete_action_logits'] = []
+    if curiosity_model is not None:
+        last_metrics['curiosity_rewards'] = []
+        last_metrics['avg_curiosity_loss'] = []
 
     # TODO: want a replay memory?
     while train_steps < max_steps:
@@ -333,6 +355,7 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
                 fusion_model=fusion_model,
                 outer_product_sampling=outer_product_sampling,
                 zero_null_superpixel_features=zero_null_superpixel_features,
+                curiosity_model=curiosity_model,
                 max_trajectory_length=max_trajectory_length,
                 frame_stack=frame_stack,
                 zero_fill_frame_stack=zero_fill_frame_stack,
@@ -348,6 +371,8 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
         gae = torch.zeros(1).to(device)
         R = trajectory_results['values'][-1]
         rewards = torch.Tensor(trajectory_results['rewards']).to(device)
+        if curiosity_model is not None:
+            rewards += torch.stack(trajectory_results['curiosity_rewards'])
         for i in reversed(range(len(rewards))):
             R = gamma * R + rewards[i]
             # TODO: option to normalize advantages? PPO?
@@ -375,7 +400,13 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
             policy_loss = (policy_loss - action_log_prob * gae -
                     entropy_coefficient * (action_entropy + mask_entropy))
 
-        loss = policy_loss + value_loss_coefficient * value_loss
+        if curiosity_model is not None:
+            curiosity_loss = torch.mean(torch.stack(
+                trajectory_results['curiosity_losses']))
+            loss = curiosity_lambda * (policy_loss + value_loss_coefficient *
+                    value_loss) + curiosity_loss
+        else:
+            loss = policy_loss + value_loss_coefficient * value_loss
 
         optimizer.zero_grad()
         # RuntimeError: cuDNN error: CUDNN_STATUS_EXECUTION_FAILED
@@ -423,6 +454,13 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
                 len(constants.NAV_ACTIONS)) / (1 if single_interact else
                     len(constants.INT_ACTIONS)) for scores in
                 trajectory_results['all_action_scores']]))
+        if curiosity_model is not None:
+            last_metrics['curiosity_rewards'].append(
+                    torch.sum(torch.stack(
+                        trajectory_results['curiosity_rewards'])).item())
+            last_metrics['avg_curiosity_loss'].append(
+                    torch.mean(torch.stack(
+                        trajectory_results['curiosity_losses'])).item())
 
         results = {}
         results['train'] = {}
@@ -927,8 +965,8 @@ if __name__ == '__main__':
     from env.thor_env import ThorEnv
     from env.reward import InteractionReward
     from models.nn.resnet import Resnet
-    from models.nn.ie import (LSTMPolicy, ResnetSuperpixelWrapper,
-            SuperpixelFusion, SuperpixelActionConcat)
+    from models.nn.ie import (CuriosityIntrinsicReward, LSTMPolicy,
+            ResnetSuperpixelWrapper, SuperpixelFusion, SuperpixelActionConcat)
 
     args = parse_args()
 
@@ -1067,6 +1105,39 @@ if __name__ == '__main__':
     except:
         model = model.to(device)
 
+    if args.use_curiosity:
+        if 'resnet' in args.curiosity_visual_encoder:
+            resnet_args = Namespace(visual_model='resnet', gpu=args.gpu >= 0,
+                    gpu_index=args.gpu)
+            curiosity_visual_encoder = Resnet(resnet_args, use_conv_feat=False)
+        else:
+            print("curiosity visual encoder '" + args.curiosity_visual_encoder
+                    + "' not supported")
+
+        if args.curiosity_forward_fc_units is None:
+            args.curiosity_forward_fc_units = []
+        elif type(args.curiosity_forward_fc_units) is int:
+            args.curiosity_forward_fc_units = [args.curiosity_forward_fc_units]
+        if args.curiosity_inverse_fc_units is None:
+            args.curiosity_inverse_fc_units = []
+        elif type(args.curiosity_inverse_fc_units) is int:
+            args.curiosity_inverse_fc_units = [args.curiosity_inverse_fc_units]
+
+        curiosity_model = CuriosityIntrinsicReward(
+                visual_encoder=curiosity_visual_encoder,
+                action_embedding_dim=args.action_embedding_dim +
+                    args.superpixel_feature_size,
+                forward_fc_units=args.curiosity_forward_fc_units,
+                inverse_fc_units=args.curiosity_inverse_fc_units,
+                eta=args.curiosity_eta, beta=args.curiosity_beta,
+                use_tanh=args.use_tanh, dropout=args.dropout)
+        try:
+            curiosity_model = curiosity_model.to(device)
+        except:
+            curiosity_model = curiosity_model.to(device)
+    else:
+        curiosity_model = None
+
     if args.optimizer == 'sgd':
         optimizer = optim.SGD(model.parameters(), lr=args.lr)
     elif args.optimizer == 'rmsprop':
@@ -1104,6 +1175,8 @@ if __name__ == '__main__':
             fusion_model=args.fusion_model,
             outer_product_sampling=args.outer_product_sampling,
             zero_null_superpixel_features=args.zero_null_superpixel_features,
+            curiosity_model=curiosity_model,
+            curiosity_lambda=args.curiosity_lambda,
             scene_numbers=scene_numbers,
             max_trajectory_length=args.max_trajectory_length,
             frame_stack=args.frame_stack,
