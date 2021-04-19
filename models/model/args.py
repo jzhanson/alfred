@@ -111,6 +111,7 @@ parser.set_defaults(reward_use_novelty=False)
 # Model parameters
 parser.add_argument('--superpixel-model', type=str, default='resnet', help='which model to use for superpixels (only \'resnet\' supported for now)')
 parser.add_argument('--superpixel-feature-size', type=int, default=512, help='dimension for superpixel features (default: 512, will be 512 if superpixel-model is \'resnet\')')
+parser.add_argument('--superpixel-fc-units', type=int, nargs='+', default=None, help='dimensions for superpixel fc layers, for the features of the superpixel frame crops to be fed through post-superpixel model (default: None)')
 parser.add_argument('--action-embedding-dim', type=int, default=16, help='dimension for action embeddings (default: 16)')
 parser.add_argument('--action-fc-units', type=int, nargs='+', default=None, help='dimensions for action fc layers INCLUDING logits if applicable, None for no logits (default: None)')
 parser.add_argument('--value-fc-units', type=int, nargs='+', default=None, help='dimensions for value fc layers before final value, None for no intermediate layers (default: None)')
