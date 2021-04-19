@@ -576,9 +576,6 @@ def write_results(writer, results, train_steps, train_frames=None,
             # TODO: these special cases need to be helper functions
             if metric in ['frames', 'scene_name_or_num']:
                 continue
-            # all_mask_scores can be variably sized so it won't work with
-            # histogram unless we take the top k, but in that case entropy
-            # works fine as a measure
             if ('all_action_scores' in metric and fusion_model ==
                     'SuperpixelFusion' and not outer_product_sampling):
                 # all_action_scores is a list of lists (for each trajectory) of
@@ -677,7 +674,6 @@ def write_results(writer, results, train_steps, train_frames=None,
                             train_trajectories)
 
                 # Add per-action score histograms
-
                 for action_i in range(len(actions)):
                     writer.add_histogram(steps_name + '_' + actions[action_i],
                             torch.stack(per_action_scores[action_i]),
@@ -690,9 +686,20 @@ def write_results(writer, results, train_steps, train_frames=None,
                         writer.add_histogram(trajectories_name + '_' +
                                 actions[action_i], per_action_scores[action_i],
                                 train_trajectories)
-
-            elif 'scores' in metric: # Skip all_mask_scores
-                continue
+            elif 'all_mask_scores' in metric:
+                flat_mask_scores = []
+                for trajectory_mask_scores in values:
+                    for mask_scores in trajectory_mask_scores:
+                        flat_mask_scores.extend(mask_scores)
+                writer.add_histogram(steps_name,
+                        torch.stack(flat_mask_scores), train_steps)
+                if train_frames is not None:
+                    writer.add_histogram(frames_name,
+                            torch.stack(flat_mask_scores), train_frames)
+                if train_trajectories is not None:
+                    writer.add_histogram(trajectories_name,
+                            torch.stack(flat_mask_scores),
+                            train_trajectories)
             elif 'values' in metric:
                 # Values is a list of lists (for each trajectory) of scalars
                 flat_value_scores = []
