@@ -52,6 +52,10 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
     expert_action_indexes = []
     if fusion_model == 'SuperpixelFusion':
         all_mask_scores = []
+        if outer_product_sampling:
+            # Keep track of logits for interaction actions also instead of just
+            # individual (action x superpixel) softmax scores
+            discrete_action_logits = []
     frame = env.reset(scene_name_or_num, **reset_kwargs)
     done = False
     num_steps = 0
@@ -209,6 +213,7 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
                 # unified actions+masks score. Fortunately, softmax is
                 # differentiable
                 all_action_scores.append(concatenated_softmax[0])
+                discrete_action_logits.append(action_scores[0])
             else:
                 all_action_scores.append(action_scores[0])
         elif fusion_model == 'SuperpixelActionConcat':
@@ -255,6 +260,9 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
         trajectory_results['all_mask_scores'] = all_mask_scores
         mask_entropy = per_step_entropy(all_mask_scores)
         trajectory_results['mask_entropy'] = mask_entropy
+        if outer_product_sampling:
+            trajectory_results['discrete_action_logits'] = (
+                    discrete_action_logits)
     return trajectory_results
 
 def train(model, env, optimizer, gamma=1.0, tau=1.0,
@@ -300,6 +308,8 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
     if fusion_model == 'SuperpixelFusion':
         last_metrics['all_mask_scores'] = []
         last_metrics['avg_mask_entropy'] = []
+        if outer_product_sampling:
+            last_metrics['discrete_action_logits'] = []
 
     # TODO: want a replay memory?
     while train_steps < max_steps:
@@ -404,6 +414,10 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
                 mask_scores in trajectory_results['all_mask_scores']])
             last_metrics['avg_mask_entropy'].append(
                     torch.mean(trajectory_results['mask_entropy']).item())
+            if outer_product_sampling:
+                last_metrics['discrete_action_logits'].append([logits.detach().cpu()
+                    for logits in
+                    trajectory_results['discrete_action_logits']])
         elif fusion_model == 'SuperpixelActionConcat':
             last_metrics['num_masks'].append(np.mean([(len(scores) -
                 len(constants.NAV_ACTIONS)) / (1 if single_interact else
@@ -507,6 +521,8 @@ def evaluate(env, model, single_interact=False, use_masks=True,
         if fusion_model == 'SuperpixelFusion':
             metrics[split]['all_mask_scores'] = []
             metrics[split]['avg_mask_entropy'] = []
+            if outer_product_sampling:
+                metrics[split]['discrete_action_logits'] = []
         metrics[split]['trajectory_length'] = []
         metrics[split]['frames'] = []
         metrics[split]['scene_name_or_num'] = []
@@ -551,6 +567,10 @@ def evaluate(env, model, single_interact=False, use_masks=True,
                             trajectory_results['all_mask_scores']])
                 metrics[split]['avg_mask_entropy'].append(
                         torch.mean(trajectory_results['mask_entropy']).item())
+                if outer_product_sampling:
+                    metrics[split]['discrete_action_logits'].append(
+                            [logits.detach().cpu() for mask_scores in
+                                trajectory_results['discrete_action_logits']])
             metrics[split]['trajectory_length'].append(
                     float(len(trajectory_results['frames'])))
             metrics[split]['frames'].append(trajectory_results['frames'])
@@ -576,8 +596,11 @@ def write_results(writer, results, train_steps, train_frames=None,
             # TODO: these special cases need to be helper functions
             if metric in ['frames', 'scene_name_or_num']:
                 continue
-            if ('all_action_scores' in metric and fusion_model ==
-                    'SuperpixelFusion' and not outer_product_sampling):
+            if fusion_model == 'SuperpixelFusion' and (
+                    ('all_action_scores' in metric and not
+                        outer_product_sampling) or
+                    ('discrete_action_logits' in metric and
+                        outer_product_sampling)):
                 # all_action_scores is a list of lists (for each trajectory) of
                 # tensors (for each step)
                 trajectory_flat_action_scores = []
@@ -619,20 +642,23 @@ def write_results(writer, results, train_steps, train_frames=None,
                                 action_name, flat_action_i_scores,
                                 train_trajectories)
 
-                # Also histogram the top (chosen) action
-                action_argmaxes = [torch.argmax(action_scores).item() for
-                        action_scores in trajectory_flat_action_scores]
-                writer.add_histogram('steps/' + split + '/' +
-                        'action_argmaxes', action_argmaxes, train_steps,
-                        bins='fd')
-                if train_frames is not None:
-                    writer.add_histogram('frames/' + split + '/' +
-                            'action_argmaxes', action_argmaxes, train_frames,
+                # Also histogram the top action (not necessarily the chosen
+                # action, if sampling)
+                if ('all_action_scores' in metric and not
+                        outer_product_sampling):
+                    action_argmaxes = [torch.argmax(action_scores).item() for
+                            action_scores in trajectory_flat_action_scores]
+                    writer.add_histogram('steps/' + split + '/' +
+                            'action_argmaxes', action_argmaxes, train_steps,
                             bins='fd')
-                if train_trajectories is not None:
-                    writer.add_histogram('trajectories/' + split + '/' +
-                            'action_argmaxes', action_argmaxes,
-                            train_trajectories, bins='fd')
+                    if train_frames is not None:
+                        writer.add_histogram('frames/' + split + '/' +
+                                'action_argmaxes', action_argmaxes,
+                                train_frames, bins='fd')
+                    if train_trajectories is not None:
+                        writer.add_histogram('trajectories/' + split + '/' +
+                                'action_argmaxes', action_argmaxes,
+                                train_trajectories, bins='fd')
             elif ('all_action_scores' in metric and (fusion_model ==
                     'SuperpixelActionConcat' or outer_product_sampling)):
                 # all_action_scores is a list of lists (for each trajectory) of
