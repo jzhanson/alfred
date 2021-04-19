@@ -20,6 +20,24 @@ sys.path.append(os.path.join(os.environ['ALFRED_ROOT'], 'gen'))
 from models.nn.resnet import Resnet
 import gen.constants as constants
 
+def init_fc_layers(fc_units, input_size, use_tanh=True, dropout=0.0,
+        last_activation=False):
+    fc_layers = nn.ModuleList()
+    for i in range(len(fc_units)):
+        if i == 0:
+            in_features = input_size
+        else:
+            in_features = fc_units[i-1]
+        # No activation or dropout on last layer
+        if i == len(fc_units) - 1 and not last_activation:
+            fc_layers.append(nn.Sequential(nn.Linear(in_features=in_features,
+                out_features=fc_units[i], bias=True)))
+        else:
+            fc_layers.append(nn.Sequential(nn.Linear(in_features=in_features,
+                out_features=fc_units[i], bias=True), nn.Tanh() if use_tanh
+                else nn.ReLU(), nn.Dropout(dropout)))
+    return fc_layers
+
 class SingleLayerCNN(nn.Module):
     def __init__(self, input_width=300, input_height=300, output_size=64):
         super(SingleLayerCNN, self).__init__()
@@ -66,53 +84,20 @@ class LSTMPolicy(nn.Module):
             fc_input_size = self.lstm_hidden_size
 
         # TODO: shared fc layers for action and visual vector?
-        self.action_fc_layers = nn.ModuleList()
-        for i in range(len(self.action_fc_units)):
-            if i == 0:
-                in_features = fc_input_size
-            else:
-                in_features = self.action_fc_units[i-1]
-            # No activation or dropout on last layer
-            if i == len(self.action_fc_units) - 1:
-                self.action_fc_layers.append(nn.Sequential(nn.Linear(
-                    in_features=in_features,
-                    out_features=self.action_fc_units[i], bias=True)))
-            else:
-                self.action_fc_layers.append(nn.Sequential(nn.Linear(
-                    in_features=in_features,
-                    out_features=self.action_fc_units[i], bias=True), nn.Tanh()
-                    if self.use_tanh else nn.ReLU(), nn.Dropout(self.dropout)))
+        self.action_fc_layers = init_fc_layers(self.action_fc_units,
+                fc_input_size, use_tanh=self.use_tanh, dropout=self.dropout,
+                last_activation=False)
 
-        self.value_fc_layers = nn.ModuleList()
-        for i in range(len(self.value_fc_units)):
-            if i == 0:
-                in_features = fc_input_size
-            else:
-                in_features = self.value_fc_units[i-1]
-            self.value_fc_layers.append(nn.Sequential(nn.Linear(
-                in_features=in_features, out_features=self.value_fc_units[i],
-                bias=True), nn.Tanh() if self.use_tanh else nn.ReLU(),
-                nn.Dropout(self.dropout)))
+        self.value_fc_layers = init_fc_layers(self.value_fc_units,
+                fc_input_size, use_tanh=self.use_tanh, dropout=self.dropout,
+                last_activation=True)
         self.value = nn.Sequential(nn.Linear(
-            in_features=self.value_fc_units[i] if len(self.value_fc_layers) >
+            in_features=self.value_fc_units[-1] if len(self.value_fc_layers) >
             0 else fc_input_size, out_features=1, bias=True))
 
-        self.visual_fc_layers = nn.ModuleList()
-        for i in range(len(self.visual_fc_units)):
-            if i == 0:
-                in_features = fc_input_size
-            else:
-                in_features = self.visual_fc_units[i-1]
-            # No activation or dropout on last layer
-            if i == len(self.visual_fc_units) - 1:
-                self.visual_fc_layers.append(nn.Sequential(nn.Linear(
-                    in_features=in_features,
-                    out_features=self.visual_fc_units[i], bias=True)))
-            else:
-                self.visual_fc_layers.append(nn.Sequential(nn.Linear(
-                    in_features=in_features,
-                    out_features=self.visual_fc_units[i], bias=True), nn.Tanh()
-                    if self.use_tanh else nn.ReLU(), nn.Dropout(self.dropout)))
+        self.visual_fc_layers = init_fc_layers(self.visual_fc_units,
+                fc_input_size, use_tanh=self.use_tanh, dropout=self.dropout,
+                last_activation=False)
 
     def forward(self, visual_feature, prev_action_feature, policy_hidden):
         #print('visual feature', visual_feature.shape)
@@ -162,23 +147,10 @@ class ResnetSuperpixelWrapper(nn.Module):
         self.dropout = dropout
         self.use_tanh = use_tanh
 
-        self.superpixel_fc_layers = nn.ModuleList()
-        for i in range(len(self.superpixel_fc_units)):
-            if i == 0:
-                in_features = self.superpixel_model.output_size
-            else:
-                in_features = self.superpixel_fc_units[i-1]
-            # No activation or dropout on last layer
-            if i == len(self.superpixel_fc_units) - 1:
-                self.superpixel_fc_layers.append(nn.Sequential(nn.Linear(
-                    in_features=in_features,
-                    out_features=self.superpixel_fc_units[i], bias=True)))
-            else:
-                self.superpixel_fc_layers.append(nn.Sequential(nn.Linear(
-                    in_features=in_features,
-                    out_features=self.superpixel_fc_units[i], bias=True),
-                    nn.Tanh() if self.use_tanh else nn.ReLU(),
-                    nn.Dropout(self.dropout)))
+        self.superpixel_fc_layers = init_fc_layers(self.superpixel_fc_units,
+                self.superpixel_model.output_size, use_tanh=self.use_tanh,
+                dropout=self.dropout, last_activation=True)
+        self.output_size = self.superpixel_fc_units[-1]
 
     def forward(self, superpixel_crop):
         superpixel_fc_output = self.superpixel_model(superpixel_crop)
