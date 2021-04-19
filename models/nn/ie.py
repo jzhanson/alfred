@@ -146,6 +146,49 @@ class LSTMPolicy(nn.Module):
         return (torch.zeros(batch_size, self.lstm_hidden_size, device=device),
                 torch.zeros(batch_size, self.lstm_hidden_size, device=device))
 
+class ResnetSuperpixelWrapper(nn.Module):
+    """
+    Class to wrap Resnet classes/models to put an extra fc layer + tanh
+    activation to make the features output for superpixels the same magnitude
+    as the visual vector output from the model.
+
+    Requires superpixel_model to have superpixel_model.output_size.
+    """
+    def __init__(self, superpixel_model=None, superpixel_fc_units=[],
+            dropout=0.0, use_tanh=True):
+        super(ResnetSuperpixelWrapper, self).__init__()
+        self.superpixel_model = superpixel_model
+        self.superpixel_fc_units = superpixel_fc_units
+        self.dropout = dropout
+        self.use_tanh = use_tanh
+
+        self.superpixel_fc_layers = nn.ModuleList()
+        for i in range(len(self.superpixel_fc_units)):
+            if i == 0:
+                in_features = self.superpixel_model.output_size
+            else:
+                in_features = self.superpixel_fc_units[i-1]
+            # No activation or dropout on last layer
+            if i == len(self.superpixel_fc_units) - 1:
+                self.superpixel_fc_layers.append(nn.Sequential(nn.Linear(
+                    in_features=in_features,
+                    out_features=self.superpixel_fc_units[i], bias=True)))
+            else:
+                self.superpixel_fc_layers.append(nn.Sequential(nn.Linear(
+                    in_features=in_features,
+                    out_features=self.superpixel_fc_units[i], bias=True),
+                    nn.Tanh() if self.use_tanh else nn.ReLU(),
+                    nn.Dropout(self.dropout)))
+
+    def forward(self, superpixel_crop):
+        superpixel_fc_output = self.superpixel_model(superpixel_crop)
+        # We need to squeeze out the last two dimensions of the Resnet features
+        # (N, 512, 1, 1) -> (N, 512)
+        superpixel_fc_output = superpixel_fc_output.squeeze(-1).squeeze(-1)
+        for superpixel_fc_layer in self.superpixel_fc_layers:
+            superpixel_fc_output = superpixel_fc_layer(superpixel_fc_output)
+        return superpixel_fc_output
+
 class SuperpixelFusion(nn.Module):
     # TODO: add a better initialization for fc layers and LSTMPolicy
     def __init__(self, visual_model=None, superpixel_model=None,
@@ -209,6 +252,8 @@ class SuperpixelFusion(nn.Module):
             superpixel_features = self.featurize(frame_crops,
                     superpixel_model=True)
             # Get rid of last two dimensions since Resnet features are (512, 1, 1)
+            # We only need to do this if it's a raw Resnet and not a
+            # ResnetSuperpixelWrapper
             if isinstance(self.visual_model, Resnet):
                 superpixel_features = torch.squeeze(superpixel_features, -1)
                 superpixel_features = torch.squeeze(superpixel_features, -1)
@@ -226,7 +271,8 @@ class SuperpixelFusion(nn.Module):
     def featurize(self, stacked_frames, superpixel_model=False):
         chosen_model = (self.superpixel_model if superpixel_model else
                 self.visual_model)
-        if isinstance(chosen_model, Resnet) and isinstance(stacked_frames,
+        if (isinstance(chosen_model, Resnet) or isinstance(chosen_model,
+            ResnetSuperpixelWrapper)) and isinstance(stacked_frames,
                 torch.Tensor):
             # Unstack frames, featurize, then restack frames if using Resnet
             unstacked_visual_outputs = []
@@ -438,6 +484,8 @@ class SuperpixelActionConcat(SuperpixelFusion):
 
             # Get rid of last two dimensions since Resnet features are (512, 1,
             # 1)
+            # Again, we only need to do this if it's a raw Resnet and not a
+            # ResnetSuperpixelWrapper
             if isinstance(self.visual_model, Resnet):
                 superpixel_features = torch.squeeze(superpixel_features, -1)
                 superpixel_features = torch.squeeze(superpixel_features, -1)
