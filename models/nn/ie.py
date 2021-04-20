@@ -203,7 +203,10 @@ class ResnetSuperpixelWrapper(nn.Module):
         self.superpixel_fc_layers = init_fc_layers(self.superpixel_fc_units,
                 self.superpixel_model.output_size, use_tanh=self.use_tanh,
                 dropout=self.dropout, last_activation=True)
-        self.output_size = self.superpixel_fc_units[-1]
+        if len(superpixel_fc_units) > 0:
+            self.output_size = self.superpixel_fc_units[-1]
+        else:
+            self.output_size = self.superpixel_model.output_size
 
     def forward(self, superpixel_crop):
         superpixel_fc_output = self.superpixel_model(superpixel_crop)
