@@ -1021,19 +1021,19 @@ if __name__ == '__main__':
     action_embeddings = nn.Embedding(num_embeddings=num_actions,
             embedding_dim=args.action_embedding_dim).to(device)
 
+    resnet_args = Namespace(visual_model='resnet', gpu=args.gpu >= 0,
+            gpu_index=args.gpu)
     if 'resnet' in args.visual_model:
         args.visual_feature_size = 512
-        resnet_args = Namespace(visual_model='resnet', gpu=args.gpu >= 0,
-                gpu_index=args.gpu)
-        visual_model = Resnet(resnet_args, use_conv_feat=False)
+        visual_model = Resnet(resnet_args, use_conv_feat=False,
+                pretrained=args.pretrained_visual_model)
     else:
         print("visual model '" + args.visual_model + "' not supported")
 
     if 'resnet' in args.superpixel_model:
         args.superpixel_feature_size = 512
-        resnet_args = Namespace(visual_model='resnet', gpu=args.gpu >= 0,
-                gpu_index=args.gpu)
-        superpixel_model = Resnet(resnet_args, use_conv_feat=False)
+        superpixel_model = Resnet(resnet_args, use_conv_feat=False,
+                pretrained=args.pretrained_visual_model)
     else:
         print("superpixel model '" + args.superpixel_model + "' not supported")
 
@@ -1107,9 +1107,8 @@ if __name__ == '__main__':
 
     if args.use_curiosity:
         if 'resnet' in args.curiosity_visual_encoder:
-            resnet_args = Namespace(visual_model='resnet', gpu=args.gpu >= 0,
-                    gpu_index=args.gpu)
-            curiosity_visual_encoder = Resnet(resnet_args, use_conv_feat=False)
+            curiosity_visual_encoder = Resnet(resnet_args, use_conv_feat=False,
+                    pretrained=args.pretrained_visual_model)
         else:
             print("curiosity visual encoder '" + args.curiosity_visual_encoder
                     + "' not supported")
