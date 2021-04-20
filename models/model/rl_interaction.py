@@ -200,7 +200,6 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
 
         next_frame, reward, done, (action_success, event, err) = (
                 env.step(selected_action, interact_mask=selected_mask))
-        print(selected_action, action_success, reward, err)
 
         if curiosity_model is not None:
             next_stacked_frames = stack_frames([frames[-frame_stack+1:] +
@@ -212,6 +211,10 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
                     prev_action_features, next_stacked_frames)
             curiosity_rewards.append(curiosity_reward)
             curiosity_losses.append(curiosity_loss)
+            print(selected_action, action_success, reward,
+                    curiosity_reward.item(), err)
+        else:
+            print(selected_action, action_success, reward, err)
 
         frame = next_frame
         action_successes.append(action_success)
