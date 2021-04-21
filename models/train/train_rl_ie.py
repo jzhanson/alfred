@@ -225,7 +225,7 @@ if __name__ == '__main__':
             use_gt_segmentation=args.use_gt_segmentation,
             fusion_model=args.fusion_model,
             outer_product_sampling=args.outer_product_sampling,
-            inverse_score_sampling=args.inverse_score_sampling,
+            inverse_score=args.inverse_score,
             zero_null_superpixel_features=args.zero_null_superpixel_features,
             curiosity_model=curiosity_model,
             curiosity_lambda=args.curiosity_lambda,
