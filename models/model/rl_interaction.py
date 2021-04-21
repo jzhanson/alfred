@@ -17,6 +17,7 @@ from models.utils.metric import per_step_entropy, trajectory_avg_entropy
 from models.utils.helper_utils import (stack_frames,
         superpixelactionconcat_get_num_superpixels,
         superpixelactionconcat_index_to_action)
+import cv2
 from utils.video_util import VideoSaver
 
 video_saver = VideoSaver()
