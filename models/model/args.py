@@ -140,9 +140,9 @@ parser.set_defaults(zero_null_superpixel_features=True)
 parser.add_argument('--outer-product-sampling', dest='outer_product_sampling', action='store_true', help='use outer product of softmax of superpixel scores and softmax of action output logits for sampling - only works with SuperpixelFusion')
 parser.add_argument('--separate-action-mask-sampling', dest='outer_product_sampling', action='store_false', help='sample action from action logits separately from mask and mask logits - only works with SuperpixelFusion')
 parser.set_defaults(outer_product_sampling=False)
-parser.add_argument('--inverse-score-sampling', dest='inverse_score_sampling', action='store_true', help='sample actions (and/or superpixels) by putting the action (and/or superpixel) similarity scores through a sigmoid, then sampling from the softmax over 1/sigmoid(score)')
-parser.add_argument('--normal-score-sampling', dest='inverse_score_sampling', action='store_false', help='sample actions by taking softmax directly over actions (and/or) superpixel scores')
-parser.set_defaults(inverse_score_sampling=False)
+parser.add_argument('--inverse-score', dest='inverse_score', action='store_true', help='sample actions (and/or superpixels) by putting the action (and/or superpixel) similarity scores through a sigmoid, then sampling from the softmax over 1/sigmoid(score)')
+parser.add_argument('--no-inverse-score', dest='inverse_score', action='store_false', help='sample actions by taking softmax directly over actions (and/or) superpixel scores')
+parser.set_defaults(inverse_score=False)
 
 # Curiosity (intrinsic reward) config
 parser.add_argument('--use-curiosity', dest='use_curiosity', action='store_true', help='use curiosity intrinsic reward')
