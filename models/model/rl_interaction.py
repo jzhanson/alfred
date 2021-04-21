@@ -33,7 +33,7 @@ interactions with not visible objects. This is a small issue since the
 
 def rollout_trajectory(env, model, single_interact=False, use_masks=True,
         use_gt_segmentation=False, fusion_model='SuperpixelFusion',
-        outer_product_sampling=False, inverse_score_sampling=False,
+        outer_product_sampling=False, inverse_score=False,
         zero_null_superpixel_features=True, curiosity_model=None,
         max_trajectory_length=None, frame_stack=1, zero_fill_frame_stack=False,
         teacher_force=False, sample_action=True, sample_mask=True,
@@ -99,7 +99,7 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
                     policy_hidden=hidden_state,
                     gt_segmentation=gt_segmentation, device=device)
             # Masks scores are dot product similarities, so we can use
-            # inverse_score_sampling (action scores are logits)
+            # inverse_score (action scores are logits)
             # We need to change mask_scores which are reported in
             # trajectory_results for the action_log_prob calculation
             if inverse_score:
@@ -299,7 +299,7 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
         value_loss_coefficient=0.5, entropy_coefficient=0.01, max_grad_norm=50,
         single_interact=False, use_masks=True, use_gt_segmentation=False,
         fusion_model='SuperpixelFusion', outer_product_sampling=False,
-        inverse_score_sampling=False, zero_null_superpixel_features=True,
+        inverse_score=False, zero_null_superpixel_features=True,
         curiosity_model=None, curiosity_lambda=0.1, scene_numbers=None,
         max_trajectory_length=None, frame_stack=1, zero_fill_frame_stack=False,
         teacher_force=False, sample_action=True, sample_mask=True,
@@ -366,7 +366,7 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
                 use_gt_segmentation=use_gt_segmentation,
                 fusion_model=fusion_model,
                 outer_product_sampling=outer_product_sampling,
-                inverse_score_sampling=inverse_score_sampling,
+                inverse_score=inverse_score,
                 zero_null_superpixel_features=zero_null_superpixel_features,
                 curiosity_model=curiosity_model,
                 max_trajectory_length=max_trajectory_length,
@@ -547,7 +547,7 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
 # TODO: update scene_numbers argument and below
 def evaluate(env, model, single_interact=False, use_masks=True,
         use_gt_segmentation=False, fusion_model='SuperpixelFusion',
-        outer_product_sampling=False, inverse_score_sampling=False,
+        outer_product_sampling=False, inverse_score=False,
         zero_null_superpixel_features=True, scene_numbers=None,
         max_trajectory_length=None, frame_stack=1, zero_fill_frame_stack=False,
         train_episodes=1, valid_seen_episodes=1, valid_unseen_episodes=1,
@@ -598,7 +598,7 @@ def evaluate(env, model, single_interact=False, use_masks=True,
                         use_gt_segmentation=use_gt_segmentation,
                         fusion_model=fusion_model,
                         outer_product_sampling=outer_product_sampling,
-                        inverse_score_sampling=inverse_score_sampling,
+                        inverse_score=inverse_score,
                         zero_null_superpixel_features=zero_null_superpixel_features,
                         max_trajectory_length=max_trajectory_length,
                         frame_stack=frame_stack,
