@@ -98,6 +98,12 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
                     stacked_frames, prev_action_features,
                     policy_hidden=hidden_state,
                     gt_segmentation=gt_segmentation, device=device)
+            # Masks scores are dot product similarities, so we can use
+            # inverse_score_sampling (action scores are logits)
+            # We need to change mask_scores which are reported in
+            # trajectory_results for the action_log_prob calculation
+            if inverse_score:
+                mask_scores = [1 / torch.sigmoid(mask_scores[0])]
             # Only attempt one action (which might fail) instead of trying all
             # actions in order
             if outer_product_sampling:
@@ -107,13 +113,7 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
                 # probability distribution is valid
                 actions_softmax = F.softmax(action_scores, dim=-1)
                 # Keep batch dimension for consistency
-                # Masks scores are dot product similarities, so we can use
-                # inverse_score_sampling (action scores are logits)
-                if inverse_score_sampling:
-                    masks_softmax = [F.softmax(1 / torch.sigmoid(mask_scores[0]),
-                        dim=-1)]
-                else:
-                    masks_softmax = [F.softmax(mask_scores[0], dim=-1)]
+                masks_softmax = [F.softmax(mask_scores[0], dim=-1)]
 
                 # First dimension is actions, second dimension is masks.
                 # torch.outer (torch.ger in 1.1.0) wants two 1D vectors
@@ -151,13 +151,8 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
                 if (actions[pred_action_index] == constants.ACTIONS_INTERACT or
                         actions[pred_action_index] in constants.INT_ACTIONS):
                     if sample_mask:
-                        if inverse_score_sampling:
-                            pred_mask_index = torch.multinomial(F.softmax(
-                                1 / torch.sigmoid(mask_scores[0]), dim=-1),
-                                num_samples=1)
-                        else:
-                            pred_mask_index = torch.multinomial(F.softmax(
-                                mask_scores[0], dim=-1), num_samples=1)
+                        pred_mask_index = torch.multinomial(F.softmax(
+                            mask_scores[0], dim=-1), num_samples=1)
                     else:
                         pred_mask_index = torch.argmax(mask_scores[0])
                     selected_mask = masks[0][pred_mask_index]
@@ -190,14 +185,14 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
                             policy_hidden=hidden_state,
                             gt_segmentation=gt_segmentation, device=device)
             action_scores = similarity_scores
+            # Same deal - we need to change action_scores which will be
+            # reported via trajectory_results so the action log
+            # probability is correct (post-sigmoid)
+            if inverse_score:
+                action_scores = [1 / torch.sigmoid(action_scores[0])]
             if sample_action:
-                if inverse_score_sampling:
-                    pred_action_index = torch.multinomial(F.softmax(
-                        1 / torch.sigmoid(action_scores[0]), dim=-1),
-                        num_samples=1)
-                else:
-                    pred_action_index = torch.multinomial(F.softmax(
-                        action_scores[0], dim=-1), num_samples=1)
+                pred_action_index = torch.multinomial(F.softmax(
+                    action_scores[0], dim=-1), num_samples=1)
             else:
                 pred_action_index = torch.argmax(action_scores[0])
 
