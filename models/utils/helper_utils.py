@@ -3,6 +3,7 @@ import sys
 sys.path.append(os.path.join(os.environ['ALFRED_ROOT']))
 sys.path.append(os.path.join(os.environ['ALFRED_ROOT'], 'gen'))
 
+import numpy as np
 import torch
 
 import gen.constants as constants
@@ -96,3 +97,18 @@ def superpixelactionconcat_index_to_action(index, num_scores,
             single_interact=single_interact)
     return int_actions[int((index - len(constants.NAV_ACTIONS)) //
         num_superpixels)]
+
+# From https://github.com/pytorch/pytorch/issues/7014#issuecomment-388931028
+# Safe multinomial sampling, even if there are infinite values in probs or
+# logits
+def multinomial(probs=None, logits=None, temperature=1, num_samples=1,
+                     min_prob=1e-20, max_logit=1e+20,
+                     min_temperature=1e-20, max_temperature=1e+20):
+    if probs is not None:
+        probs = probs.clamp(min=min_prob)
+        logits = torch.log(probs)
+    logits = logits.clamp(max=max_logit)
+    temperature = np.clip(temperature, min_temperature, max_temperature)
+    logits = (logits - logits.max()) / temperature
+    probs = torch.exp(logits)
+    return torch.multinomial(probs, num_samples)
