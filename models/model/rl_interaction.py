@@ -400,9 +400,19 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
             gae = gae * gamma * tau + delta_t
 
             chosen_action_index = trajectory_results['pred_action_indexes'][i]
-            # TODO: are all_action_scores really the log probs? Does it matter?
-            action_log_prob = trajectory_results['all_action_scores'][i][
-                    chosen_action_index]
+            if outer_product_sampling:
+                # Scores are already softmaxed and have action and mask
+                # combined
+                action_log_prob = torch.log(
+                        trajectory_results['all_action_scores'][i][
+                                chosen_action_index])
+            else:
+                action_log_prob = F.log_softmax(
+                        trajectory_results['all_action_scores'][i], dim=-1)[
+                                chosen_action_index]
+                # TODO: add mask_log_prob to this
+                if fusion_model == 'SuperpixelFusion':
+                    pass
             action_entropy = trajectory_results['action_entropy'][i]
             if fusion_model == 'SuperpixelFusion':
                 mask_entropy = trajectory_results['mask_entropy'][i]
