@@ -54,6 +54,8 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
             # Keep track of logits for interaction actions also instead of just
             # individual (action x superpixel) softmax scores
             discrete_action_logits = []
+        else:
+            pred_mask_indexes = []
     if curiosity_model is not None:
         curiosity_rewards = []
         curiosity_losses = []
@@ -128,10 +130,14 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
                     pred_action_index = torch.multinomial(
                             concatenated_softmax[0], num_samples=1)
                 else:
-                    pred_action_index = torch.argmax(concatenated_softmax[0])
+                    # Unsqueeze to make pred_action_index 1-D tensor to match
+                    # sampling case
+                    pred_action_index = torch.argmax(
+                            concatenated_softmax[0]).unsqueeze(0)
 
                 if pred_action_index < len(constants.NAV_ACTIONS):
                     selected_action = actions[pred_action_index]
+                    pred_mask_index = None
                     selected_mask = None
                 else:
                     selected_action = superpixelactionconcat_index_to_action(
@@ -145,7 +151,8 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
                     pred_action_index = torch.multinomial(F.softmax(
                         action_scores[0], dim=-1), num_samples=1)
                 else:
-                    pred_action_index = torch.argmax(action_scores[0])
+                    pred_action_index = torch.argmax(
+                            action_scores[0]).unsqueeze(0)
                 # Also sample a mask - only on interact action so
                 # InteractionExploration won't complain
                 if (actions[pred_action_index] == constants.ACTIONS_INTERACT or
@@ -154,9 +161,11 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
                         pred_mask_index = torch.multinomial(F.softmax(
                             mask_scores[0], dim=-1), num_samples=1)
                     else:
-                        pred_mask_index = torch.argmax(mask_scores[0])
+                        pred_mask_index = torch.argmax(
+                                mask_scores[0]).unsqueeze(0)
                     selected_mask = masks[0][pred_mask_index]
                 else:
+                    pred_mask_index = None
                     selected_mask = None
                 selected_action = actions[pred_action_index]
 
@@ -194,7 +203,7 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
                 pred_action_index = torch.multinomial(F.softmax(
                     action_scores[0], dim=-1), num_samples=1)
             else:
-                pred_action_index = torch.argmax(action_scores[0])
+                pred_action_index = torch.argmax(action_scores[0]).unsqueeze(0)
 
             selected_action, selected_mask, _ = actions_masks_features[0][
                     pred_action_index]
@@ -243,6 +252,7 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
                 all_action_scores.append(concatenated_softmax[0])
                 discrete_action_logits.append(action_scores[0])
             else:
+                pred_mask_indexes.append(pred_mask_index)
                 all_action_scores.append(action_scores[0])
         elif fusion_model == 'SuperpixelActionConcat':
             all_action_scores.append(action_scores[0])
@@ -290,6 +300,8 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
         if outer_product_sampling:
             trajectory_results['discrete_action_logits'] = (
                     discrete_action_logits)
+        else:
+            trajectory_results['pred_mask_indexes'] = pred_mask_indexes
     if curiosity_model is not None:
         trajectory_results['curiosity_rewards'] = curiosity_rewards
         trajectory_results['curiosity_losses'] = curiosity_losses
@@ -410,9 +422,14 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
                 action_log_prob = F.log_softmax(
                         trajectory_results['all_action_scores'][i], dim=-1)[
                                 chosen_action_index]
-                # TODO: add mask_log_prob to this
                 if fusion_model == 'SuperpixelFusion':
-                    pass
+                    chosen_mask_index = trajectory_results[
+                            'pred_mask_indexes'][i]
+                    if chosen_mask_index is not None:
+                        mask_log_prob = F.log_softmax(
+                            trajectory_results['all_mask_scores'][i], dim=-1)[
+                                    chosen_mask_index]
+                        action_log_prob += mask_log_prob
             action_entropy = trajectory_results['action_entropy'][i]
             if fusion_model == 'SuperpixelFusion':
                 mask_entropy = trajectory_results['mask_entropy'][i]
