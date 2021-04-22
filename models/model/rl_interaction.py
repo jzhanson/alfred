@@ -173,7 +173,7 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
                     selected_mask = None
                 else:
                     selected_action = superpixelactionconcat_index_to_action(
-                            pred_action_index, len(concatenated_softmax[0]),
+                            pred_action_index, len(concatenated_log_softmax[0]),
                             single_interact=single_interact)
                     pred_mask_index = (pred_action_index -
                             len(constants.NAV_ACTIONS)) % len(masks[0])
@@ -281,7 +281,7 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
                 # We have to use the softmax scores here because there isn't a
                 # unified actions+masks score. Fortunately, softmax is
                 # differentiable
-                all_action_scores.append(concatenated_softmax[0])
+                all_action_scores.append(concatenated_log_softmax[0])
                 discrete_action_logits.append(action_scores[0])
             else:
                 pred_mask_indexes.append(pred_mask_index)
@@ -445,11 +445,10 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
 
             chosen_action_index = trajectory_results['pred_action_indexes'][i]
             if outer_product_sampling:
-                # Scores are already softmaxed and have action and mask
+                # Scores are already log-softmaxed and have action and mask
                 # combined
-                action_log_prob = torch.log(
-                        trajectory_results['all_action_scores'][i][
-                                chosen_action_index])
+                action_log_prob = trajectory_results['all_action_scores'][i][
+                        chosen_action_index]
             else:
                 action_log_prob = F.log_softmax(
                         trajectory_results['all_action_scores'][i], dim=-1)[
