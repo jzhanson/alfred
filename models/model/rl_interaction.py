@@ -126,12 +126,12 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
                         masks_log_softmax[0].shape[0], device=device)
                 # Manually populate outer_scores because we need to add the log
                 # softmax scores
-                for action_i in range(len(actions) -
-                        len(constants.NAV_ACTIONS)):
+                for action_i in range(len(constants.NAV_ACTIONS),
+                        len(actions)):
                     for mask_i in range(masks_log_softmax[0].shape[0]):
-                        outer_scores[action_i][mask_i] = (
-                                actions_log_softmax[0][action_i] +
-                                masks_log_softmax[0][mask_i])
+                        outer_scores[action_i - len(constants.NAV_ACTIONS)][
+                                mask_i] = (actions_log_softmax[0][action_i] +
+                                        masks_log_softmax[0][mask_i])
                 # Still keep batch dimension
                 concatenated_log_softmax = [torch.cat([
                     actions_log_softmax[0][:len(constants.NAV_ACTIONS)],
