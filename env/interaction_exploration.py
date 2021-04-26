@@ -120,6 +120,8 @@ class InteractionExploration(object):
         if self.done:
             err = 'Trying to step in a done environment'
             success = False
+            # By default this will return invalid navigation reward, but the
+            # reward doesn't matter here, it's an edge case
             return (self.env.last_event.frame, self.reward.invalid_action(),
                     self.done, (success, self.env.last_event, err))
 
@@ -130,8 +132,9 @@ class InteractionExploration(object):
         if self.use_masks and is_interact_action and interact_mask is None:
             err = 'No mask provided with interact action ' + action
             success = False
-            return (self.env.last_event.frame, self.reward.invalid_action(),
-                    self.done, (success, self.env.last_event, err))
+            return (self.env.last_event.frame,
+                    self.reward.invalid_action(interaction=True), self.done,
+                    (success, self.env.last_event, err))
 
         # If not using masks, have to choose an object based on camera
         # view and proximity and interactability
@@ -154,8 +157,8 @@ class InteractionExploration(object):
                                 target_instance_id)
                         success = False
                         return (self.env.last_event.frame,
-                                self.reward.invalid_action(), self.done,
-                                (success, self.env.last_event, err))
+                                self.reward.invalid_action(interaction=True),
+                                self.done, (success, self.env.last_event, err))
                 else:
                     contextual_action = action
                 event, success, err = self.exec_targeted_action(
@@ -178,8 +181,8 @@ class InteractionExploration(object):
                                 target_instance_id)
                         success = False
                         return (self.env.last_event.frame,
-                                self.reward.invalid_action(), self.done,
-                                (success, self.env.last_event, err))
+                                self.reward.invalid_action(interaction=True),
+                                self.done, (success, self.env.last_event, err))
                     # Could call env/thor_env.py's va_interact, for some nice
                     # debug code
                     #success, event, target_instance_id, err, _ = \
