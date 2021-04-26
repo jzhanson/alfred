@@ -117,6 +117,7 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
                 # navigation actions and (interaction actions x masks) the
                 # probability distribution is valid
 
+                '''
                 # Use log_softmax to avoid overflow problems
                 actions_log_softmax = F.log_softmax(action_scores, dim=-1)
                 # Keep batch dimension for consistency
@@ -160,14 +161,13 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
                     actions_softmax[0][:len(constants.NAV_ACTIONS)],
                     torch.flatten(outer_scores)])]
                 if sample_action:
-                    pred_action_index = multinomial(
-                            probs=concatenated_softmax[0], num_samples=1)
+                    pred_action_index = torch.multinomial(
+                            concatenated_softmax[0], num_samples=1)
                 else:
                     # Unsqueeze to make pred_action_index 1-D tensor to match
                     # sampling case
                     pred_action_index = torch.argmax(
                             concatenated_softmax[0]).unsqueeze(0)
-                '''
 
                 if pred_action_index < len(constants.NAV_ACTIONS):
                     selected_action = actions[pred_action_index]
@@ -175,14 +175,14 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
                     selected_mask = None
                 else:
                     selected_action = superpixelactionconcat_index_to_action(
-                            pred_action_index, len(concatenated_log_softmax[0]),
+                            pred_action_index, len(concatenated_softmax[0]),
                             single_interact=single_interact)
                     pred_mask_index = (pred_action_index -
                             len(constants.NAV_ACTIONS)) % len(masks[0])
                     selected_mask = masks[0][pred_mask_index]
             else:
                 if sample_action:
-                    pred_action_index = multinomial(logits=F.log_softmax(
+                    pred_action_index = torch.multinomial(F.softmax(
                         action_scores[0], dim=-1), num_samples=1)
                 else:
                     pred_action_index = torch.argmax(
@@ -192,7 +192,7 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
                 if (actions[pred_action_index] == constants.ACTIONS_INTERACT or
                         actions[pred_action_index] in constants.INT_ACTIONS):
                     if sample_mask:
-                        pred_mask_index = multinomial(logits=F.log_softmax(
+                        pred_mask_index = torch.multinomial(F.softmax(
                             mask_scores[0], dim=-1), num_samples=1)
                     else:
                         pred_mask_index = torch.argmax(
@@ -236,7 +236,7 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
                 #action_scores = [1 / (torch.sigmoid(action_scores[0]) + 1e-20)]
                 action_scores[0] *= -1
             if sample_action:
-                pred_action_index = multinomial(logits=F.log_softmax(
+                pred_action_index = torch.multinomial(F.softmax(
                     action_scores[0], dim=-1), num_samples=1)
             else:
                 pred_action_index = torch.argmax(action_scores[0]).unsqueeze(0)
@@ -285,7 +285,7 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
                 # We have to use the softmax scores here because there isn't a
                 # unified actions+masks score. Fortunately, softmax is
                 # differentiable
-                all_action_scores.append(concatenated_log_softmax[0])
+                all_action_scores.append(concatenated_softmax[0])
                 discrete_action_logits.append(action_scores[0])
             else:
                 pred_mask_indexes.append(pred_mask_index)
@@ -449,10 +449,10 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
 
             chosen_action_index = trajectory_results['pred_action_indexes'][i]
             if outer_product_sampling:
-                # Scores are already log-softmaxed and have action and mask
+                # Scores are already softmaxed and have action and mask
                 # combined
-                action_log_prob = trajectory_results['all_action_scores'][i][
-                        chosen_action_index]
+                action_log_prob = torch.log(trajectory_results[
+                    'all_action_scores'][i][chosen_action_index])
             else:
                 action_log_prob = F.log_softmax(
                         trajectory_results['all_action_scores'][i], dim=-1)[
