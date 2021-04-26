@@ -43,7 +43,11 @@ class InteractionReward(object):
         small that means that step_penalty should be given instead.
         """
         if not state.metadata['lastActionSuccess'] or not api_success:
-            reward = self.rewards['invalid_action']
+            if action in constants.NAV_ACTIONS:
+                reward = self.rewards['invalid_navigation']
+            elif (action in constants.INT_ACTIONS or action ==
+                    constants.ACTIONS_INTERACT):
+                reward = self.rewards['invalid_interaction']
         # Don't state.metadata['lastAction'] since ThorEnv often sets it to
         # weird things like 'TeleportFull' or 'Pass' (if a faucet is turned on)
         elif ((state.metadata['lastActionSuccess'] and api_success) and
@@ -138,7 +142,8 @@ class InteractionReward(object):
         # This is a bit of a hack so that self.repeat_discount = 0.0 works as
         # expected to make repeated actions take a step penalty instead of 0
         # reward and also so the model doesn't get a tiny tiny positive reward forever
-        if reward < 1e-5 and reward != self.rewards['invalid_action']:
+        if (reward < 1e-5 and reward != self.rewards['invalid_navigation'] and
+                reward != self.rewards['invalid_interaction']):
             reward = self.rewards['step_penalty']
         return reward
 
@@ -154,8 +159,11 @@ class InteractionReward(object):
             return raw_reward * pow(self.repeat_discount,
                     times_visited - 1)
 
-    def invalid_action(self):
-        return self.rewards['invalid_action']
+    def invalid_action(self, interaction=False):
+        if interaction:
+            return self.rewards['invalid_interaction']
+        else:
+            return self.rewards['invalid_navigation']
 
     def reset(self, init=False, scene_name_or_num=None):
         """
