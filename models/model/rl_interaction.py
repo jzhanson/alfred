@@ -107,7 +107,8 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
             # trajectory_results for the action_log_prob calculation
             if inverse_score:
                 # Small epsilon to prevent divide by zero
-                mask_scores = [1 / (torch.sigmoid(mask_scores[0]) + 1e-20)]
+                #mask_scores = [1 / (torch.sigmoid(mask_scores[0]) + 1e-20)]
+                mask_scores[0] *= -1
             # Only attempt one action (which might fail) instead of trying all
             # actions in order
             if outer_product_sampling:
@@ -232,7 +233,8 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
             # probability is correct (post-sigmoid)
             if inverse_score:
                 # Small epsilon to prevent divide by zero
-                action_scores = [1 / (torch.sigmoid(action_scores[0]) + 1e-20)]
+                #action_scores = [1 / (torch.sigmoid(action_scores[0]) + 1e-20)]
+                action_scores[0] *= -1
             if sample_action:
                 pred_action_index = multinomial(logits=F.log_softmax(
                     action_scores[0], dim=-1), num_samples=1)
