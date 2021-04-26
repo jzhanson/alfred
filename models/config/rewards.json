@@ -5,7 +5,8 @@
     "interaction": 1,
     "state_change": 1,
     "step_penalty": -0.01,
-    "invalid_action": -0.1
+    "invalid_navigation": -0.1,
+    "invalid_interaction": -0.1
   },
   "InteractionExplorationLowerNavigation":
   {
@@ -13,7 +14,8 @@
     "interaction": 1,
     "state_change": 1,
     "step_penalty": -0.01,
-    "invalid_action": -0.1
+    "invalid_navigation": -0.1,
+    "invalid_interaction": -0.1
   },
   "InteractionExplorationNoNavigation":
   {
@@ -21,7 +23,8 @@
     "interaction": 1,
     "state_change": 1,
     "step_penalty": -0.01,
-    "invalid_action": -0.1
+    "invalid_navigation": -0.1,
+    "invalid_interaction": -0.1
   },
   "Generic":
   {
