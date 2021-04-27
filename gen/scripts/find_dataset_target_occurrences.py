@@ -126,12 +126,14 @@ def run(thread_id):
 args = parser.parse_args()
 
 
+'''
 threads = []
 for n in range(args.num_threads):
     thread = threading.Thread(target=run, args=(n,))
     threads.append(thread)
     thread.start()
     time.sleep(1)
+'''
 
 '''
 total_hidden_targets = 0
@@ -231,6 +233,7 @@ print(sorted_counts)
 '''
 
 '''
+thor_env = ThorEnv()
 # Load scenes and figure out which objects are impossible targets
 # (hidden in things) from https://arxiv.org/pdf/1812.00971.pdf
 # Can manually remove objects like Bed or CounterTop that are "too large"
@@ -281,3 +284,29 @@ print(sorted(objects.items(), key=lambda x: x[1], reverse=True))
 print('containers: ')
 print(sorted(containers.items(), key=lambda x: x[1], reverse=True))
 '''
+thor_env = ThorEnv()
+cookable = defaultdict(int)
+canChangeTempToHot = defaultdict(int)
+cookable_not_canChangeTempToHot = defaultdict(int)
+canChangeTempToHot_not_cookable = defaultdict(int)
+for scene_num in tqdm(constants.SCENE_NUMBERS):
+    thor_env.reset(scene_num)
+    for obj in thor_env.last_event.metadata['objects']:
+        if obj['cookable']:
+            cookable[obj['objectType']] += 1
+        elif obj['canChangeTempToHot']:
+            canChangeTempToHot[obj['objectType']] += 1
+
+        if obj['cookable'] and not obj['canChangeTempToHot']:
+            cookable_not_canChangeTempToHot[obj['objectType']] += 1
+        elif obj['canChangeTempToHot'] and not obj['cookable']:
+            canChangeTempToHot_not_cookable[obj['objectType']] += 1
+print('cookable:')
+print(cookable)
+print('canChangeTempToHot:')
+print(canChangeTempToHot)
+
+print('cookable not canChangeTempToHot:')
+print(cookable_not_canChangeTempToHot)
+print('canChangeTempToHot not cookable:')
+print(canChangeTempToHot_not_cookable)
