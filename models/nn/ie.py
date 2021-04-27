@@ -587,7 +587,6 @@ if __name__ == '__main__':
             policy_model=policy_model, slic_kwargs=slic_kwargs,
             neighbor_depth=0, black_outer=True)
 
-    '''
     sys.path.append(os.path.join(os.environ['ALFRED_ROOT'], 'env'))
     # for alfred's graph in env/tasks.py
     sys.path.append(os.path.join(os.environ['ALFRED_ROOT'], 'gen'))
@@ -602,9 +601,11 @@ if __name__ == '__main__':
     reward = InteractionReward(env, reward_config)
     ie = InteractionExploration(env, reward)
     frame = ie.reset()
-    '''
 
-    frame = io.imread('/home/jzhanson/alfred/saved/test_frame.png')
+    '''
+    frame = io.imread(os.path.join(os.environ['ALFRED_ROOT'],
+        'saved/test_frame.png'))
+    '''
     print(frame.shape)
 
     print('SuperpixelFusion')
