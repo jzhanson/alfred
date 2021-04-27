@@ -31,14 +31,18 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--num-threads', type=int, default=1)
 
 
-with open('/home/jzhanson/alfred/data/find_one_find_pngs/obj_type_to_index.json', 'r') as jsonfile:
+with open(os.path.join(os.environ['ALFRED_ROOT'],
+        'data/find_one_find_pngs/obj_type_to_index.json'), 'r') as jsonfile:
     obj_type_to_index = json.load(jsonfile)
 
-with open('/home/jzhanson/alfred/data/find_one_find_pngs/train.json', 'r') as jsonfile:
+with open(os.path.join(os.environ['ALFRED_ROOT'],
+        'data/find_one_find_pngs/train.json'), 'r') as jsonfile:
     train = json.load(jsonfile)
-with open('/home/jzhanson/alfred/data/find_one_find_pngs/valid_seen.json', 'r') as jsonfile:
+with open(os.path.join(os.environ['ALFRED_ROOT'],
+        'data/find_one_find_pngs/valid_seen.json'), 'r') as jsonfile:
     valid_seen = json.load(jsonfile)
-with open('/home/jzhanson/alfred/data/find_one_find_pngs/valid_unseen.json', 'r') as jsonfile:
+with open(os.path.join(os.environ['ALFRED_ROOT'],
+        'data/find_one_find_pngs/valid_unseen.json'), 'r') as jsonfile:
     valid_unseen = json.load(jsonfile)
 
 global current_trajectory_index
@@ -111,11 +115,13 @@ def run(thread_id):
                             parent_receptacle['isOpen']))
 
     # Dump to JSON to sort later
-    with open('/home/jzhanson/alfred/data/valid_unseen_hidden_target_stats_' +
-            str(thread_id) + '.json', 'w+') as outfile:
+    with open(os.path.join(os.environ['ALFRED_ROOT'],
+            'data/valid_unseen_hidden_target_stats_' + str(thread_id) + '.json'),
+            'w+') as outfile:
         json.dump(targets_receptacles, outfile, indent=4)
-    with open('/home/jzhanson/alfred/data/valid_unseen_hidden_target_skipped_' +
-            str(thread_id) + '.json', 'w+') as outfile:
+    with open(os.path.join(os.environ['ALFRED_ROOT'],
+            'data/valid_unseen_hidden_target_skipped_' + str(thread_id) + '.json'),
+            'w+') as outfile:
         json.dump(skipped_trajectory_indexes, outfile, indent=4)
     print('Skipped trajectory indexes:')
     print(skipped_trajectory_indexes)
@@ -141,7 +147,8 @@ hidden_target_counts = defaultdict(int)
 containers_counts = defaultdict(int)
 combined_hidden_stats = []
 for i in range(8):
-    stats_path = '/home/jzhanson/alfred/data/valid_seen_hidden_target_stats_' + str(i) + '.json'
+    stats_path = (os.path.join(os.environ['ALFRED_ROOT'],
+        'data/valid_seen_hidden_target_stats_' + str(i) + '.json'))
     with open(stats_path, 'r') as jsonfile:
         # List of trajectory_index, target_type, parent_receptacle_type,
         # parent_receptacle is open
@@ -155,7 +162,9 @@ for i in range(8):
         combined_hidden_stats.extend(stats)
 
 print(len(combined_hidden_stats))
-with open('/home/jzhanson/alfred/data/find_one_find_pngs_valid_seen_hidden_object_stats.json', 'w') as outfile:
+with open(os.path.join(os.environ['ALFRED_ROOT'],
+        'data/find_one_find_pngs_valid_seen_hidden_object_stats.json'),
+        'w') as outfile:
     json.dump(combined_hidden_stats, outfile, indent=4)
 
 # 14K out of 100K training trajectories have a hidden target, not counting
@@ -217,7 +226,8 @@ print(sorted_containers_counts)
 '''
 counts = defaultdict(int)
 
-with open('/home/jzhanson/alfred/data/find_one_find_pngs/train.json', 'r') as jsonfile:
+with open(os.path.join(os.environ['ALFRED_ROOT'],
+        'data/find_one_find_pngs/train.json'), 'r') as jsonfile:
     train = json.load(jsonfile)
 
 for trajectory in tqdm(train):
@@ -250,13 +260,13 @@ for scene_num in tqdm(constants.SCENE_NUMBERS):
                     contained_objects[scene_num].append((obj['objectId'],
                         parent_receptacle_id, parent_receptacle['isOpen']))
 
-with open('/home/jzhanson/alfred/data/scenes_contained_objects.json', 'w') \
-        as outfile:
+with open(os.path.join(os.environ['ALFRED_ROOT'],
+        'data/scenes_contained_objects.json'), 'w') as outfile:
     json.dump(contained_objects, outfile, indent=4)
 
 # Lightly analyze the objects and containers
-with open('/home/jzhanson/alfred/data/scenes_contained_objects.json', 'r') \
-        as jsonfile:
+with open(os.path.join(os.environ['ALFRED_ROOT'],
+        'data/scenes_contained_objects.json'), 'r') as jsonfile:
     contained_objects = json.load(jsonfile)
 
 flat_contained_objects = []
