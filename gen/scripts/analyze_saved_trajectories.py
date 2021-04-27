@@ -30,7 +30,8 @@ SMALL_OBJECTS = set(SMALL_OBJECTS)
 # Stuff that can't be put inside a receptacle
 LARGE_OBJECTS = set(constants.OBJECTS) - SMALL_OBJECTS
 '''
-with open('/home/jzhanson/alfred/data/find_one_find_pngs/obj_type_to_index.json') as jsonfile:
+with open(os.path.join(os.environ['ALFRED_ROOT'],
+        'data/find_one_find_pngs/obj_type_to_index.json')) as jsonfile:
     obj_type_to_index = json.load(jsonfile)
 print(set(obj_type_to_index.keys()) - SMALL_OBJECTS - LARGE_OBJECTS)
 '''
