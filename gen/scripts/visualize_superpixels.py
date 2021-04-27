@@ -130,9 +130,6 @@ if __name__ == '__main__':
     # and image paths within that just so we can get a simple tqdm bar
     for image_path in tqdm(image_paths):
         image = img_as_float(io.imread(image_path))
-        #image =  img_as_float(io.imread('/home/jzhanson/alfred/selected_trajectories/pick_two_obj_and_place-WineBottle-None-GarbageCan-1/trial_T20190906_200307_446636/000000121.jpg'))
-        #image =  img_as_float(io.imread('/home/jzhanson/alfred/selected_trajectories/pick_cool_then_place_in_recep-Cup-None-Cabinet-12/trial_T20190909_102554_108303/000000181.jpg'))
-        #image =  img_as_float(io.imread('/home/jzhanson/alfred/selected_trajectories/pick_cool_then_place_in_recep-Cup-None-Cabinet-12/trial_T20190909_102554_108303/000000073.jpg'))
 
         # Top row only displays original image
         nrows = len(params[args.outer_rows])*len(params[args.inner_rows])+1
