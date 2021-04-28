@@ -125,17 +125,17 @@ mpl.use('Agg')
 import matplotlib.pyplot as plt
 
 plt.clf()
-plt.boxplot([navigation_coverages[:30], navigation_coverages[30:60], navigation_coverages[60:90], navigation_coverages[90:]], labels=['Kitchen', 'Living Room', 'Bedroom', 'Bathroom'])
+plt.boxplot([navigation_coverages[:30], navigation_coverages[30:60], navigation_coverages[60:90], navigation_coverages[90:], navigation_coverages], labels=['Kitchen', 'Living Room', 'Bedroom', 'Bathroom', 'All'])
 plt.title('Scene navigation coverages')
 plt.savefig(os.path.join(os.environ['ALFRED_ROOT'], 'saved/scene_navigation_coverages.png'))
 
 plt.clf()
-plt.boxplot([interaction_coverages[:30], interaction_coverages[30:60], interaction_coverages[60:90], interaction_coverages[90:]], labels=['Kitchen', 'Living Room', 'Bedroom', 'Bathroom'])
+plt.boxplot([interaction_coverages[:30], interaction_coverages[30:60], interaction_coverages[60:90], interaction_coverages[90:], interaction_coverages], labels=['Kitchen', 'Living Room', 'Bedroom', 'Bathroom', 'All'])
 plt.title('Scene interaction coverages')
 plt.savefig(os.path.join(os.environ['ALFRED_ROOT'], 'saved/scene_interaction_coverages.png'))
 
 plt.clf()
-plt.boxplot([state_change_coverages[:30], state_change_coverages[30:60], state_change_coverages[60:90], state_change_coverages[90:]], labels=['Kitchen', 'Living Room', 'Bedroom', 'Bathroom'])
+plt.boxplot([state_change_coverages[:30], state_change_coverages[30:60], state_change_coverages[60:90], state_change_coverages[90:], state_change_coverages], labels=['Kitchen', 'Living Room', 'Bedroom', 'Bathroom', 'All'])
 plt.title('Scene state change coverages')
 plt.savefig(os.path.join(os.environ['ALFRED_ROOT'], 'saved/scene_state_change_coverages.png'))
 '''
