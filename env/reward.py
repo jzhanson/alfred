@@ -58,6 +58,10 @@ class InteractionReward(object):
                 self.interactions[interaction] = 1
             else:
                 self.interactions[interaction] += 1
+            if interaction not in self.trajectory_interactions:
+                self.trajectory_interactions[interaction] = 1
+            else:
+                self.trajectory_interactions[interaction] += 1
             times_visited = self.interactions[interaction]
             reward = self.get_discounted_reward(self.rewards['interaction'],
                     times_visited)
@@ -121,6 +125,18 @@ class InteractionReward(object):
                     # Update times_visited
                     self.visited_locations_poses[location][(rotation,
                         look_angle)] += 1
+            if location not in self.trajectory_visited_locations_poses:
+                self.trajectory_visited_locations_poses[location] = {(rotation,
+                    look_angle) : 1}
+            elif location in self.trajectory_visited_locations_poses:
+                if ((rotation, look_angle) not in
+                        self.trajectory_visited_locations_poses[location]):
+                    self.trajectory_visited_locations_poses[location][
+                            (rotation, look_angle)] = 1
+                else:
+                    # Update times_visited
+                    self.trajectory_visited_locations_poses[location][
+                            (rotation, look_angle)] += 1
 
             # At this point, self.visited_locations_poses and its counts are up
             # to date
@@ -215,7 +231,37 @@ class InteractionReward(object):
         self.trajectory_cleaned_objects = set()
         self.trajectory_heated_objects = set()
         self.trajectory_cooled_objects = set()
+        # Also, keep track of interactions and visited_locations_poses for the
+        # current trajectory for getting the coverage. Can't use self.memory,
+        # and can't keep these and append to self.memory at the end because
+        # computing the reward from self.memory and
+        # self.trajectory_interactions would be complex
+        self.trajectory_interactions = {}
+        self.trajectory_visited_locations_poses = {}
         self.trajectories += 1
+
+    def get_coverages(self):
+        """
+        Returns navigation only coverage, navigation + poses
+        coverage, interaction coverage, state change coverage.
+        """
+        navigation_location_coverage = (len(
+                self.trajectory_visited_locations_poses) /
+                constants.SCENE_NAVIGATION_COVERAGES[self.scene_name_or_num])
+        # 4 rotations, 7 look angles between -30 and 60 with increments of 15
+        navigation_location_pose_coverage = (sum([len(poses) for poses in
+            self.trajectory_visited_locations_poses.values()]) /
+                (constants.SCENE_NAVIGATION_COVERAGES[self.scene_name_or_num] *
+                        4 * 7))
+        interaction_coverage = (len(self.trajectory_interactions) /
+                constants.SCENE_INTERACTION_COVERAGES[self.scene_name_or_num])
+        state_change_coverage = ((len(self.trajectory_cleaned_objects) +
+                len(self.trajectory_heated_objects) +
+                len(self.trajectory_cooled_objects)) /
+                constants.SCENE_STATE_CHANGE_COVERAGES[self.scene_name_or_num])
+        return (navigation_location_coverage,
+                navigation_location_pose_coverage, interaction_coverage,
+                state_change_coverage)
 
 class BaseAction(object):
     '''
