@@ -390,6 +390,9 @@ class InteractionExploration(object):
         # end of expert_actions
         return [{'action' : 'MoveAhead'}], []
 
+    def get_coverages(self):
+        return self.reward.get_coverages()
+
 if __name__ == '__main__':
     single_interact = False
     use_masks = True
