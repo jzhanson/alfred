@@ -566,8 +566,7 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
                 outer_product_sampling=outer_product_sampling,
                 single_interact=single_interact, save_path=None)
 
-        # Evaluate and save checkpoint every N trajectories, collect/print
-        # stats
+        # Save checkpoint every N trajectories, collect/print stats
         if train_steps % eval_interval == 0 or train_steps == max_steps:
             print('steps %d frames %d' % (train_steps, train_frames))
             results = {}
@@ -581,30 +580,6 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
                     outer_product_sampling=outer_product_sampling,
                     single_interact=single_interact,
                     save_path=None)
-            '''
-
-            # Collect validation statistics and write, print
-            # TODO: do we want different max trajectory lengths, scene numbers
-            # for eval?
-            '''
-            results = evaluate(env, model, single_interact=single_interact,
-                    use_masks=use_masks,
-                    use_gt_segmentation=use_gt_segmentation,
-                    fusion_model=fusion_model,
-                    outer_product_sampling=outer_product_sampling,
-                    zero_null_superpixel_features=zero_null_superpixel_features,
-                    scene_numbers=scene_numbers,
-                    max_trajectory_length=max_trajectory_length,
-                    frame_stack=frame_stack,
-                    zero_fill_frame_stack=zero_fill_frame_stack,
-                    train_episodes=train_episodes,
-                    valid_seen_episodes=valid_seen_episodes,
-                    valid_unseen_episodes=valid_unseen_episodes, device=device)
-
-            write_results(writer, results, train_steps,
-                    fusion_model=fusion_model,
-                    outer_product_sampling=outer_product_sampling,
-                    single_interact=single_interact, save_path=save_path)
             '''
 
             if save_path is not None:
@@ -623,96 +598,6 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
 
                 if save_images_video:
                     write_images_video(results, train_steps, save_path)
-
-# TODO: update scene_numbers argument and below
-def evaluate(env, model, single_interact=False, use_masks=True,
-        use_gt_segmentation=False, fusion_model='SuperpixelFusion',
-        outer_product_sampling=False, inverse_score=False,
-        zero_null_superpixel_features=True, scene_numbers=None,
-        max_trajectory_length=None, frame_stack=1, zero_fill_frame_stack=False,
-        train_episodes=1, valid_seen_episodes=1, valid_unseen_episodes=1,
-        device=torch.device('cpu')):
-    """
-    Evaluate by gathering live rollouts in the environment.
-    """
-    model.eval()
-    metrics = {}
-    # Use DATASET_*_SCENE_NUMBERS for now
-    for split, episodes, scene_numbers in zip(
-            ['train', 'valid_seen', 'valid_unseen'],
-            [train_episodes, valid_seen_episodes, valid_unseen_episodes],
-            [constants.DATASET_TRAIN_SCENE_NUMBERS,
-                constants.DATASET_VALID_SEEN_SCENE_NUMBERS,
-                constants.DATASET_VALID_UNSEEN_SCENE_NUMBERS]):
-        metrics[split] = {}
-        # TODO: add other metrics that are in last_metrics
-        metrics[split]['success'] = []
-        metrics[split]['rewards'] = []
-        metrics[split]['avg_action_entropy'] = []
-        metrics[split]['all_action_scores'] = []
-        if fusion_model == 'SuperpixelFusion':
-            metrics[split]['all_mask_scores'] = []
-            metrics[split]['avg_mask_entropy'] = []
-            if outer_product_sampling:
-                metrics[split]['discrete_action_logits'] = []
-        metrics[split]['trajectory_length'] = []
-        metrics[split]['frames'] = []
-        metrics[split]['scene_name_or_num'] = []
-        for i in range(episodes):
-            with torch.no_grad():
-                if scene_numbers is not None:
-                    # If scene_numbers is provided, set up those scenes exactly
-                    # the same way every time
-                    scene_num = scene_numbers
-                    reset_kwargs = {
-                            'random_object_positions' : False,
-                            'random_position' : False,
-                            'random_rotation' : False,
-                            'random_look_angle' : False
-                    }
-                else:
-                    scene_num = random.choice(scene_numbers)
-                    reset_kwargs = {}
-                trajectory_results = rollout_trajectory(env, model,
-                        single_interact=single_interact, use_masks=use_masks,
-                        use_gt_segmentation=use_gt_segmentation,
-                        fusion_model=fusion_model,
-                        outer_product_sampling=outer_product_sampling,
-                        inverse_score=inverse_score,
-                        zero_null_superpixel_features=zero_null_superpixel_features,
-                        max_trajectory_length=max_trajectory_length,
-                        frame_stack=frame_stack,
-                        zero_fill_frame_stack=zero_fill_frame_stack,
-                        sample_action=False, sample_mask=False,
-                        scene_name_or_num=scene_num,
-                        reset_kwargs=reset_kwargs, device=device)
-            metrics[split]['success'].append(trajectory_results['success'])
-            metrics[split]['rewards'].append(
-                    float(sum(trajectory_results['rewards'])))
-            metrics[split]['avg_action_entropy'].append(
-                    torch.mean(trajectory_results['action_entropy']).item())
-            metrics[split]['all_action_scores'].append(
-                    [action_scores.detach().cpu() for action_scores in
-                        trajectory_results['all_action_scores']])
-            if fusion_model == 'SuperpixelFusion':
-                metrics[split]['all_mask_scores'].append(
-                        [mask_scores.detach().cpu() for mask_scores in
-                            trajectory_results['all_mask_scores']])
-                metrics[split]['avg_mask_entropy'].append(
-                        torch.mean(trajectory_results['mask_entropy']).item())
-                if outer_product_sampling:
-                    metrics[split]['discrete_action_logits'].append(
-                            [logits.detach().cpu() for mask_scores in
-                                trajectory_results['discrete_action_logits']])
-            metrics[split]['trajectory_length'].append(
-                    float(len(trajectory_results['frames'])))
-            metrics[split]['frames'].append(trajectory_results['frames'])
-            metrics[split]['scene_name_or_num'].append(
-                    trajectory_results['scene_name_or_num'])
-
-    model.train()
-    #model.visual_model.resnet_model.model.eval()
-    return metrics
 
 def write_results(writer, results, train_steps, train_frames=None,
         train_trajectories=None, fusion_model='SuperpixelFusion',
