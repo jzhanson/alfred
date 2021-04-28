@@ -325,6 +325,12 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
     trajectory_results['expert_action_indexes'] = expert_action_indexes
     trajectory_results['success'] = float(success)
     trajectory_results['rewards'] = rewards
+    (coverage_navigation, coverage_navigation_poses, coverage_interaction,
+            coverage_state_change) = env.get_coverages()
+    trajectory_results['coverage_navigation'] = coverage_navigation
+    trajectory_results['coverage_navigation_pose'] = coverage_navigation_poses
+    trajectory_results['coverage_interaction'] = coverage_interaction
+    trajectory_results['coverage_state_change'] = coverage_state_change
     # Record average policy entropy over an episode
     # Need to keep grad since these entropies are used for the loss
     action_entropy = per_step_entropy(all_action_scores)
@@ -377,6 +383,10 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
     last_metrics['value_loss'] = []
     last_metrics['success'] = []
     last_metrics['rewards'] = []
+    last_metrics['coverage_navigation'] = []
+    last_metrics['coverage_navigation_pose'] = []
+    last_metrics['coverage_interaction'] = []
+    last_metrics['coverage_state_change'] = []
     last_metrics['values'] = []
     last_metrics['trajectory_length'] = []
     last_metrics['avg_action_entropy'] = []
@@ -500,6 +510,14 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
         last_metrics['value_loss'].append(value_loss.item())
         last_metrics['success'].append(float(trajectory_results['success']))
         last_metrics['rewards'].append(float(sum(trajectory_results['rewards'])))
+        last_metrics['coverage_navigation'].append(
+                trajectory_results['coverage_navigation'])
+        last_metrics['coverage_navigation_pose'].append(
+                trajectory_results['coverage_navigation_pose'])
+        last_metrics['coverage_interaction'].append(
+                trajectory_results['coverage_interaction'])
+        last_metrics['coverage_state_change'].append(
+                trajectory_results['coverage_state_change'])
         last_metrics['values'].append([value.detach().cpu() for value in
             trajectory_results['values']])
         last_metrics['trajectory_length'].append(
