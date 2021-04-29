@@ -217,6 +217,13 @@ if __name__ == '__main__':
         elif 'bathroom' in args.scene_types:
             scene_numbers.extend(constants.BATHROOM_TRAIN_SCENE_NUMBERS)
 
+    reset_kwargs = {
+            'random_object_positions' : args.random_object_positions,
+            'random_position' : args.random_position,
+            'random_rotation' : args.random_rotation,
+            'random_look_angle' : args.random_look_angle
+    }
+
     train(model, ie, optimizer, gamma=args.gamma, tau=args.tau,
             value_loss_coefficient=args.value_loss_coefficient,
             entropy_coefficient=args.entropy_coefficient,
@@ -229,7 +236,7 @@ if __name__ == '__main__':
             zero_null_superpixel_features=args.zero_null_superpixel_features,
             curiosity_model=curiosity_model,
             curiosity_lambda=args.curiosity_lambda,
-            scene_numbers=scene_numbers,
+            scene_numbers=scene_numbers, reset_kwargs=reset_kwargs,
             max_trajectory_length=args.max_trajectory_length,
             frame_stack=args.frame_stack,
             zero_fill_frame_stack=args.zero_fill_frame_stack,
