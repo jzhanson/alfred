@@ -38,15 +38,20 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
         zero_null_superpixel_features=True, curiosity_model=None,
         max_trajectory_length=None, frame_stack=1, zero_fill_frame_stack=False,
         teacher_force=False, sample_action=True, sample_mask=True,
-        scene_name_or_num=None, reset_kwargs={}, device=torch.device('cpu')):
+        scene_name_or_num=None, reset_kwargs={},
+        trajectory_info_save_path=None, device=torch.device('cpu')):
     """
     Returns dictionary of trajectory results.
+
+    If trajectory_info_save_path is not None, saves json of minimum data needed to
+    reproduce trajectory.
     """
     frames = []
     action_successes = []
     all_action_scores = []
     values = []
     pred_action_indexes = []
+    pred_mask_indexes = []
     rewards = []
     expert_action_indexes = []
     if fusion_model == 'SuperpixelFusion':
@@ -55,8 +60,6 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
             # Keep track of logits for interaction actions also instead of just
             # individual (action x superpixel) softmax scores
             discrete_action_logits = []
-        else:
-            pred_mask_indexes = []
     if curiosity_model is not None:
         curiosity_rewards = []
         curiosity_losses = []
@@ -65,6 +68,19 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
     num_steps = 0
     prev_action_features = torch.zeros(1, model.policy_model.prev_action_size,
             device=device)
+
+    # Save initial scene config
+    if trajectory_info_save_path is not None:
+        event = env.get_last_event()
+        trajectory_info = {}
+        trajectory_info['scene_num'] = env.get_scene_name_or_num()
+        trajectory_info['agent_pose_discrete'] = event.pose_discrete
+        trajectory_info['object_poses'] = [{'objectName':
+            obj['name'].split('(Clone)')[0], 'position': obj['position'],
+            'rotation': obj['rotation']} for obj in
+            event.metadata['objects'] if obj['pickupable']]
+        # All objects will be in the same state upon starting the scene, so no
+        # need to keep track of starting states beyond pose
 
     actions = (constants.SIMPLE_ACTIONS if single_interact else
             constants.COMPLEX_ACTIONS)
@@ -171,7 +187,7 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
 
                 if pred_action_index < len(constants.NAV_ACTIONS):
                     selected_action = actions[pred_action_index]
-                    pred_mask_index = None
+                    pred_mask_index = -1
                     selected_mask = None
                 else:
                     selected_action = superpixelactionconcat_index_to_action(
@@ -199,7 +215,7 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
                                 mask_scores[0]).unsqueeze(0)
                     selected_mask = masks[0][pred_mask_index]
                 else:
-                    pred_mask_index = None
+                    pred_mask_index = -1
                     selected_mask = None
                 selected_action = actions[pred_action_index]
 
@@ -241,6 +257,11 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
             else:
                 pred_action_index = torch.argmax(action_scores[0]).unsqueeze(0)
 
+            num_superpixels = superpixelactionconcat_get_num_superpixels(
+                    len(action_scores[0]), single_interact=single_interact)
+            pred_mask_index = ((pred_action_index - len(constants.NAV_ACTIONS))
+                    % num_superpixels)
+
             selected_action, selected_mask, _ = actions_masks_features[0][
                     pred_action_index]
 
@@ -276,6 +297,7 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
         action_successes.append(action_success)
         values.append(value[0])
         pred_action_indexes.append(pred_action_index)
+        pred_mask_indexes.append(pred_mask_index)
         rewards.append(reward)
         expert_action_indexes.append(action_to_index[current_expert_actions[0]
             ['action']])
@@ -288,7 +310,6 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
                 all_action_scores.append(concatenated_softmax[0])
                 discrete_action_logits.append(action_scores[0])
             else:
-                pred_mask_indexes.append(pred_mask_index)
                 all_action_scores.append(action_scores[0])
         elif fusion_model == 'SuperpixelActionConcat':
             all_action_scores.append(action_scores[0])
@@ -322,6 +343,7 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
     trajectory_results['all_action_scores'] = all_action_scores
     trajectory_results['values'] = values
     trajectory_results['pred_action_indexes'] = pred_action_indexes
+    trajectory_results['pred_mask_indexes'] = pred_mask_indexes
     trajectory_results['expert_action_indexes'] = expert_action_indexes
     trajectory_results['success'] = float(success)
     trajectory_results['rewards'] = rewards
@@ -342,11 +364,22 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
         if outer_product_sampling:
             trajectory_results['discrete_action_logits'] = (
                     discrete_action_logits)
-        else:
-            trajectory_results['pred_mask_indexes'] = pred_mask_indexes
     if curiosity_model is not None:
         trajectory_results['curiosity_rewards'] = curiosity_rewards
         trajectory_results['curiosity_losses'] = curiosity_losses
+
+    if trajectory_info_save_path is not None:
+        trajectory_info['pred_action_indexes'] = [pred_action_index.item() for
+                pred_action_index in pred_action_indexes]
+        trajectory_info['pred_mask_indexes'] = [pred_mask_index.item() for
+                pred_mask_index in pred_mask_indexes]
+        trajectory_info['rewards'] = rewards
+        if curiosity_model is not None:
+            trajectory_info['curiosity_rewards'] = [curiosity_reward.item() for
+                    curiosity_reward in curiosity_rewards]
+        with open(trajectory_info_save_path, 'w') as jsonfile:
+            json.dump(trajectory_info, jsonfile, indent=0)
+
     return trajectory_results
 
 def train(model, env, optimizer, gamma=1.0, tau=1.0,
@@ -360,7 +393,7 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
         sample_mask=True, train_episodes=10, valid_seen_episodes=10,
         valid_unseen_episodes=10, eval_interval=1000, max_steps=1000000,
         device=torch.device('cpu'), save_path=None, save_intermediate=False,
-        save_images_video=False, load_path=None):
+        save_images_video=False, save_trajectory_info=False, load_path=None):
     writer = SummaryWriter(log_dir='tensorboard_logs' if save_path is None else
             os.path.join(save_path, 'tensorboard_logs'))
 
@@ -405,6 +438,12 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
 
     # TODO: want a replay memory?
     while train_steps < max_steps:
+        if save_path is not None and save_trajectory_info:
+            trajectory_info_save_path = os.path.join(save_path,
+                    'trajectory_info', str(train_steps) + '.json')
+        else:
+            trajectory_info_save_path = None
+
         # Collect a trajectory
         scene_num = random.choice(scene_numbers)
         trajectory_results = rollout_trajectory(env, model,
@@ -420,7 +459,9 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
                 zero_fill_frame_stack=zero_fill_frame_stack,
                 teacher_force=teacher_force, sample_action=sample_action,
                 sample_mask=sample_mask, scene_name_or_num=scene_num,
-                reset_kwargs=reset_kwargs, device=device)
+                reset_kwargs=reset_kwargs,
+                trajectory_info_save_path=trajectory_info_save_path,
+                device=device)
         all_action_scores = torch.cat(trajectory_results['all_action_scores'])
 
         # https://github.com/dgriff777/rl_a3c_pytorch/blob/master/train.py
