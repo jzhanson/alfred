@@ -43,10 +43,9 @@ class InteractionExploration(object):
 
         if random_object_positions:
             # Can play around with numDuplicatesOfType to populate the
-            # environment with more objects
-            #
-            # TODO: can also consider randomizing object states (e.g.
-            # open/closed, toggled)
+            # environment with more objects, but then we need to compute
+            # max coverage live. Can also consider randomizing object states
+            # (e.g.  open/closed, toggled), but for consistency we don't
             event = self.env.step(dict(action='InitialRandomSpawn',
                     randomSeed=0,
                     forceVisible=False,
@@ -382,6 +381,9 @@ class InteractionExploration(object):
 
     def get_scene_name_or_num(self):
         return self.scene_name_or_num
+
+    def get_last_event(self):
+        return self.env.last_event
 
     def get_current_expert_actions_path(self):
         # TODO: make a function that gets the closest object and computes the
