@@ -355,12 +355,12 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
         fusion_model='SuperpixelFusion', outer_product_sampling=False,
         inverse_score=False, zero_null_superpixel_features=True,
         curiosity_model=None, curiosity_lambda=0.1, scene_numbers=None,
-        max_trajectory_length=None, frame_stack=1, zero_fill_frame_stack=False,
-        teacher_force=False, sample_action=True, sample_mask=True,
-        train_episodes=10, valid_seen_episodes=10, valid_unseen_episodes=10,
-        eval_interval=1000, max_steps=1000000, device=torch.device('cpu'),
-        save_path=None, save_intermediate=False, save_images_video=False,
-        load_path=None):
+        reset_kwargs={}, max_trajectory_length=None, frame_stack=1,
+        zero_fill_frame_stack=False, teacher_force=False, sample_action=True,
+        sample_mask=True, train_episodes=10, valid_seen_episodes=10,
+        valid_unseen_episodes=10, eval_interval=1000, max_steps=1000000,
+        device=torch.device('cpu'), save_path=None, save_intermediate=False,
+        save_images_video=False, load_path=None):
     writer = SummaryWriter(log_dir='tensorboard_logs' if save_path is None else
             os.path.join(save_path, 'tensorboard_logs'))
 
@@ -406,19 +406,7 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
     # TODO: want a replay memory?
     while train_steps < max_steps:
         # Collect a trajectory
-        if len(scene_numbers) == 1:
-            # If only one scene_number is provided, set up that scene exactly
-            # the same way every time
-            scene_num = scene_numbers[0]
-            reset_kwargs = {
-                    'random_object_positions' : False,
-                    'random_position' : False,
-                    'random_rotation' : False,
-                    'random_look_angle' : False
-            }
-        else:
-            scene_num = random.choice(scene_numbers)
-            reset_kwargs = {}
+        scene_num = random.choice(scene_numbers)
         trajectory_results = rollout_trajectory(env, model,
                 single_interact=single_interact, use_masks=use_masks,
                 use_gt_segmentation=use_gt_segmentation,
