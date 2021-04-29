@@ -22,6 +22,14 @@ from models.model.rl_interaction import train
 if __name__ == '__main__':
     args = parse_args()
 
+    if args.save_path is not None and not os.path.isdir(args.save_path):
+        print('making directory', args.save_path)
+        os.makedirs(args.save_path)
+    trajectory_info_path = os.path.join(args.save_path, 'trajectory_info')
+    if args.save_trajectory_info and not os.path.isdir(trajectory_info_path):
+        print('making directory', trajectory_info_path)
+        os.mkdir(trajectory_info_path)
+
     thor_env = ThorEnv()
 
     with open(os.path.join(os.environ['ALFRED_ROOT'], 'models/config/rewards.json'),
@@ -245,5 +253,9 @@ if __name__ == '__main__':
             valid_seen_episodes=args.valid_seen_episodes,
             valid_unseen_episodes=args.valid_unseen_episodes,
             eval_interval=args.eval_interval, max_steps=args.max_steps,
-            device=device, save_path=args.save_path, load_path=args.load_path)
+            device=device, save_path=args.save_path,
+            save_intermediate=args.save_intermediate,
+            save_images_video=args.save_images_video,
+            save_trajectory_info=args.save_trajectory_info,
+            load_path=args.load_path)
 
