@@ -54,12 +54,8 @@ class InteractionExploration(object):
                     numDuplicatesOfType=None, #[{objType: count}]
                     excludedReceptacles=None))
 
-        # Tabulate all interactable objects and mark as uninteracted with
-        instance_ids = [obj['objectId'] for obj in event.metadata['objects']]
-        self.interactable_instance_ids = self.env.prune_by_any_interaction(
-                instance_ids)
-        self.objects_interacted = {instance_id : False for instance_id in
-                self.interactable_instance_ids}
+        # Be careful when tabulating interactable instance ids, since slicing
+        # objects adds objects to the scene
 
         # Build scene graph
         self.graph = Graph(use_gt=True, construct_graph=True,
@@ -141,8 +137,7 @@ class InteractionExploration(object):
             # Choose object
             # TODO: can try out projecting the point at the center of the
             # screen, and finding the object closest to that
-            target_instance_id = self.center_of_view_object(
-                    allow_interacted=True, contextual=True)
+            target_instance_id = self.center_of_view_object(contextual=True)
             if target_instance_id is None:
                 err = 'No valid object visible for no mask interaction'
                 success = False
@@ -204,18 +199,6 @@ class InteractionExploration(object):
         # If target_instance_id is None it means no target instance was found,
         # if target_instance_id is '' it means that the action does not require
         # a target
-        if target_instance_id is not None and target_instance_id != '':
-            if not self.objects_interacted[target_instance_id]:
-                self.objects_interacted[target_instance_id] = True
-
-            if all(self.objects_interacted.values()):
-                self.done = True
-
-        '''
-        print('target instance id: ', target_instance_id)
-        print([obj['objectId'] for obj in
-            self.env.last_event.metadata['objects'] if obj['visible']])
-        '''
 
         self.steps_taken += 1
         reward = self.reward.get_reward(self.env.last_event, action,
@@ -248,7 +231,7 @@ class InteractionExploration(object):
             contextual_attributes.append('pickupable')
         return contextual_attributes
 
-    def center_of_view_object(self, allow_interacted=True, contextual=True):
+    def center_of_view_object(self, contextual=True):
         """Get object at or closest to center of view.
         """
         if contextual:
@@ -267,22 +250,19 @@ class InteractionExploration(object):
         object_id_to_average_pixel_distance = {}
 
         center_of_view_object_id = None
-        for object_id, object_interacted in self.objects_interacted.items():
-            obj = self.env.last_event.get_object(object_id)
+        for obj in self.env.last_event.metadata['objects']:
             if not obj['visible']:
-                continue
-            if not allow_interacted and object_interacted:
                 continue
             if contextual and not any([obj[attribute] for attribute in
                 contextual_attributes]):
                 continue
             if inventory_object_id == object_id:
                 continue
-            mask = self.env.last_event.instance_masks[object_id]
+            mask = self.env.last_event.instance_masks[obj['objectId']]
             xs, ys = np.nonzero(mask)
             xs_distance = np.power(xs - center_x, 2)
             ys_distance = np.power(ys - center_y, 2)
-            object_id_to_average_pixel_distance[object_id] = np.mean(np.sqrt(
+            object_id_to_average_pixel_distance[obj['objectId']] = np.mean(np.sqrt(
                 xs_distance + ys_distance))
         sorted_object_id_pixel_distances = sorted(
                 object_id_to_average_pixel_distance.items(), key=lambda x:
@@ -293,8 +273,7 @@ class InteractionExploration(object):
 
         return center_of_view_object_id
 
-    def closest_object(self, allow_not_visible=False,
-        allow_interacted=True, contextual=True):
+    def closest_object(self, allow_not_visible=False, contextual=True):
         """
         Returns object id of closest visible interactable object to current
         agent position.
@@ -302,9 +281,6 @@ class InteractionExploration(object):
         If contextual is true, items will be filtered based on current state
         (e.g. if not holding anything, will allow pickupable items, if holding
         a knife, will allow sliceable items).
-
-        If allow_interacted is False, will only return closest visible
-        uninteracted object.
 
         Inventory objects are not counted.
         """
@@ -321,13 +297,10 @@ class InteractionExploration(object):
         # meaning no object is found rather than no target needed for ''
         closest_object_id = None
         closest_object_distance = float('inf')
-        for object_id, object_interacted in self.objects_interacted.items():
-            obj = self.env.last_event.get_object(object_id)
+        for obj in self.env.last_event.metadata['objects']:
             if not allow_not_visible and not obj['visible']:
                 continue
-            if not allow_interacted and object_interacted:
-                continue
-            if inventory_object_id == object_id:
+            if inventory_object_id == obj['objectId']:
                 continue
             if contextual and not any([obj[attribute] for attribute in
                 contextual_attributes]):
@@ -335,7 +308,7 @@ class InteractionExploration(object):
 
             distance = obj['distance']
             if closest_object_id is None or distance < closest_object_distance:
-                closest_object_id = object_id
+                closest_object_id = obj['objectId']
                 closest_object_distance = distance
         return closest_object_id
 
