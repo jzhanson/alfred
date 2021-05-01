@@ -393,7 +393,7 @@ if __name__ == '__main__':
     import json
     with open(os.path.join(os.environ['ALFRED_ROOT'], 'models',
         'config', 'rewards.json'), 'r') as jsonfile:
-        reward_config = json.load(jsonfile)['InteractionExploration']
+        reward_config = json.load(jsonfile)['InteractionExplorationDefault']
 
     reward = InteractionReward(env, reward_config, repeat_discount=0.99,
             persist_state=True, use_novelty=True)
