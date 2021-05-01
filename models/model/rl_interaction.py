@@ -369,8 +369,16 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
         trajectory_results['curiosity_losses'] = curiosity_losses
 
     if trajectory_info_save_path is not None:
-        trajectory_info['pred_action_indexes'] = [pred_action_index.item() for
-                pred_action_index in pred_action_indexes]
+        if fusion_model == 'SuperpixelFusion':
+            trajectory_info['pred_action_indexes'] = [pred_action_index.item() for
+                    pred_action_index in pred_action_indexes]
+        elif fusion_model == 'SuperpixelActionConcat':
+            trajectory_info['pred_action_indexes'] = [action_to_index[
+                superpixelactionconcat_index_to_action(
+                    pred_action_index.item(), len(action_scores),
+                    single_interact=single_interact)] for pred_action_index,
+                action_scores in zip(pred_action_indexes, all_action_scores)]
+
         trajectory_info['pred_mask_indexes'] = [pred_mask_index.item() for
                 pred_mask_index in pred_mask_indexes]
         trajectory_info['rewards'] = rewards
