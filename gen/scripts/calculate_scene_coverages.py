@@ -20,8 +20,11 @@ scene_numbers = (list(constants.SCENE_TYPE['Kitchen']) +
 thor_env = ThorEnv()
 
 scene_navigation_coverages = {}
-scene_interaction_coverages = {}
-scene_state_change_coverages = {}
+scene_interaction_coverages_by_object = {}
+scene_state_change_coverages_by_object = {}
+scene_interaction_coverages_by_type = {}
+scene_state_change_coverages_by_type = {}
+
 for scene_number in tqdm(scene_numbers):
     event = thor_env.reset(scene_number)
     graph = Graph(use_gt=True, construct_graph=True, scene_id=scene_number)
@@ -38,49 +41,131 @@ for scene_number in tqdm(scene_numbers):
     has_fridge = any([obj['objectType'] == 'Fridge' for obj in
         event.metadata['objects']])
 
-    interaction_coverage = 0
-    state_change_coverage = 0
-    for obj in event.metadata['objects']:
-        if obj['toggleable']:
-            interaction_coverage += 2 # ToggleObjectOn, ToggleObjectOff
-        if obj['openable']:
-            interaction_coverage += 2 # OpenObject, CloseObject
-        if obj['pickupable']:
-            interaction_coverage += 2 # PickupObject, PutObject
-        if obj['sliceable'] and has_knife:
-            interaction_coverage += 1 # SliceObject
+    seen_object_types_in_scene = set()
 
-        # These state_change coverages are based on env/thor_env.py
+    # Another note: coverage can be weird for the single_interact case.
+    # I'm choosing not to implement coverage for single_interact because the
+    # InteractionExploration environment chooses the complex action and
+    # InteractionReward is only aware of the actual complex action taken. Also,
+    # single interact is meant to be a learning/sanity check crutch anyways,
+    # not a final evaluation, due to the finicky-ness of choosing a contextual
+    # interact action.
+    interaction_coverage_by_object = 0
+    interaction_coverage_by_type = 0
+    state_change_coverage_by_object = 0
+    state_change_coverage_by_type = 0
+    for obj in event.metadata['objects']:
+        object_type_seen_before = (obj['objectType'] in
+                seen_object_types_in_scene)
+        # Get interaction coverages by object (e.g. two instances of Fork both
+        # count their valid interactions towards coverage)
+        if obj['toggleable']:
+            # ToggleObjectOn, ToggleObjectOff
+            interaction_coverage_by_object += 2
+            if not object_type_seen_before:
+                interaction_coverage_by_type += 2
+        if obj['openable']:
+            interaction_coverage_by_object += 2 # OpenObject, CloseObject
+            if not object_type_seen_before:
+                interaction_coverage_by_type += 2
+        if obj['pickupable']:
+            interaction_coverage_by_object += 2 # PickupObject, PutObject
+            if not object_type_seen_before:
+                interaction_coverage_by_type += 2
+        if obj['sliceable'] and has_knife:
+            interaction_coverage_by_object += 1 # SliceObject
+            single_slice_interaction_coverage_by_object = 0
+            if not object_type_seen_before:
+                interaction_coverage_by_type += 1
+            obj_slice_type = obj['objectType'] + 'Sliced'
+            # All slices are pickupable, and not toggleable, openable, or
+            # sliceable
+            single_slice_interaction_coverage_by_object += 2
+            single_slice_state_change_coverage_by_object = 0
+            if (obj_slice_type in constants.VAL_RECEPTACLE_OBJECTS['SinkBasin']
+                    and has_faucet_sinkbasin):
+                single_slice_state_change_coverage_by_object += 1
+            if (obj_slice_type in constants.VAL_RECEPTACLE_OBJECTS['Microwave']
+                    and has_microwave):
+                single_slice_state_change_coverage_by_object += 1
+            if (obj_slice_type in constants.VAL_RECEPTACLE_OBJECTS['Fridge']
+                    and has_fridge):
+                single_slice_state_change_coverage_by_object += 1
+            # Assuming all slices have the same properties even though one
+            # slice is still the same object type for Bread, Lettuce, and maybe
+            # others. AFAIK this is the case
+            interaction_coverage_by_object += (
+                    single_slice_interaction_coverage_by_object *
+                    constants.NUM_SLICED_OBJ_PARTS[obj['objectType']])
+            state_change_coverage_by_object += (
+                    single_slice_state_change_coverage_by_object *
+                    constants.NUM_SLICED_OBJ_PARTS[obj['objectType']])
+            if not obj_slice_type in seen_object_types_in_scene:
+                interaction_coverage_by_type += (
+                        single_slice_interaction_coverage_by_object)
+                state_change_coverage_by_type += (
+                        single_slice_state_change_coverage_by_object)
+                seen_object_types_in_scene.add(obj_slice_type)
+
+        # TODO: It is possible that some objects in the scene would be able to
+        # fit into these receptacles and be cleaned/heated/cooled but don't
+        # show up in constants.VAL_RECEPTACLE_OBJECTS - is this a problem?
+
         # Only count cleaned state change affordance if there is a Faucet and
-        # SinkBasin in the scene
-        if obj['dirtyable'] and obj['isDirty'] and has_faucet_sinkbasin:
-            state_change_coverage += 1 # cleaned_objects
+        # SinkBasin in the scene and object fits in the sink
+        if (obj['objectType'] in constants.VAL_RECEPTACLE_OBJECTS['SinkBasin']
+                and has_faucet_sinkbasin):
+            state_change_coverage_by_object += 1 # cleaned_objects
+            if not object_type_seen_before:
+                state_change_coverage_by_type += 1
         # Anything that fits in the microwave or refrigerator can be heated or
         # cooled, respectively. This only counts the object once, even if it
         # can be sliced (i.e. Apple and that same instance but as AppleSliced
         # count as one state change)
         if (obj['objectType'] in constants.VAL_RECEPTACLE_OBJECTS['Microwave']
                 and has_microwave):
-            state_change_coverage += 1
+            state_change_coverage_by_object += 1
+            if not object_type_seen_before:
+                state_change_coverage_by_type += 1
         if (obj['objectType'] in constants.VAL_RECEPTACLE_OBJECTS['Fridge'] and
                 has_fridge):
-            state_change_coverage += 1
-    scene_interaction_coverages[scene_number] = interaction_coverage
-    scene_state_change_coverages[scene_number] = state_change_coverage
+            state_change_coverage_by_object += 1
+            if not object_type_seen_before:
+                state_change_coverage_by_type += 1
+
+        if not object_type_seen_before:
+            seen_object_types_in_scene.add(obj['objectType'])
+
+    scene_interaction_coverages_by_object[scene_number] = (
+            interaction_coverage_by_object)
+    scene_state_change_coverages_by_object[scene_number] = (
+            state_change_coverage_by_object)
+    scene_interaction_coverages_by_type[scene_number] = (
+            interaction_coverage_by_type)
+    scene_state_change_coverages_by_type[scene_number] = (
+            state_change_coverage_by_type)
 
 print(scene_navigation_coverages)
-print(scene_interaction_coverages)
-print(scene_state_change_coverages)
+print(scene_interaction_coverages_by_object)
+print(scene_state_change_coverages_by_object)
+print(scene_interaction_coverages_by_type)
+print(scene_state_change_coverages_by_type)
 
 with open(os.path.join(os.environ['ALFRED_ROOT'],
         'scene_navigation_coverages.json'), 'w') as jsonfile:
     json.dump(scene_navigation_coverages, jsonfile, indent=4)
 with open(os.path.join(os.environ['ALFRED_ROOT'],
-        'scene_interaction_coverages.json'), 'w') as jsonfile:
-    json.dump(scene_interaction_coverages, jsonfile, indent=4)
+        'scene_interaction_coverages_by_object.json'), 'w') as jsonfile:
+    json.dump(scene_interaction_coverages_by_object, jsonfile, indent=4)
 with open(os.path.join(os.environ['ALFRED_ROOT'],
-        'scene_state_change_coverages.json'), 'w') as jsonfile:
-    json.dump(scene_state_change_coverages, jsonfile, indent=4)
+        'scene_state_change_coverages_by_object.json'), 'w') as jsonfile:
+    json.dump(scene_state_change_coverages_by_object, jsonfile, indent=4)
+with open(os.path.join(os.environ['ALFRED_ROOT'],
+        'scene_interaction_coverages_by_type.json'), 'w') as jsonfile:
+    json.dump(scene_interaction_coverages_by_type, jsonfile, indent=4)
+with open(os.path.join(os.environ['ALFRED_ROOT'],
+        'scene_state_change_coverages_by_type.json'), 'w') as jsonfile:
+    json.dump(scene_state_change_coverages_by_type, jsonfile, indent=4)
 
 '''
 # Basic statistics and graphs
