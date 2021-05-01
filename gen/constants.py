@@ -1231,6 +1231,14 @@ OBJ_PARENTS['LettuceSliced'] = 'Lettuce'
 OBJ_PARENTS['PotatoSliced'] = 'Potato'
 OBJ_PARENTS['TomatoSliced'] = 'Tomato'
 
+# Some of the object naming conventions aren't shared, e.g. Bread_0 vs Bread
+NUM_SLICED_OBJ_PARTS = {}
+NUM_SLICED_OBJ_PARTS['Apple'] = 10
+NUM_SLICED_OBJ_PARTS['Bread'] = 10
+NUM_SLICED_OBJ_PARTS['Lettuce'] = 7
+NUM_SLICED_OBJ_PARTS['Potato'] = 8
+NUM_SLICED_OBJ_PARTS['Tomato'] = 7
+
 # force a different horizon view for objects of (type, location). If the location is None, force this horizon for all
 # objects of that type.
 FORCED_HORIZON_OBJS = {
