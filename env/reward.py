@@ -244,6 +244,10 @@ class InteractionReward(object):
         """
         Returns navigation only coverage, navigation + poses
         coverage, interaction coverage, state change coverage.
+
+        Coverage metric can be a little weird if single_interact, but
+        single_interact contextual interact was not designed to be a final
+        metric, only a sanity check stepping-stone.
         """
         navigation_location_coverage = (len(
                 self.trajectory_visited_locations_poses) /
@@ -254,11 +258,13 @@ class InteractionReward(object):
                 (constants.SCENE_NAVIGATION_COVERAGES[self.scene_name_or_num] *
                         4 * 7))
         interaction_coverage = (len(self.trajectory_interactions) /
-                constants.SCENE_INTERACTION_COVERAGES[self.scene_name_or_num])
+                constants.SCENE_INTERACTION_COVERAGES_BY_OBJECT[
+                    self.scene_name_or_num])
         state_change_coverage = ((len(self.trajectory_cleaned_objects) +
                 len(self.trajectory_heated_objects) +
                 len(self.trajectory_cooled_objects)) /
-                constants.SCENE_STATE_CHANGE_COVERAGES[self.scene_name_or_num])
+                constants.SCENE_STATE_CHANGE_COVERAGES_BY_OBJECT[
+                    self.scene_name_or_num])
         return (navigation_location_coverage,
                 navigation_location_pose_coverage, interaction_coverage,
                 state_change_coverage)
