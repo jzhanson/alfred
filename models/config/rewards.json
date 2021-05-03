@@ -8,7 +8,7 @@
     "invalid_navigation": -0.1,
     "invalid_interaction": -0.1
   },
-  "InteractionExplorationLowerNavigation":
+  "InteractionExplorationNavigation0.1":
   {
     "navigation": 0.1,
     "interaction": 1,
@@ -17,7 +17,7 @@
     "invalid_navigation": -0.1,
     "invalid_interaction": -0.1
   },
-  "InteractionExplorationLowerNavigationLowerInteractionPenalty":
+  "InteractionExplorationNavigation0.1InteractionPenalty-0.01":
   {
     "navigation": 0.1,
     "interaction": 1,
@@ -26,7 +26,7 @@
     "invalid_navigation": -0.1,
     "invalid_interaction": -0.01
   },
-  "InteractionExplorationLowerNavigationEvenLowerInteractionPenalty":
+  "InteractionExplorationNavigation0.1InteractionPenalty-0.001":
   {
     "navigation": 0.1,
     "interaction": 1,
@@ -35,7 +35,7 @@
     "invalid_navigation": -0.1,
     "invalid_interaction": -0.001
   },
-  "InteractionExplorationNoNavigation":
+  "InteractionExplorationNavigation0":
   {
     "navigation": 0,
     "interaction": 1,
@@ -44,7 +44,7 @@
     "invalid_navigation": -0.1,
     "invalid_interaction": -0.1
   },
-  "InteractionExplorationNoNavigationLowerInteractionPenalty":
+  "InteractionExplorationNavigation0InteractionPenalty-0.01":
   {
     "navigation": 0,
     "interaction": 1,
@@ -53,7 +53,7 @@
     "invalid_navigation": -0.1,
     "invalid_interaction": -0.01
   },
-  "InteractionExplorationNoNavigationEvenLowerInteractionPenalty":
+  "InteractionExplorationNavigation0InteractionPenalty-0.001":
   {
     "navigation": 0,
     "interaction": 1,
