@@ -243,7 +243,8 @@ class InteractionReward(object):
     def get_coverages(self):
         """
         Returns navigation only coverage, navigation + poses
-        coverage, interaction coverage, state change coverage.
+        coverage, interaction coverage by object, state change coverage by
+        object, interaction coverage by type, state change coverage by type.
 
         Coverage metric can be a little weird if single_interact, but
         single_interact contextual interact was not designed to be a final
@@ -257,17 +258,44 @@ class InteractionReward(object):
             self.trajectory_visited_locations_poses.values()]) /
                 (constants.SCENE_NAVIGATION_COVERAGES[self.scene_name_or_num] *
                         4 * 7))
-        interaction_coverage = (len(self.trajectory_interactions) /
+        interaction_coverage_by_object = (len(self.trajectory_interactions) /
                 constants.SCENE_INTERACTION_COVERAGES_BY_OBJECT[
                     self.scene_name_or_num])
-        state_change_coverage = ((len(self.trajectory_cleaned_objects) +
-                len(self.trajectory_heated_objects) +
-                len(self.trajectory_cooled_objects)) /
+        state_change_coverage_by_object = (
+                (len(self.trajectory_cleaned_objects) +
+                    len(self.trajectory_heated_objects) +
+                    len(self.trajectory_cooled_objects)) /
                 constants.SCENE_STATE_CHANGE_COVERAGES_BY_OBJECT[
                     self.scene_name_or_num])
+
+        # TODO: maybe implement option to give full reward by type instead of
+        # by object, once agents are learning and the sparse rewards aren't as
+        # much of a problem?
+        trajectory_interactions_by_type = set([(object_id.split('|')[0],
+            action) for object_id, action in
+            self.trajectory_interactions.keys()])
+        interaction_coverage_by_type = (len(trajectory_interactions_by_type) /
+                constants.SCENE_INTERACTION_COVERAGES_BY_TYPE[
+                    self.scene_name_or_num])
+        trajectory_cleaned_objects_by_type = [object_id.split('|')[0] for
+                object_id in self.trajectory_cleaned_objects]
+        trajectory_heated_objects_by_type = [object_id.split('|')[0] for
+                object_id in self.trajectory_heated_objects]
+        trajectory_cooled_objects_by_type = [object_id.split('|')[0] for
+                object_id in self.trajectory_cooled_objects]
+        state_change_coverage_by_type = (
+                (len(trajectory_cleaned_objects_by_type) +
+                    len(trajectory_heated_objects_by_type) +
+                    len(trajectory_cooled_objects_by_type)) /
+                constants.SCENE_STATE_CHANGE_COVERAGES_BY_TYPE[
+                    self.scene_name_or_num])
+
         return (navigation_location_coverage,
-                navigation_location_pose_coverage, interaction_coverage,
-                state_change_coverage)
+                navigation_location_pose_coverage,
+                interaction_coverage_by_object,
+                state_change_coverage_by_object,
+                interaction_coverage_by_type,
+                state_change_coverage_by_type)
 
 class BaseAction(object):
     '''
