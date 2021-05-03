@@ -17,6 +17,15 @@
     "invalid_navigation": -0.1,
     "invalid_interaction": -0.1
   },
+  "InteractionExplorationNavigation0.5InteractionPenalty-0.01":
+  {
+    "navigation": 0.5,
+    "interaction": 1,
+    "state_change": 1,
+    "step_penalty": -0.01,
+    "invalid_navigation": -0.1,
+    "invalid_interaction": -0.01
+  },
   "InteractionExplorationNavigation0.1InteractionPenalty-0.01":
   {
     "navigation": 0.1,
@@ -26,15 +35,6 @@
     "invalid_navigation": -0.1,
     "invalid_interaction": -0.01
   },
-  "InteractionExplorationNavigation0.1InteractionPenalty-0.001":
-  {
-    "navigation": 0.1,
-    "interaction": 1,
-    "state_change": 1,
-    "step_penalty": -0.01,
-    "invalid_navigation": -0.1,
-    "invalid_interaction": -0.001
-  },
   "InteractionExplorationNavigation0":
   {
     "navigation": 0,
@@ -43,24 +43,6 @@
     "step_penalty": -0.01,
     "invalid_navigation": -0.1,
     "invalid_interaction": -0.1
-  },
-  "InteractionExplorationNavigation0InteractionPenalty-0.01":
-  {
-    "navigation": 0,
-    "interaction": 1,
-    "state_change": 1,
-    "step_penalty": -0.01,
-    "invalid_navigation": -0.1,
-    "invalid_interaction": -0.01
-  },
-  "InteractionExplorationNavigation0InteractionPenalty-0.001":
-  {
-    "navigation": 0,
-    "interaction": 1,
-    "state_change": 1,
-    "step_penalty": -0.01,
-    "invalid_navigation": -0.1,
-    "invalid_interaction": -0.001
   },
   "Generic":
   {
