@@ -347,12 +347,23 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
     trajectory_results['expert_action_indexes'] = expert_action_indexes
     trajectory_results['success'] = float(success)
     trajectory_results['rewards'] = rewards
-    (coverage_navigation, coverage_navigation_poses, coverage_interaction,
-            coverage_state_change) = env.get_coverages()
-    trajectory_results['coverage_navigation'] = coverage_navigation
-    trajectory_results['coverage_navigation_pose'] = coverage_navigation_poses
-    trajectory_results['coverage_interaction'] = coverage_interaction
-    trajectory_results['coverage_state_change'] = coverage_state_change
+    (navigation_coverage,
+            navigation_poses_coverage,
+            interaction_coverage_by_object,
+            state_change_coverage_by_object,
+            interaction_coverage_by_type,
+            state_change_coverage_by_type) = env.get_coverages()
+    # coverage_* so the metrics are grouped together in tensorboard :P
+    trajectory_results['coverage_navigation'] = navigation_coverage
+    trajectory_results['coverage_navigation_pose'] = navigation_poses_coverage
+    trajectory_results['coverage_interaction_by_object'] = (
+            interaction_coverage_by_object)
+    trajectory_results['coverage_state_change_by_object'] = (
+            state_change_coverage_by_object)
+    trajectory_results['coverage_interaction_by_type'] = (
+            interaction_coverage_by_type)
+    trajectory_results['coverage_state_change_by_type'] = (
+            state_change_coverage_by_type)
     # Record average policy entropy over an episode
     # Need to keep grad since these entropies are used for the loss
     action_entropy = per_step_entropy(all_action_scores)
@@ -426,8 +437,10 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
     last_metrics['rewards'] = []
     last_metrics['coverage_navigation'] = []
     last_metrics['coverage_navigation_pose'] = []
-    last_metrics['coverage_interaction'] = []
-    last_metrics['coverage_state_change'] = []
+    last_metrics['coverage_interaction_by_object'] = []
+    last_metrics['coverage_state_change_by_object'] = []
+    last_metrics['coverage_interaction_by_type'] = []
+    last_metrics['coverage_state_change_by_type'] = []
     last_metrics['values'] = []
     last_metrics['trajectory_length'] = []
     last_metrics['avg_action_entropy'] = []
@@ -551,10 +564,14 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
                 trajectory_results['coverage_navigation'])
         last_metrics['coverage_navigation_pose'].append(
                 trajectory_results['coverage_navigation_pose'])
-        last_metrics['coverage_interaction'].append(
-                trajectory_results['coverage_interaction'])
-        last_metrics['coverage_state_change'].append(
-                trajectory_results['coverage_state_change'])
+        last_metrics['coverage_interaction_by_object'].append(
+                trajectory_results['coverage_interaction_by_object'])
+        last_metrics['coverage_state_change_by_object'].append(
+                trajectory_results['coverage_state_change_by_object'])
+        last_metrics['coverage_interaction_by_type'].append(
+                trajectory_results['coverage_interaction_by_type'])
+        last_metrics['coverage_state_change_by_type'].append(
+                trajectory_results['coverage_state_change_by_type'])
         last_metrics['values'].append([value.detach().cpu() for value in
             trajectory_results['values']])
         last_metrics['trajectory_length'].append(
