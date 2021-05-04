@@ -30,6 +30,12 @@ passed objects for ToggleObjectOn/Off that aren't visible and throws an
 exception that's caught by env/thor_env.py, but seems to work fine for other
 interactions with not visible objects. This is a small issue since the
 "visible" distance is not very large in the THOR environment.
+
+Can consider increasing VISIBLITY_DISTANCE in gen/constants.py, or adding
+forceAction=True to the action types that don't have it in
+env/thor_env.py:to_thor_api_exec.
+
+https://github.com/allenai/ai2thor/issues/391#issuecomment-618696398
 """
 
 def rollout_trajectory(env, model, single_interact=False, use_masks=True,
