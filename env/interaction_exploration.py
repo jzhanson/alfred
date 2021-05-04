@@ -33,13 +33,16 @@ class InteractionExploration(object):
 
     def reset(self, scene_name_or_num=None, random_object_positions=True,
             random_position=True, random_rotation=True,
-            random_look_angle=True):
+            random_look_angle=True, render_depth_image=False,
+            render_class_image=False):
         if scene_name_or_num is None:
             # Randomly choose a scene if none specified
             scene_name_or_num = random.choice(constants.SCENE_NUMBERS)
 
         self.scene_name_or_num = scene_name_or_num
-        event = self.env.reset(self.scene_name_or_num)
+        event = self.env.reset(self.scene_name_or_num,
+                render_depth_image=render_depth_image,
+                render_class_image=render_class_image)
 
         if random_object_positions:
             # Can play around with numDuplicatesOfType to populate the
