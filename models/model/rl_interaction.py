@@ -231,7 +231,7 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
                     null_mask_features = torch.zeros_like(mask_features[0][0],
                             device=device)
                 else:
-                    null_mask_features = torch.mean(mask_features[0], dim=-1)
+                    null_mask_features = torch.mean(mask_features[0], dim=0)
                 prev_action_features = torch.cat([
                     action_features[0][action_to_index[selected_action]],
                     null_mask_features])
