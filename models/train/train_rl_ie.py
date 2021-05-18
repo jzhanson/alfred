@@ -86,14 +86,16 @@ if __name__ == '__main__':
     if 'resnet' in args.visual_model:
         args.visual_feature_size = 512
         visual_model = Resnet(resnet_args, use_conv_feat=False,
-                pretrained=args.pretrained_visual_model)
+                pretrained=args.pretrained_visual_model,
+                frozen=args.frozen_visual_model)
     else:
         print("visual model '" + args.visual_model + "' not supported")
 
     if 'resnet' in args.superpixel_model:
         args.superpixel_feature_size = 512
         superpixel_model = Resnet(resnet_args, use_conv_feat=False,
-                pretrained=args.pretrained_visual_model)
+                pretrained=args.pretrained_visual_model,
+                frozen=args.frozen_visual_model)
     else:
         print("superpixel model '" + args.superpixel_model + "' not supported")
 
@@ -168,7 +170,8 @@ if __name__ == '__main__':
     if args.use_curiosity:
         if 'resnet' in args.curiosity_visual_encoder:
             curiosity_visual_encoder = Resnet(resnet_args, use_conv_feat=False,
-                    pretrained=args.pretrained_visual_model)
+                    pretrained=args.pretrained_visual_model,
+                    frozen=args.frozen_visual_model)
         else:
             print("curiosity visual encoder '" + args.curiosity_visual_encoder
                     + "' not supported")
