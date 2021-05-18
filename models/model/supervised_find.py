@@ -779,7 +779,7 @@ if __name__ == '__main__':
         visual_model = Resnet(args, share_memory=True,
                 use_conv_feat=args.resnet_conv_feat,
                 pretrained=args.pretrained_visual_model,
-                frozen=args.freeze_pretrained_model)
+                frozen=args.frozen_visual_model)
         args.gpu = args.gpu_index
         # Visual features are (frame)stacked, not frames, with pretrained
         # models. LateFusion class takes care of that
