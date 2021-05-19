@@ -91,13 +91,17 @@ if __name__ == '__main__':
     else:
         print("visual model '" + args.visual_model + "' not supported")
 
-    if 'resnet' in args.superpixel_model:
-        args.superpixel_feature_size = 512
-        superpixel_model = Resnet(resnet_args, use_conv_feat=False,
-                pretrained=args.pretrained_visual_model,
-                frozen=args.frozen_visual_model)
+    if args.separate_superpixel_model:
+        if 'resnet' in args.superpixel_model:
+            args.superpixel_feature_size = 512
+            superpixel_model = Resnet(resnet_args, use_conv_feat=False,
+                    pretrained=args.pretrained_visual_model,
+                    frozen=args.frozen_visual_model)
+        else:
+            print("superpixel model '" + args.superpixel_model + "' not supported")
     else:
-        print("superpixel model '" + args.superpixel_model + "' not supported")
+        args.superpixel_feature_size = args.visual_feature_size
+        superpixel_model = visual_model
 
     if args.superpixel_fc_units is None:
         args.superpixel_fc_units = []
