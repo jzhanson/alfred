@@ -125,39 +125,36 @@ if __name__ == '__main__':
     elif type(args.visual_fc_units) is int:
         args.visual_fc_units = [args.visual_fc_units]
 
-    if args.fusion_model == 'SuperpixelFusion':
-        policy_model = LSTMPolicy(
-                visual_feature_size=args.visual_feature_size,
-                prev_action_size=args.action_embedding_dim +
-                    args.superpixel_feature_size,
-                lstm_hidden_size=args.lstm_hidden_dim, dropout=args.dropout,
-                action_fc_units=args.action_fc_units,
-                value_fc_units=args.value_fc_units,
-                visual_fc_units=args.visual_fc_units,
-                prev_action_after_lstm=args.prev_action_after_lstm,
-                use_tanh=args.use_tanh).to(device)
+    if args.policy_model_superpixel_context is None:
+        visual_input_size = args.visual_feature_size
+    else:
+        visual_input_size = args.visual_feature_size + args.superpixel_feature_size
 
+    policy_model = LSTMPolicy(
+            visual_feature_size=visual_input_size,
+            prev_action_size=args.action_embedding_dim +
+                args.superpixel_feature_size,
+            lstm_hidden_size=args.lstm_hidden_dim, dropout=args.dropout,
+            action_fc_units=args.action_fc_units,
+            value_fc_units=args.value_fc_units,
+            visual_fc_units=args.visual_fc_units,
+            prev_action_after_lstm=args.prev_action_after_lstm,
+            use_tanh=args.use_tanh).to(device)
+
+    if args.fusion_model == 'SuperpixelFusion':
         model = SuperpixelFusion(action_embeddings=action_embeddings,
               visual_model=visual_model, superpixel_model=superpixel_model,
-              policy_model=policy_model, slic_kwargs=slic_kwargs,
+              policy_model=policy_model, policy_model_superpixel_context=
+              args.policy_model_superpixel_context, slic_kwargs=slic_kwargs,
               boundary_pixels=args.boundary_pixels,
               neighbor_depth=args.neighbor_depth,
               neighbor_connectivity=args.neighbor_connectivity,
               black_outer=args.black_outer, device=device)
     elif args.fusion_model == 'SuperpixelActionConcat':
-        vector_size = args.superpixel_feature_size + args.action_embedding_dim
-        policy_model = LSTMPolicy(
-                visual_feature_size=args.visual_feature_size,
-                prev_action_size=vector_size,
-                lstm_hidden_size=args.lstm_hidden_dim, dropout=args.dropout,
-                action_fc_units=args.action_fc_units,
-                value_fc_units=args.value_fc_units,
-                visual_fc_units=args.visual_fc_units,
-                prev_action_after_lstm=args.prev_action_after_lstm).to(device)
-
         model = SuperpixelActionConcat(action_embeddings=action_embeddings,
               visual_model=visual_model, superpixel_model=superpixel_model,
-              policy_model=policy_model, slic_kwargs=slic_kwargs,
+              policy_model=policy_model, policy_model_superpixel_context=
+              args.policy_model_superpixel_context, slic_kwargs=slic_kwargs,
               boundary_pixels=args.boundary_pixels,
               neighbor_depth=args.neighbor_depth,
               neighbor_connectivity=args.neighbor_connectivity,
