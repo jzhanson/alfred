@@ -136,7 +136,6 @@ class LSTMPolicy(nn.Module):
         else:
             fc_input_size = self.lstm_hidden_size
 
-        # TODO: shared fc layers for action and visual vector?
         self.action_fc_layers = init_fc_layers(self.action_fc_units,
                 fc_input_size, use_tanh=self.use_tanh, dropout=self.dropout,
                 last_activation=False)
@@ -220,7 +219,8 @@ class ResnetSuperpixelWrapper(nn.Module):
 class SuperpixelFusion(nn.Module):
     # TODO: add a better initialization for fc layers and LSTMPolicy
     def __init__(self, visual_model=None, superpixel_model=None,
-            action_embeddings=None, policy_model=None, slic_kwargs={},
+            action_embeddings=None, policy_model=None,
+            policy_model_superpixel_context=None, slic_kwargs={},
             boundary_pixels=0, neighbor_depth=0, neighbor_connectivity=2,
             black_outer=False, device=torch.device('cpu')):
         """
@@ -232,6 +232,7 @@ class SuperpixelFusion(nn.Module):
         self.superpixel_model = superpixel_model
         self.action_embeddings = action_embeddings
         self.policy_model = policy_model
+        self.policy_model_superpixel_context = policy_model_superpixel_context
         self.slic_kwargs = slic_kwargs
         self.boundary_pixels = boundary_pixels
         self.neighbor_depth = neighbor_depth
@@ -250,20 +251,12 @@ class SuperpixelFusion(nn.Module):
         """
         visual_features = self.featurize(frame)
 
-        action_scores, value, visual_output, hidden_state = self.policy_model(
-                visual_features, last_action_features, policy_hidden)
-
         #print('action scores', action_scores.shape)
         batch_size = frame.shape[0]
-        batch_action_features = []
         batch_superpixel_masks = []
         batch_frame_crops = []
         batch_superpixel_features = []
-        batch_similarity_scores = []
         for i in range(batch_size):
-            batch_action_features.append(self.action_embeddings(
-                torch.LongTensor([i for i in range(action_scores.shape[1])])
-                .to(device)))
             # Take last three channels (RGB of last stacked frame)
             if gt_segmentation is not None:
                 superpixel_masks, frame_crops = (
@@ -282,12 +275,36 @@ class SuperpixelFusion(nn.Module):
             # Get rid of last two dimensions since Resnet features are (512, 1, 1)
             # We only need to do this if it's a raw Resnet and not a
             # ResnetSuperpixelWrapper
-            if isinstance(self.visual_model, Resnet):
+            if isinstance(self.superpixel_model, Resnet):
                 superpixel_features = torch.squeeze(superpixel_features, -1)
                 superpixel_features = torch.squeeze(superpixel_features, -1)
             batch_superpixel_features.append(superpixel_features)
-            batch_similarity_scores.append(torch.sum(visual_output *
-                superpixel_features, dim=-1))
+
+        if self.policy_model_superpixel_context is None:
+            policy_input = visual_features
+        else:
+            if self.policy_model_superpixel_context == 'hidden':
+                batch_superpixel_query = policy_hidden[0]
+            elif self.policy_model_superpixel_context == 'scene':
+                batch_superpixel_query = visual_features
+
+            batch_superpixel_context = (
+                    SuperpixelFusion.get_batch_superpixel_context(
+                        batch_superpixel_query,
+                        batch_superpixel_features))
+
+            policy_input = torch.cat([visual_features,
+                torch.stack(batch_superpixel_context)], dim=1)
+
+        action_scores, value, visual_output, hidden_state = self.policy_model(
+                policy_input, last_action_features, policy_hidden)
+
+        batch_action_features = [self.action_embeddings(
+                torch.LongTensor([i for i in range(action_scores.shape[1])])
+                .to(device)) for _ in range(batch_size)]
+        batch_similarity_scores = [torch.sum(visual_output *
+            superpixel_features, dim=-1) for superpixel_features in
+            batch_superpixel_features]
 
         # Because each batch can have different numbers of superpixels,
         # batch_similarity_scores and batch_superpixel_masks have to be lists
@@ -431,6 +448,19 @@ class SuperpixelFusion(nn.Module):
         return None
 
     @classmethod
+    def get_batch_superpixel_context(cls, batch_superpixel_query,
+            batch_superpixel_features):
+        batch_size = batch_superpixel_query.shape[0]
+        batch_superpixel_weights = [torch.sum(batch_superpixel_query[batch] *
+            batch_superpixel_features[batch], dim=1) for batch in
+            range(batch_size)]
+        batch_superpixel_context = [
+                torch.sum(batch_superpixel_weights[batch].unsqueeze(1) *
+                batch_superpixel_features[batch], dim=0) for batch
+                in range(batch_size)]
+        return batch_superpixel_context
+
+    @classmethod
     def get_max_min_y_x_with_boundary(cls, frame, ys, xs, boundary_pixels):
         max_y = min(frame.shape[0], np.max(ys) + boundary_pixels + 1)
         min_y = max(0, np.min(ys) - boundary_pixels)
@@ -452,7 +482,8 @@ class SuperpixelFusion(nn.Module):
 
 class SuperpixelActionConcat(SuperpixelFusion):
     def __init__(self, visual_model=None, superpixel_model=None,
-            action_embeddings=None, policy_model=None, slic_kwargs={},
+            action_embeddings=None, policy_model=None,
+            policy_model_superpixel_context=None, slic_kwargs={},
             boundary_pixels=0, neighbor_depth=0, neighbor_connectivity=2,
             black_outer=False, superpixel_feature_size=512,
             single_interact=False, zero_null_superpixel_features=False,
@@ -460,8 +491,9 @@ class SuperpixelActionConcat(SuperpixelFusion):
         super(SuperpixelActionConcat, self).__init__(visual_model=visual_model,
                 superpixel_model=superpixel_model,
                 action_embeddings=action_embeddings, policy_model=policy_model,
-                slic_kwargs=slic_kwargs, boundary_pixels=boundary_pixels,
-                neighbor_depth=neighbor_depth,
+                policy_model_superpixel_context=
+                policy_model_superpixel_context, slic_kwargs=slic_kwargs,
+                boundary_pixels=boundary_pixels, neighbor_depth=neighbor_depth,
                 neighbor_connectivity=neighbor_connectivity,
                 black_outer=black_outer, device=device)
         self.superpixel_feature_size = superpixel_feature_size
@@ -476,18 +508,10 @@ class SuperpixelActionConcat(SuperpixelFusion):
         """
         visual_features = self.featurize(frame)
 
-        action_output, value, _, hidden_state = self.policy_model(
-                visual_features, last_action_features, policy_hidden)
-
         batch_size = frame.shape[0]
         batch_superpixel_masks = []
         batch_frame_crops = []
-        batch_superpixel_features = [] # Don't really need this
-        # Passing the mask should be by reference, so masks aren't being copied
-        # all the time
-        batch_concatenated_features = [] # Don't really need this either
-        batch_actions_masks_features = []
-        batch_similarity_scores = []
+        batch_superpixel_features = []
         if self.single_interact:
             interact_actions = [constants.ACTIONS_INTERACT]
         else:
@@ -519,14 +543,39 @@ class SuperpixelActionConcat(SuperpixelFusion):
                 superpixel_features = torch.squeeze(superpixel_features, -1)
             batch_superpixel_features.append(superpixel_features)
 
+        if self.policy_model_superpixel_context is None:
+            policy_input = visual_features
+        else:
+            if self.policy_model_superpixel_context == 'hidden':
+                batch_superpixel_query = policy_hidden[0]
+            elif self.policy_model_superpixel_context == 'scene':
+                batch_superpixel_query = visual_features
+
+            batch_superpixel_context = (
+                    SuperpixelFusion.get_batch_superpixel_context(
+                        batch_superpixel_query,
+                        batch_superpixel_features))
+
+            policy_input = torch.cat([visual_features,
+                torch.stack(batch_superpixel_context)], dim=1)
+
+        action_output, value, _, hidden_state = self.policy_model(
+                policy_input, last_action_features, policy_hidden)
+
+        # Passing the mask should be by reference, so masks aren't being copied
+        # all the time
+        batch_concatenated_features = [] # Don't really need this either
+        batch_actions_masks_features = []
+        batch_similarity_scores = []
+        for batch_i in range(batch_size):
             concatenated_features = []
             actions_masks_features = []
             if self.zero_null_superpixel_features:
                 null_superpixel_features = torch.zeros_like(
                         batch_superpixel_features[0][0])
             else:
-                null_superpixel_features = torch.mean(superpixel_features,
-                        dim=0)
+                null_superpixel_features = torch.mean(
+                        batch_superpixel_features[batch_i], dim=0)
 
             for action_i in range(len(constants.NAV_ACTIONS)):
                 # action_embeddings takes in (batch_size) and returns
@@ -543,10 +592,11 @@ class SuperpixelActionConcat(SuperpixelFusion):
                     concatenated_feature = torch.cat([
                         self.action_embeddings(torch.LongTensor([action_i])
                             .to(device)).squeeze(0),
-                        superpixel_features[superpixel_i]])
+                        batch_superpixel_features[batch_i][superpixel_i]])
                     concatenated_features.append(concatenated_feature)
                     actions_masks_features.append((interact_actions[action_i],
-                        superpixel_masks[superpixel_i], concatenated_feature))
+                        batch_superpixel_masks[batch_i][superpixel_i],
+                        concatenated_feature))
             concatenated_features = torch.stack(concatenated_features)
             batch_concatenated_features.append(concatenated_features)
             batch_actions_masks_features.append(actions_masks_features)
