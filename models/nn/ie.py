@@ -248,7 +248,7 @@ class SuperpixelFusion(nn.Module):
         (in essence [batch_size, 1] instead of [batch_size]) because of the
         Nones - it would require extra processing "for no reason"
         """
-        visual_features = self.featurize(frame)
+        visual_features = SuperpixelFusion.featurize(self.visual_model, frame)
 
         #print('action scores', action_scores.shape)
         batch_size = frame.shape[0]
@@ -277,8 +277,8 @@ class SuperpixelFusion(nn.Module):
 
             # Stacking frames for superpixels doesn't seem like a good idea,
             # since moving and looking around changes the view so drastically
-            superpixel_features = self.featurize(frame_crops,
-                    superpixel_model=True)
+            superpixel_features = SuperpixelFusion.featurize(
+                    self.superpixel_model, frame_crops)
             # Get rid of last two dimensions since Resnet features are (512, 1, 1)
             # We only need to do this if it's a raw Resnet and not a
             # ResnetSuperpixelWrapper
@@ -320,10 +320,15 @@ class SuperpixelFusion(nn.Module):
                 batch_superpixel_masks, (batch_action_features,
                     batch_superpixel_features), hidden_state)
 
-    def featurize(self, stacked_frames, superpixel_model=False):
-        chosen_model = (self.superpixel_model if superpixel_model else
-                self.visual_model)
-        if (isinstance(chosen_model, Resnet) or isinstance(chosen_model,
+    def init_policy_hidden(self, batch_size=1, device=torch.device('cpu')):
+        if isinstance(self.policy_model, LSTMPolicy):
+            return self.policy_model.init_hidden(batch_size=batch_size,
+                    device=device)
+        return None
+
+    @classmethod
+    def featurize(cls, model, stacked_frames):
+        if (isinstance(model, Resnet) or isinstance(model,
             ResnetSuperpixelWrapper)) and isinstance(stacked_frames,
                 torch.Tensor):
             # Unstack frames, featurize, then restack frames if using Resnet
@@ -341,7 +346,7 @@ class SuperpixelFusion(nn.Module):
                 # possible.
                 unstacked_frames = [frame.to(dtype=torch.uint8).cpu() for
                         frame in unstacked_frames]
-                unstacked_visual_outputs.append(chosen_model(unstacked_frames))
+                unstacked_visual_outputs.append(model(unstacked_frames))
             # unstacked_visual_outputs is now length frame_stack, each element
             # is shape (batch_size, 3, 300, 300)
             output = torch.cat(unstacked_visual_outputs, dim=1)
@@ -350,7 +355,7 @@ class SuperpixelFusion(nn.Module):
             #        stacked_frames[0].shape, stacked_frames[0])
             for i in range(len(stacked_frames)):
                 stacked_frames[i] = np.ascontiguousarray(stacked_frames[i]).astype('uint8')
-            output = chosen_model(stacked_frames)
+            output = model(stacked_frames)
 
         # Flatten latter dimensions of visual output in case it's made up of
         # conv features
@@ -453,12 +458,6 @@ class SuperpixelFusion(nn.Module):
 
         return masks, frame_crops
 
-    def init_policy_hidden(self, batch_size=1, device=torch.device('cpu')):
-        if isinstance(self.policy_model, LSTMPolicy):
-            return self.policy_model.init_hidden(batch_size=batch_size,
-                    device=device)
-        return None
-
     @classmethod
     def get_batch_superpixel_context(cls, batch_superpixel_query,
             batch_superpixel_features):
@@ -518,7 +517,7 @@ class SuperpixelActionConcat(SuperpixelFusion):
         Nav actions always come at the beginning of the returned scores,
         followed by interact actions.
         """
-        visual_features = self.featurize(frame)
+        visual_features = SuperpixelFusion.featurize(self.visual_model, frame)
 
         batch_size = frame.shape[0]
         batch_superpixel_masks = []
@@ -549,8 +548,8 @@ class SuperpixelActionConcat(SuperpixelFusion):
 
             # Stacking frames for superpixels doesn't seem like a good idea,
             # since moving and looking around changes the view so drastically
-            superpixel_features = self.featurize(frame_crops,
-                    superpixel_model=True)
+            superpixel_features = self.featurize(self.superpixel_model,
+                    frame_crops)
 
             # Get rid of last two dimensions since Resnet features are (512, 1,
             # 1)
