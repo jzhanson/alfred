@@ -550,11 +550,10 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
             loss = policy_loss + value_loss_coefficient * value_loss
 
         optimizer.zero_grad()
-        # RuntimeError: cuDNN error: CUDNN_STATUS_EXECUTION_FAILED
-        try:
-            loss.backward(retain_graph=True)
-        except:
-            loss.backward()
+        # If RuntimeError: cuDNN error: CUDNN_STATUS_EXECUTION_FAILED shows up,
+        # may have to do try: loss.backward(retain_graph=True) except:
+        # loss.backward()
+        loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
         optimizer.step()
 
