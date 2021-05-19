@@ -259,8 +259,10 @@ class SuperpixelFusion(nn.Module):
             # Take last three channels (RGB of last stacked frame)
             if gt_segmentation is not None:
                 superpixel_masks, frame_crops = (
-                        self.get_gt_segmentation_masks_frame_crops(
-                            frame[i][-3:], gt_segmentation))
+                        SuperpixelFusion.get_gt_segmentation_masks_frame_crops(
+                            frame[i][-3:], gt_segmentation,
+                            boundary_pixels=self.boundary_pixels,
+                            black_outer=args.black_outer))
             else:
                 superpixel_masks, frame_crops = (
                         SuperpixelFusion.get_superpixel_masks_frame_crops(
@@ -407,10 +409,11 @@ class SuperpixelFusion(nn.Module):
 
         return superpixel_masks, frame_crops
 
-    def get_gt_segmentation_masks_frame_crops(self, frame, segmentation):
+    @classmethod
+    def get_gt_segmentation_masks_frame_crops(cls, frame, segmentation,
+            boundary_pixels=0, black_outer=False):
         """
-        Applies self.boundary_pixels and self.black_outer but not
-        self.neighbor_connectivity.
+        Applies boundary_pixels and black_outer but not neighbor_connectivity.
         """
         # Still reshape frame from [3, 300, 300] to [300, 300, 3], for
         # consistency with get_superpixel_masks_frame_crops
@@ -431,7 +434,7 @@ class SuperpixelFusion(nn.Module):
             xs = [x for (y, x) in pixel_yxs]
             max_y, min_y, max_x, min_x = (SuperpixelFusion
                     .get_max_min_y_x_with_boundary(frame, ys, xs,
-                        self.boundary_pixels))
+                        boundary_pixels))
             bounding_boxes.append((min_y, max_y, min_x, max_x))
             mask = np.zeros((frame.shape[0], frame.shape[1]))
             # Multidimensional/tuple indexing requires a list of first
@@ -444,7 +447,7 @@ class SuperpixelFusion(nn.Module):
         frame_crops = [frame[min_y:max_y, min_x:max_x, :] for (min_y, max_y,
             min_x, max_x) in bounding_boxes]
 
-        if self.black_outer:
+        if black_outer:
             frame_crops = SuperpixelFusion.get_black_outer_frame_crops(
                     frame_crops, bounding_boxes, masks)
 
@@ -529,8 +532,10 @@ class SuperpixelActionConcat(SuperpixelFusion):
             # Take last three channels (RGB of last stacked frame)
             if gt_segmentation is not None:
                 superpixel_masks, frame_crops = (
-                        self.get_gt_segmentation_masks_frame_crops(
-                            frame[batch_i][-3:], gt_segmentation))
+                        SuperpixelFusion.get_gt_segmentation_masks_frame_crops(
+                            frame[batch_i][-3:], gt_segmentation,
+                            boundary_pixels=self.boundary_pixels,
+                            black_outer=self.black_outer))
             else:
                 superpixel_masks, frame_crops = (
                         SuperpixelFusion.get_superpixel_masks_frame_crops(
