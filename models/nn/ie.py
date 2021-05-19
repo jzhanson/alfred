@@ -217,7 +217,6 @@ class ResnetSuperpixelWrapper(nn.Module):
         return superpixel_fc_output
 
 class SuperpixelFusion(nn.Module):
-    # TODO: add a better initialization for fc layers and LSTMPolicy
     def __init__(self, visual_model=None, superpixel_model=None,
             action_embeddings=None, policy_model=None,
             policy_model_superpixel_context=None, slic_kwargs={},
@@ -264,7 +263,13 @@ class SuperpixelFusion(nn.Module):
                             frame[i][-3:], gt_segmentation))
             else:
                 superpixel_masks, frame_crops = (
-                        self.get_superpixel_masks_frame_crops(frame[i][-3:]))
+                        SuperpixelFusion.get_superpixel_masks_frame_crops(
+                            frame[i][-3:], slic_kwargs=self.slic_kwargs,
+                            boundary_pixels=self.boundary_pixels,
+                            neighbor_depth=self.neighbor_depth,
+                            neighbor_connectivity=self.neighbor_connectivity,
+                            black_outer=self.black_outer))
+
             batch_superpixel_masks.append(superpixel_masks)
             batch_frame_crops.append(frame_crops)
 
@@ -350,7 +355,10 @@ class SuperpixelFusion(nn.Module):
         output = torch.flatten(output, start_dim=1)
         return output
 
-    def get_superpixel_masks_frame_crops(self, frame):
+    @classmethod
+    def get_superpixel_masks_frame_crops(cls, frame, slic_kwargs={},
+            boundary_pixels=0, neighbor_depth=0, neighbor_connectivity=2,
+            black_outer=False):
         """
         Returns superpixel masks for each superpixel over the whole image and
         frame crops of the original image cropped to the bounding box of the
@@ -360,21 +368,21 @@ class SuperpixelFusion(nn.Module):
         # Need to reshape frame from [3, 300, 300] to [300, 300, 3]
         # Cast to uint8 since the slic code behaves differently for float32
         frame = frame.numpy().transpose(1, 2, 0).astype('uint8')
-        segments = slic(img_as_float(frame), **self.slic_kwargs)
+        segments = slic(img_as_float(frame), **slic_kwargs)
 
         superpixel_labels = np.unique(segments)
 
         superpixel_bounding_boxes = []
         superpixel_masks = []
-        if self.neighbor_depth > 0:
+        if neighbor_depth > 0:
             rag = graph.RAG(label_image=segments,
-                    connectivity=self.neighbor_connectivity)
+                    connectivity=neighbor_connectivity)
             rag_adj = rag.adj # Keep this in case it's an expensive operation
         # The original segment labels don't matter since we only use
         # superpixel_bounding_boxes and superpixel_masks, which match up
         for label in superpixel_labels:
             labels = [label]
-            if self.neighbor_depth > 0:
+            if neighbor_depth > 0:
                 labels.extend(list(rag_adj[label].keys()))
 
             # Get indexes of elements for each label. Row-major order means
@@ -386,13 +394,14 @@ class SuperpixelFusion(nn.Module):
             ys, xs = np.nonzero(mask)
             max_y, min_y, max_x, min_x = (SuperpixelFusion
                     .get_max_min_y_x_with_boundary(frame, ys, xs,
-                        self.boundary_pixels))
+                        boundary_pixels))
             superpixel_bounding_boxes.append((min_y, max_y, min_x, max_x))
             superpixel_masks.append(mask)
 
         frame_crops = [frame[min_y:max_y, min_x:max_x, :] for (min_y, max_y,
             min_x, max_x) in superpixel_bounding_boxes]
-        if self.black_outer:
+
+        if black_outer:
             frame_crops = SuperpixelFusion.get_black_outer_frame_crops(
                     frame_crops, superpixel_bounding_boxes, superpixel_masks)
 
@@ -524,8 +533,12 @@ class SuperpixelActionConcat(SuperpixelFusion):
                             frame[batch_i][-3:], gt_segmentation))
             else:
                 superpixel_masks, frame_crops = (
-                        self.get_superpixel_masks_frame_crops(
-                            frame[batch_i][-3:]))
+                        SuperpixelFusion.get_superpixel_masks_frame_crops(
+                            frame[batch_i][-3:], slic_kwargs=self.slic_kwargs,
+                        boundary_pixels=self.boundary_pixels,
+                        neighbor_depth=self.neighbor_depth,
+                        neighbor_connectivity=self.neighbor_connectivity,
+                        black_outer=self.black_outer))
             batch_superpixel_masks.append(superpixel_masks)
             batch_frame_crops.append(frame_crops)
 
