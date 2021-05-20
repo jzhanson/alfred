@@ -498,7 +498,8 @@ class SuperpixelActionConcat(SuperpixelFusion):
             boundary_pixels=0, neighbor_depth=0, neighbor_connectivity=2,
             black_outer=False, superpixel_feature_size=512,
             single_interact=False, zero_null_superpixel_features=False,
-            navigation_superpixels=False, device=torch.device('cpu')):
+            navigation_superpixels=False, add_superpixel_action=False,
+            device=torch.device('cpu')):
         super(SuperpixelActionConcat, self).__init__(visual_model=visual_model,
                 superpixel_model=superpixel_model,
                 action_embeddings=action_embeddings, policy_model=policy_model,
@@ -511,6 +512,7 @@ class SuperpixelActionConcat(SuperpixelFusion):
         self.single_interact = single_interact
         self.zero_null_superpixel_features = zero_null_superpixel_features
         self.navigation_superpixels = navigation_superpixels
+        self.add_superpixel_action = add_superpixel_action
 
     def forward(self, frame, last_action_features, policy_hidden=None,
             gt_segmentation=None, device=torch.device('cpu')):
@@ -584,14 +586,14 @@ class SuperpixelActionConcat(SuperpixelFusion):
 
         # Passing the mask should be by reference, so masks aren't being copied
         # all the time
-        batch_concatenated_features = [] # Don't really need this either
+        batch_combined_features = [] # Don't really need this either
         batch_actions_masks_features = []
         batch_similarity_scores = []
         for batch_i in range(batch_size):
-            concatenated_features = []
+            combined_features = []
             actions_masks_features = []
             if self.navigation_superpixels:
-                superpixel_concat_range = range(len(actions))
+                superpixel_combine_range = range(len(actions))
             else:
                 if self.zero_null_superpixel_features:
                     null_superpixel_features = torch.zeros_like(
@@ -603,30 +605,41 @@ class SuperpixelActionConcat(SuperpixelFusion):
                 for action_i in range(len(constants.NAV_ACTIONS)):
                     # action_embeddings takes in (batch_size) and returns
                     # (batch_size, embedding_dim)
-                    concatenated_feature = torch.cat([
-                        self.action_embeddings(torch.LongTensor([action_i])
-                            .to(device)).squeeze(0),
-                        null_superpixel_features])
-                    concatenated_features.append(concatenated_feature)
+                    if self.add_superpixel_action:
+                        combined_feature = (self.action_embeddings(
+                            torch.LongTensor([action_i])
+                                .to(device)).squeeze(0) +
+                                null_superpixel_features)
+                    else:
+                        combined_feature = torch.cat([
+                            self.action_embeddings(torch.LongTensor([action_i])
+                                .to(device)).squeeze(0),
+                            null_superpixel_features])
+                    combined_features.append(combined_feature)
                     actions_masks_features.append((constants.NAV_ACTIONS[action_i],
-                        None, concatenated_feature))
-                superpixel_concat_range = range(len(constants.NAV_ACTIONS),
+                        None, combined_feature))
+                superpixel_combine_range = range(len(constants.NAV_ACTIONS),
                     len(actions))
-            for action_i in superpixel_concat_range:
+            for action_i in superpixel_combine_range:
                 for superpixel_i in range(superpixel_features.shape[0]):
-                    concatenated_feature = torch.cat([
-                        self.action_embeddings(torch.LongTensor([action_i])
-                            .to(device)).squeeze(0),
-                        batch_superpixel_features[batch_i][superpixel_i]])
-                    concatenated_features.append(concatenated_feature)
+                    if self.add_superpixel_action:
+                        combined_feature = (self.action_embeddings(
+                            torch.LongTensor([action_i]).to(device)).squeeze(0)
+                            + batch_superpixel_features[batch_i][superpixel_i])
+                    else:
+                        combined_feature = torch.cat([
+                            self.action_embeddings(torch.LongTensor([action_i])
+                                .to(device)).squeeze(0),
+                            batch_superpixel_features[batch_i][superpixel_i]])
+                    combined_features.append(combined_feature)
                     actions_masks_features.append((actions[action_i],
                         batch_superpixel_masks[batch_i][superpixel_i],
-                        concatenated_feature))
-            concatenated_features = torch.stack(concatenated_features)
-            batch_concatenated_features.append(concatenated_features)
+                        combined_feature))
+            combined_features = torch.stack(combined_features)
+            batch_combined_features.append(combined_features)
             batch_actions_masks_features.append(actions_masks_features)
             batch_similarity_scores.append(torch.sum(action_output *
-                concatenated_features, dim=-1))
+                combined_features, dim=-1))
 
         # Because each batch can have different numbers of superpixels,
         # batch_similarity_scores and batch_action_mask_index_pairs have to be
