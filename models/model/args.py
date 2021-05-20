@@ -160,8 +160,11 @@ parser.set_defaults(zero_null_superpixel_features=True)
 parser.add_argument('--outer-product-sampling', dest='outer_product_sampling', action='store_true', help='use outer product of softmax of superpixel scores and softmax of action output logits for sampling - only works with SuperpixelFusion')
 parser.add_argument('--separate-action-mask-sampling', dest='outer_product_sampling', action='store_false', help='sample action from action logits separately from mask and mask logits - only works with SuperpixelFusion')
 parser.set_defaults(outer_product_sampling=False)
-parser.add_argument('--inverse-score', dest='inverse_score', action='store_true', help='sample actions (and/or superpixels) by putting the action (and/or superpixel) similarity scores through a sigmoid, then sampling from the softmax over 1/sigmoid(score)')
+parser.add_argument('--inverse-score', dest='inverse_score', action='store_true', help='sample actions (and/or superpixels) by sampling from the softmax over -score')
 parser.add_argument('--no-inverse-score', dest='inverse_score', action='store_false', help='sample actions by taking softmax directly over actions (and/or) superpixel scores')
+parser.set_defaults(inverse_score=False)
+parser.add_argument('--navigation-superpixels', dest='navigation_superpixels', action='store_true', help='pair navigation actions with superpixels along with interaction actions. works differently for SuperpixelFusion + outer_product_sampling and SuperpixelActionConcat, and zero_null_superpixel_features will not be used.')
+parser.add_argument('--no-navigation-superpixels', dest='navigation_superpixels', action='store_false', help='only have one navigation action (do not pair with superpixels)')
 parser.set_defaults(inverse_score=False)
 
 # Curiosity (intrinsic reward) config
