@@ -83,20 +83,32 @@ def stack_frames(frames, frame_stack=1, zero_fill_frame_stack=False,
     return stacked_frames
 
 def superpixelactionconcat_get_num_superpixels(num_scores,
-        single_interact=False):
-    return (num_scores - len(constants.NAV_ACTIONS)) / (1 if single_interact
-            else len(constants.INT_ACTIONS))
+        single_interact=False, navigation_superpixels=False):
+    if navigation_superpixels:
+        return num_scores / (len(constants.SIMPLE_ACTIONS) if single_interact
+                else len(constants.COMPLEX_ACTIONS))
+    else:
+        return (num_scores - len(constants.NAV_ACTIONS)) / (1 if
+                single_interact else len(constants.INT_ACTIONS))
 
 def superpixelactionconcat_index_to_action(index, num_scores,
-        single_interact=False):
-    if index < len(constants.NAV_ACTIONS):
-        return constants.NAV_ACTIONS[index]
-    int_actions = ([constants.ACTIONS_INTERACT] if single_interact else
-            constants.INT_ACTIONS)
-    num_superpixels = superpixelactionconcat_get_num_superpixels(num_scores,
-            single_interact=single_interact)
-    return int_actions[int((index - len(constants.NAV_ACTIONS)) //
-        num_superpixels)]
+        single_interact=False, navigation_superpixels=False):
+    if navigation_superpixels:
+        actions = (constants.SIMPLE_ACTIONS if single_interact else
+                constants.COMPLEX_ACTIONS)
+        num_superpixels = superpixelactionconcat_get_num_superpixels(
+                num_scores, single_interact=single_interact,
+                navigation_superpixels=navigation_superpixels)
+        return actions[int(index // num_superpixels)]
+    else:
+        if index < len(constants.NAV_ACTIONS):
+            return constants.NAV_ACTIONS[index]
+        int_actions = ([constants.ACTIONS_INTERACT] if single_interact else
+                constants.INT_ACTIONS)
+        num_superpixels = superpixelactionconcat_get_num_superpixels(
+                num_scores, single_interact=single_interact)
+        return int_actions[int((index - len(constants.NAV_ACTIONS)) //
+            num_superpixels)]
 
 # From https://github.com/pytorch/pytorch/issues/7014#issuecomment-388931028
 # Safe multinomial sampling, even if there are infinite values in probs or
