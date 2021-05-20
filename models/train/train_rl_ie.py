@@ -129,11 +129,21 @@ if __name__ == '__main__':
         visual_input_size = args.visual_feature_size
     else:
         visual_input_size = args.visual_feature_size + args.superpixel_feature_size
+    if args.fusion_model == 'SuperpixelFusion':
+        prev_action_size = (args.action_embedding_dim +
+            args.superpixel_feature_size)
+    elif args.fusion_model == 'SuperpixelActionConcat':
+        if args.superpixelactionconcat_add_superpixel_action:
+            # args.action_embedding_dim should equal
+            # args.superpixel_feature_size
+            prev_action_size = args.action_embedding_dim
+        else:
+            prev_action_size = (args.action_embedding_dim +
+                args.superpixel_feature_size)
 
     policy_model = LSTMPolicy(
             visual_feature_size=visual_input_size,
-            prev_action_size=args.action_embedding_dim +
-                args.superpixel_feature_size,
+            prev_action_size=prev_action_size,
             lstm_hidden_size=args.lstm_hidden_dim, dropout=args.dropout,
             action_fc_units=args.action_fc_units,
             value_fc_units=args.value_fc_units,
@@ -162,6 +172,8 @@ if __name__ == '__main__':
               single_interact=args.single_interact,
               zero_null_superpixel_features=args.zero_null_superpixel_features,
               navigation_superpixels=args.navigation_superpixels,
+              add_superpixel_action=
+              args.superpixelactionconcat_add_superpixel_action,
               device=device)
 
     try:
@@ -187,10 +199,21 @@ if __name__ == '__main__':
         elif type(args.curiosity_inverse_fc_units) is int:
             args.curiosity_inverse_fc_units = [args.curiosity_inverse_fc_units]
 
+        if args.fusion_model == 'SuperpixelFusion':
+            # TODO: should curiosity use action embeddings or action/mask
+            # logits for vanilla SuperpixelFusion?
+            action_embedding_dim = (args.action_embedding_dim +
+                args.superpixel_feature_size)
+        elif args.fusion_model == 'SuperpixelActionConcat':
+            if args.superpixelactionconcat_add_superpixel_action:
+                action_embedding_dim = args.action_embedding_dim
+            else:
+                action_embedding_dim = (args.action_embedding_dim +
+                    args.superpixel_feature_size)
+
         curiosity_model = CuriosityIntrinsicReward(
                 visual_encoder=curiosity_visual_encoder,
-                action_embedding_dim=args.action_embedding_dim +
-                    args.superpixel_feature_size,
+                action_embedding_dim=action_embedding_dim,
                 forward_fc_units=args.curiosity_forward_fc_units,
                 inverse_fc_units=args.curiosity_inverse_fc_units,
                 eta=args.curiosity_eta, beta=args.curiosity_beta,
