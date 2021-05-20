@@ -293,16 +293,20 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
                 pred_action_index = torch.argmax(action_scores[0]).unsqueeze(0)
 
             num_superpixels = superpixelactionconcat_get_num_superpixels(
-                    len(action_scores[0]), single_interact=single_interact)
-            pred_mask_index = ((pred_action_index - len(constants.NAV_ACTIONS))
-                    % num_superpixels)
+                    len(action_scores[0]), single_interact=single_interact,
+                    navigation_superpixels=navigation_superpixels)
+            if navigation_superpixels:
+                pred_mask_index = pred_action_index % num_superpixels
+            else:
+                pred_mask_index = ((pred_action_index - len(constants.NAV_ACTIONS))
+                        % num_superpixels)
 
-            selected_action, selected_mask, _ = actions_masks_features[0][
-                    pred_action_index]
-
-            prev_action_features = actions_masks_features[0][
-                    pred_action_index][2]
+            selected_action, selected_mask, prev_action_features = (
+                    actions_masks_features[0][pred_action_index])
             prev_action_features = torch.unsqueeze(prev_action_features, 0)
+            if (navigation_superpixels and selected_action in
+                    constants.NAV_ACTIONS):
+                selected_mask = None
 
         if teacher_force:
             # selected_action and therefore action_success will not match
@@ -418,6 +422,9 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
         trajectory_results['curiosity_losses'] = curiosity_losses
 
     if trajectory_info_save_path is not None:
+        # If saving trajectory info, turn pred_action_indexes (which might
+        # depend on the number of superpixels) into environment/task action
+        # indexes
         if fusion_model == 'SuperpixelFusion':
             trajectory_info['pred_action_indexes'] = [pred_action_index.item() for
                     pred_action_index in pred_action_indexes]
@@ -807,7 +814,9 @@ def write_results(writer, results, train_steps, train_frames=None,
                                         navigation_superpixels)
                         if (fusion_model == 'SuperpixelFusion' and
                                 outer_product_sampling and
-                                navigation_superpixels):
+                                navigation_superpixels) or (fusion_model ==
+                                        'SuperpixelActionConcat' and
+                                        navigation_superpixels):
                             for action_i in range(len(actions)):
                                 per_action_scores[action_i].extend(
                                         action_scores[
