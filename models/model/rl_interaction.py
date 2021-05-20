@@ -513,17 +513,22 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
 
             gae = gae * gamma * tau + delta_t
 
-            chosen_action_index = trajectory_results['pred_action_indexes'][i]
-            if outer_product_sampling:
+            pred_action_index = trajectory_results['pred_action_indexes'][i]
+            # You can add log probabilities of action and mask to get the joint
+            # log probability, and you can likewise add action and mask
+            # entropies to get the joint entropy
+
+            if fusion_model == 'SuperpixelFusion' and outer_product_sampling:
                 # Scores are already softmaxed and have action and mask
                 # combined
                 action_log_prob = torch.log(trajectory_results[
-                    'all_action_scores'][i][chosen_action_index])
+                    'all_action_scores'][i][pred_action_index])
             else:
                 action_log_prob = F.log_softmax(
                         trajectory_results['all_action_scores'][i], dim=-1)[
-                                chosen_action_index]
-                if fusion_model == 'SuperpixelFusion':
+                                pred_action_index]
+                if (fusion_model == 'SuperpixelFusion' and not
+                        outer_product_sampling):
                     pred_mask_index = trajectory_results[
                             'pred_mask_indexes'][i]
                     if pred_mask_index >= 0:
@@ -531,12 +536,16 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
                             trajectory_results['all_mask_scores'][i], dim=-1)[
                                     pred_mask_index]
                         action_log_prob += mask_log_prob
+
             action_entropy = trajectory_results['action_entropy'][i]
-            if fusion_model == 'SuperpixelFusion':
+            if (fusion_model == 'SuperpixelFusion' and not
+                    outer_product_sampling):
                 mask_entropy = trajectory_results['mask_entropy'][i]
-            elif fusion_model == 'SuperpixelActionConcat':
+            else:
                 # We only need to apply entropy once over concatenated
-                # actions+masks
+                # actions+masks for SuperpixelActionConcat and masks have
+                # already been accounted for in action_entropy if
+                # SuperpixelFusion+outer_product_sampling
                 mask_entropy = 0
             policy_loss = (policy_loss - action_log_prob * gae -
                     entropy_coefficient * (action_entropy + mask_entropy))
