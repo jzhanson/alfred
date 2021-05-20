@@ -524,12 +524,12 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
                         trajectory_results['all_action_scores'][i], dim=-1)[
                                 chosen_action_index]
                 if fusion_model == 'SuperpixelFusion':
-                    chosen_mask_index = trajectory_results[
+                    pred_mask_index = trajectory_results[
                             'pred_mask_indexes'][i]
-                    if chosen_mask_index is not None:
+                    if pred_mask_index >= 0:
                         mask_log_prob = F.log_softmax(
                             trajectory_results['all_mask_scores'][i], dim=-1)[
-                                    chosen_mask_index]
+                                    pred_mask_index]
                         action_log_prob += mask_log_prob
             action_entropy = trajectory_results['action_entropy'][i]
             if fusion_model == 'SuperpixelFusion':
