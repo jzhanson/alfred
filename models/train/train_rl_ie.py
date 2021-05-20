@@ -161,6 +161,7 @@ if __name__ == '__main__':
               black_outer=args.black_outer,
               single_interact=args.single_interact,
               zero_null_superpixel_features=args.zero_null_superpixel_features,
+              navigation_superpixels=args.navigation_superpixels,
               device=device)
 
     try:
@@ -246,6 +247,7 @@ if __name__ == '__main__':
             outer_product_sampling=args.outer_product_sampling,
             inverse_score=args.inverse_score,
             zero_null_superpixel_features=args.zero_null_superpixel_features,
+            navigation_superpixels=args.navigation_superpixels,
             curiosity_model=curiosity_model,
             curiosity_lambda=args.curiosity_lambda,
             scene_numbers=scene_numbers, reset_kwargs=reset_kwargs,
