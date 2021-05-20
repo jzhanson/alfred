@@ -41,10 +41,10 @@ https://github.com/allenai/ai2thor/issues/391#issuecomment-618696398
 def rollout_trajectory(env, model, single_interact=False, use_masks=True,
         use_gt_segmentation=False, fusion_model='SuperpixelFusion',
         outer_product_sampling=False, inverse_score=False,
-        zero_null_superpixel_features=True, curiosity_model=None,
-        max_trajectory_length=None, frame_stack=1, zero_fill_frame_stack=False,
-        teacher_force=False, sample_action=True, sample_mask=True,
-        scene_name_or_num=None, reset_kwargs={},
+        zero_null_superpixel_features=True, navigation_superpixels=False,
+        curiosity_model=None, max_trajectory_length=None, frame_stack=1,
+        zero_fill_frame_stack=False, teacher_force=False, sample_action=True,
+        sample_mask=True, scene_name_or_num=None, reset_kwargs={},
         trajectory_info_save_path=None, device=torch.device('cpu')):
     """
     Returns dictionary of trajectory results.
@@ -133,7 +133,7 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
                 mask_scores[0] *= -1
             # Only attempt one action (which might fail) instead of trying all
             # actions in order
-            if outer_product_sampling:
+            if outer_product_sampling and not navigation_superpixels:
                 # Only outer product interaction actions with masks, after
                 # softmaxing both actions and masks so when we concatenate
                 # navigation actions and (interaction actions x masks) the
@@ -201,6 +201,35 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
                             single_interact=single_interact)
                     pred_mask_index = (pred_action_index -
                             len(constants.NAV_ACTIONS)) % len(masks[0])
+                    selected_mask = masks[0][pred_mask_index]
+            elif outer_product_sampling and navigation_superpixels:
+                # Calculate outer product first, then take softmax
+                # Keep batch dimension for consistency
+                # First dimension is actions, second dimension is masks.
+                # torch.outer (torch.ger in 1.1.0) wants two 1D vectors
+                # TODO: consider adding scores instead of multiplying them
+                flat_outer_scores = torch.flatten(torch.ger(action_scores[0],
+                    mask_scores[0])).unsqueeze(0)
+                # Still keep batch dimension
+                softmax_outer_scores = F.softmax(flat_outer_scores, dim=-1)
+                if sample_action:
+                    pred_action_index = torch.multinomial(
+                            softmax_outer_scores[0], num_samples=1)
+                else:
+                    # Unsqueeze to make pred_action_index 1-D tensor to match
+                    # sampling case
+                    pred_action_index = torch.argmax(
+                            softmax_outer_scores[0]).unsqueeze(0)
+
+                selected_action = superpixelactionconcat_index_to_action(
+                        pred_action_index, len(softmax_outer_scores[0]),
+                        single_interact=single_interact,
+                        navigation_superpixels=navigation_superpixels)
+                if selected_action in constants.NAV_ACTIONS:
+                    pred_mask_index = -1
+                    selected_mask = None
+                else:
+                    pred_mask_index = pred_action_index % len(masks[0])
                     selected_mask = masks[0][pred_mask_index]
             else:
                 if sample_action:
@@ -309,11 +338,14 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
             ['action']])
         if fusion_model == 'SuperpixelFusion':
             all_mask_scores.append(mask_scores[0])
-            if outer_product_sampling:
+            if outer_product_sampling and not navigation_superpixels:
                 # We have to use the softmax scores here because there isn't a
                 # unified actions+masks score. Fortunately, softmax is
                 # differentiable
                 all_action_scores.append(concatenated_softmax[0])
+                discrete_action_logits.append(action_scores[0])
+            elif outer_product_sampling and navigation_superpixels:
+                all_action_scores.append(flat_outer_scores[0])
                 discrete_action_logits.append(action_scores[0])
             else:
                 all_action_scores.append(action_scores[0])
@@ -393,8 +425,10 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
             trajectory_info['pred_action_indexes'] = [action_to_index[
                 superpixelactionconcat_index_to_action(
                     pred_action_index.item(), len(action_scores),
-                    single_interact=single_interact)] for pred_action_index,
-                action_scores in zip(pred_action_indexes, all_action_scores)]
+                    single_interact=single_interact,
+                    navigation_superpixels=navigation_superpixels)] for
+                pred_action_index, action_scores in zip(pred_action_indexes,
+                    all_action_scores)]
 
         trajectory_info['pred_mask_indexes'] = [pred_mask_index.item() for
                 pred_mask_index in pred_mask_indexes]
@@ -412,13 +446,14 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
         single_interact=False, use_masks=True, use_gt_segmentation=False,
         fusion_model='SuperpixelFusion', outer_product_sampling=False,
         inverse_score=False, zero_null_superpixel_features=True,
-        curiosity_model=None, curiosity_lambda=0.1, scene_numbers=None,
-        reset_kwargs={}, max_trajectory_length=None, frame_stack=1,
-        zero_fill_frame_stack=False, teacher_force=False, sample_action=True,
-        sample_mask=True, train_episodes=10, valid_seen_episodes=10,
-        valid_unseen_episodes=10, eval_interval=1000, max_steps=1000000,
-        device=torch.device('cpu'), save_path=None, save_intermediate=False,
-        save_images_video=False, save_trajectory_info=False, load_path=None):
+        navigation_superpixels=False, curiosity_model=None,
+        curiosity_lambda=0.1, scene_numbers=None, reset_kwargs={},
+        max_trajectory_length=None, frame_stack=1, zero_fill_frame_stack=False,
+        teacher_force=False, sample_action=True, sample_mask=True,
+        train_episodes=10, valid_seen_episodes=10, valid_unseen_episodes=10,
+        eval_interval=1000, max_steps=1000000, device=torch.device('cpu'),
+        save_path=None, save_intermediate=False, save_images_video=False,
+        save_trajectory_info=False, load_path=None):
     writer = SummaryWriter(log_dir='tensorboard_logs' if save_path is None else
             os.path.join(save_path, 'tensorboard_logs'))
 
@@ -480,6 +515,7 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
                 outer_product_sampling=outer_product_sampling,
                 inverse_score=inverse_score,
                 zero_null_superpixel_features=zero_null_superpixel_features,
+                navigation_superpixels=navigation_superpixels,
                 curiosity_model=curiosity_model,
                 max_trajectory_length=max_trajectory_length,
                 frame_stack=frame_stack,
@@ -632,6 +668,7 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
         # file size)
         write_results(writer, results, train_steps, fusion_model=fusion_model,
                 outer_product_sampling=outer_product_sampling,
+                navigation_superpixels=navigation_superpixels,
                 single_interact=single_interact, save_path=None)
 
         # Save checkpoint every N trajectories, collect/print stats
@@ -646,6 +683,7 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
             write_results(writer, results, train_steps,
                     fusion_model=fusion_model,
                     outer_product_sampling=outer_product_sampling,
+                    navigation_superpixels=navigation_superpixels,
                     single_interact=single_interact,
                     save_path=None)
             '''
@@ -669,7 +707,8 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
 
 def write_results(writer, results, train_steps, train_frames=None,
         train_trajectories=None, fusion_model='SuperpixelFusion',
-        outer_product_sampling=False, single_interact=False, save_path=None):
+        outer_product_sampling=False, navigation_superpixels=False,
+        single_interact=False, save_path=None):
     """
     Write results to SummaryWriter.
     """
@@ -746,7 +785,8 @@ def write_results(writer, results, train_steps, train_frames=None,
                                 'action_argmaxes', action_argmaxes,
                                 train_trajectories, bins='fd')
             elif ('all_action_scores' in metric and (fusion_model ==
-                    'SuperpixelActionConcat' or outer_product_sampling)):
+                    'SuperpixelActionConcat' or (fusion_model ==
+                        'SuperpixelFusion' and outer_product_sampling))):
                 # all_action_scores is a list of lists (for each trajectory) of
                 # tensors (for each step). Flatten all scores, since each step
                 # can have different numbers of action+superpixel scores, so
@@ -759,21 +799,33 @@ def write_results(writer, results, train_steps, train_frames=None,
                 for trajectory_action_scores in values:
                     for action_scores in trajectory_action_scores:
                         flat_action_scores.extend(action_scores)
-                        for action_i in range(len(constants.NAV_ACTIONS)):
-                            per_action_scores[action_i].append(
-                                    action_scores[action_i])
                         num_superpixels = \
                                 superpixelactionconcat_get_num_superpixels(
                                         len(action_scores),
-                                        single_interact=single_interact)
-                        num_interact_actions = (1 if single_interact else
-                                len(constants.INT_ACTIONS))
-                        for action_i in range(num_interact_actions):
-                            start = int(len(constants.NAV_ACTIONS) + action_i *
-                                    num_superpixels)
-                            end = int(start + num_superpixels)
-                            per_action_scores[len(constants.NAV_ACTIONS) +
-                                    action_i].extend(action_scores[start:end])
+                                        single_interact=single_interact,
+                                        navigation_superpixels=
+                                        navigation_superpixels)
+                        if (fusion_model == 'SuperpixelFusion' and
+                                outer_product_sampling and
+                                navigation_superpixels):
+                            for action_i in range(len(actions)):
+                                per_action_scores[action_i].extend(
+                                        action_scores[
+                                            int(action_i*num_superpixels):
+                                            int((action_i+1)*num_superpixels)])
+                        else:
+                            for action_i in range(len(constants.NAV_ACTIONS)):
+                                per_action_scores[action_i].append(
+                                        action_scores[action_i])
+                            num_interact_actions = (1 if single_interact else
+                                    len(constants.INT_ACTIONS))
+                            for action_i in range(num_interact_actions):
+                                start = int(len(constants.NAV_ACTIONS) +
+                                        action_i * num_superpixels)
+                                end = int(start + num_superpixels)
+                                per_action_scores[len(constants.NAV_ACTIONS) +
+                                        action_i].extend(
+                                                action_scores[start:end])
 
                 writer.add_histogram(steps_name,
                         torch.stack(flat_action_scores), train_steps)
@@ -889,7 +941,9 @@ def write_results(writer, results, train_steps, train_frames=None,
                            action_successes[
                                    superpixelactionconcat_index_to_action(
                                        pred_action_index, len(action_scores),
-                                       single_interact=single_interact)] \
+                                       single_interact=single_interact,
+                                       navigation_superpixels=
+                                       navigation_superpixels)] \
                                                .append(action_success)
 
                 # Graph action success rate by action, by navigation or
