@@ -708,12 +708,12 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
         # Save checkpoint every N trajectories, collect/print stats
         if train_steps % eval_interval == 0 or train_steps == max_steps:
             print('steps %d frames %d' % (train_steps, train_frames))
+            '''
             results = {}
             results['train'] = {}
             for metric, values in last_metrics.items():
                 results['train']['avg/' + metric] = values
                 last_metrics[metric] = []
-            '''
             write_results(writer, results, train_steps,
                     fusion_model=fusion_model,
                     outer_product_sampling=outer_product_sampling,
