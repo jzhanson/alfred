@@ -73,11 +73,13 @@ SAVE_FRAME_BEFORE_AND_AFTER_COUNTS = {
 }
 
 # FPS
-VIDEO_FRAME_RATE = 5
+VIDEO_FRAME_RATE = 3
 
 MASK_HIGHLIGHT_COLOR = [255, 255, 0] # Bright yellow
 MASK_HIGHLIGHT_OPACITY = 0.30
-MASK_BOUNDING_BOX_COLOR = [0, 255, 255] # Bright cyan
+MASK_BOUNDING_BOX_COLOR = [255, 0, 255] # Bright purple
+TEXT_COLOR = [0, 255, 255] # Bright cyan
+CHARS_PER_LINE = 40
 
 ########################################################################################################################
 # Data & Storage
