@@ -19,6 +19,9 @@ from models.utils.helper_utils import (stack_frames,
         superpixelactionconcat_index_to_action, multinomial)
 import cv2
 from utils.video_util import VideoSaver
+# For frame(+segmentation) -> masks functions for videos
+from models.nn.ie import SuperpixelFusion
+from skimage.segmentation import mark_boundaries
 
 video_saver = VideoSaver()
 
@@ -45,7 +48,8 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
         curiosity_model=None, max_trajectory_length=None, frame_stack=1,
         zero_fill_frame_stack=False, teacher_force=False, sample_action=True,
         sample_mask=True, scene_name_or_num=None, reset_kwargs={},
-        trajectory_info_save_path=None, device=torch.device('cpu')):
+        trajectory_info_save_path=None, images_video_save_path=None,
+        device=torch.device('cpu')):
     """
     Returns dictionary of trajectory results.
 
@@ -87,6 +91,12 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
             event.metadata['objects'] if obj['pickupable']]
         # All objects will be in the same state upon starting the scene, so no
         # need to keep track of starting states beyond pose
+    # Need to save gt_segmentation for later since it's annoying to
+    # replay+reconstruct segmentations
+    if use_gt_segmentation and images_video_save_path is not None:
+        gt_segmentations = []
+    else:
+        gt_segmentations = None
 
     actions = (constants.SIMPLE_ACTIONS if single_interact else
             constants.COMPLEX_ACTIONS)
@@ -114,6 +124,8 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
         if use_gt_segmentation:
             # Get ThorEnv inside InteractionExploration env
             gt_segmentation = env.env.last_event.instance_segmentation_frame
+            if images_video_save_path is not None:
+                gt_segmentations.append(gt_segmentation)
         else:
             gt_segmentation = None
 
@@ -447,6 +459,13 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
         with open(trajectory_info_save_path, 'w') as jsonfile:
             json.dump(trajectory_info, jsonfile, indent=0)
 
+    if images_video_save_path is not None:
+        write_images_video(model, trajectory_results, images_video_save_path,
+                gt_segmentations=gt_segmentations,
+                single_interact=single_interact, fusion_model=fusion_model,
+                outer_product_sampling=outer_product_sampling,
+                navigation_superpixels=navigation_superpixels)
+
     return trajectory_results
 
 def train(model, env, optimizer, gamma=1.0, tau=1.0,
@@ -514,6 +533,12 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
         else:
             trajectory_info_save_path = None
 
+        if save_path is not None and save_images_video:
+            images_video_save_path = os.path.join(save_path,
+                    'images_video', str(train_steps))
+        else:
+            images_video_save_path = None
+
         # Collect a trajectory
         scene_num = random.choice(scene_numbers)
         trajectory_results = rollout_trajectory(env, model,
@@ -532,6 +557,7 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
                 sample_mask=sample_mask, scene_name_or_num=scene_num,
                 reset_kwargs=reset_kwargs,
                 trajectory_info_save_path=trajectory_info_save_path,
+                images_video_save_path=images_video_save_path,
                 device=device)
         all_action_scores = torch.cat(trajectory_results['all_action_scores'])
 
@@ -709,9 +735,6 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
                     'model_state_dict' : model.state_dict(),
                     'optimizer_state_dict' : optimizer.state_dict(),
                 }, checkpoint_save_path)
-
-                if save_images_video:
-                    write_images_video(results, train_steps, save_path)
 
 def write_results(writer, results, train_steps, train_frames=None,
         train_trajectories=None, fusion_model='SuperpixelFusion',
@@ -1036,34 +1059,124 @@ def write_results(writer, results, train_steps, train_frames=None,
                 jsonfile:
             json.dump(json_results, jsonfile)
 
-def write_images_video(results_online, train_steps, save_path):
-    for split in results_online.keys():
-        for trajectory_index in range(len(results_online[split]['frames'])):
-            trajectory_images = results_online[split] \
-                    ['frames'][trajectory_index]
-            scene_name_or_num = str(results_online[split]['scene_name_or_num']
-                    [trajectory_index])
-            success_or_failure = 'success' if results_online[split] \
-                    ['success'][trajectory_index] else 'failure'
-            reward = str(sum(results_online[split]['rewards']
-                [trajectory_index]))
+def write_images_video(model, trajectory_results, images_video_save_path,
+        gt_segmentations=None, single_interact=False, fusion_model='',
+        outer_product_sampling=False, navigation_superpixels=False):
+    scene_name_or_num = str(trajectory_results['scene_name_or_num'])
+    reward = str(trajectory_results['rewards'])
+    trajectory_length = str(len(trajectory_results['frames']))
+    coverage_navigation = str(trajectory_results['coverage_navigation'])
+    coverage_navigation_pose = str(trajectory_results
+            ['coverage_navigation_pose'])
+    coverage_interaction_by_object = str(trajectory_results
+            ['coverage_interaction_by_object'])
+    coverage_state_change_by_object = str(trajectory_results
+            ['coverage_state_change_by_object'])
 
-            trajectory_length = str(results_online[split]['trajectory_length']
-                    [trajectory_index])
-            images_save_path =  os.path.join(save_path, 'images_video',
-                    str(train_steps), split, str(trajectory_index) + '_' +
-                    'scene' + scene_name_or_num + '_' + success_or_failure +
-                    '_' + 'reward' + reward + 'trajectorylen' +
-                    trajectory_length)
-            if not os.path.isdir(images_save_path):
-                os.makedirs(images_save_path)
+    if not os.path.isdir(images_video_save_path):
+        os.makedirs(images_video_save_path)
 
-            for image_index in range(len(trajectory_images)):
-                image_save_path = os.path.join(images_save_path, '%09d.png' %
-                        int(image_index))
-                cv2.imwrite(image_save_path, trajectory_images[image_index].numpy())
-            video_save_path = os.path.join(images_save_path,
-                    'video.mp4')
-            video_saver.save(os.path.join(images_save_path,
-                '*.png'), video_save_path)
+    images_to_write = []
+    for frame_index, frame in enumerate(trajectory_results['frames']):
+        if gt_segmentations is not None:
+            gt_segmentation = gt_segmentations[frame_index]
+            # Need to reshape frame from [300, 300, 3] to [3, 300, 300] since
+            # that's what SuperpixelFusion.get_* expects
+            masks, frame_crops = (
+                    SuperpixelFusion.get_gt_segmentation_masks_frame_crops(
+                    frame.permute(2, 0, 1), gt_segmentation,
+                    boundary_pixels=model.boundary_pixels,
+                    black_outer=model.black_outer))
+        else:
+            masks, frame_crops = (
+                    SuperpixelFusion.get_superpixel_masks_frame_crops(
+                    frame.permute(2, 0, 1), slic_kwargs=model.slic_kwargs,
+                    boundary_pixels=model.boundary_pixels,
+                    neighbor_depth=model.neighbor_depth,
+                    neighbor_connectivity=model.neighbor_connectivity,
+                    black_outer=model.black_outer))
+
+        # This is a neat trick I thought of to construct a label_img where each region is
+        # labeled with a unique integer like
+        # skimage.segmentation.mark_boundaries expects - for each mask, which
+        # is shape (300, 300), multiply it by its index (plus 1 so we don't get
+        # a frame of all zeros), and add the masks
+        label_img = np.zeros((300, 300), dtype=np.uint8)
+        for mask_index, mask in enumerate(masks):
+            label_img += mask.astype('uint8') * (mask_index + 1)
+
+        marked_boundaries_image = (mark_boundaries(frame.numpy(), label_img) *
+                255)
+        images_to_write.append(frame.numpy())
+        images_to_write.append(marked_boundaries_image)
+
+        # Highlight chosen superpixel/mask
+        pred_mask_index = trajectory_results['pred_mask_indexes'][frame_index]
+        if pred_mask_index >= 0:
+            # Crop out the mask part of the image, set that mask portion to
+            # (opacity * highlight color) + ((1 - opacity) * background), then
+            # put the mask part back into the image with the mask part cut out
+            pred_mask = np.expand_dims(masks[pred_mask_index], 2)
+            pred_mask_frame_crop = pred_mask * marked_boundaries_image
+            pred_mask_highlight = pred_mask * np.array(constants.MASK_HIGHLIGHT_COLOR)
+            pred_mask_inverse = np.logical_not(pred_mask)
+            highlighted_superpixel_image = (pred_mask_inverse *
+                    marked_boundaries_image)
+            highlighted_superpixel_image += (constants.MASK_HIGHLIGHT_OPACITY *
+                    pred_mask_highlight + (1
+                        - constants.MASK_HIGHLIGHT_OPACITY) *
+                    pred_mask_frame_crop)
+
+            # Also add bounding box marking for frame crop
+            ys, xs = np.nonzero(masks[pred_mask_index])
+            max_y, min_y, max_x, min_x = (
+                    SuperpixelFusion.get_max_min_y_x_with_boundary(frame, ys,
+                        xs, model.boundary_pixels))
+            highlighted_superpixel_image[max_y-1, min_x:max_x] = (
+                    constants.MASK_BOUNDING_BOX_COLOR) # Bottom line
+            highlighted_superpixel_image[min_y, min_x:max_x] = (
+                    constants.MASK_BOUNDING_BOX_COLOR) # Top line
+            highlighted_superpixel_image[min_y:max_y, max_x-1] = (
+                    constants.MASK_BOUNDING_BOX_COLOR) # Right line
+            highlighted_superpixel_image[min_y:max_y, min_x] = (
+                    constants.MASK_BOUNDING_BOX_COLOR) # Left line
+
+
+            action_image = highlighted_superpixel_image
+        else:
+            action_image = marked_boundaries_image
+        # Last, add text of the taken action
+        pred_action_index = trajectory_results['pred_action_indexes'][frame_index]
+        action_scores = trajectory_results['all_action_scores'][frame_index]
+        actions = (constants.SIMPLE_ACTIONS if single_interact else
+                constants.COMPLEX_ACTIONS)
+        if fusion_model == 'SuperpixelFusion':
+            if outer_product_sampling:
+                action_text = superpixelactionconcat_index_to_action(
+                        pred_action_index, len(action_scores),
+                        single_interact=single_interact,
+                        navigation_superpixels=navigation_superpixels)
+            else:
+                action_text = actions[pred_action_index]
+        elif fusion_model == 'SuperpixelActionConcat':
+            action_text = superpixelactionconcat_index_to_action(
+                    pred_action_index, len(action_scores),
+                    single_interact=single_interact,
+                    navigation_superpixels=navigation_superpixels)
+        cv2.putText(action_image, text=action_text,
+                org=(100,200), fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+                fontScale=1, color=(0,255,255), thickness=2,
+                lineType=cv2.LINE_AA)
+
+        images_to_write.append(action_image)
+
+    for image_index, image in enumerate(images_to_write):
+        image_save_path = os.path.join(images_video_save_path, '%09d.png' %
+                image_index)
+        cv2.imwrite(image_save_path, cv2.cvtColor(image.astype('uint8'),
+            cv2.COLOR_RGB2BGR))
+    video_save_path = os.path.join(images_video_save_path,
+            'video.mp4')
+    video_saver.save(os.path.join(images_video_save_path,
+        '*.png'), video_save_path)
 
