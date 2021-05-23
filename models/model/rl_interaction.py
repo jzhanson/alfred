@@ -198,7 +198,8 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
                 else:
                     selected_action = superpixelactionconcat_index_to_action(
                             pred_action_index, len(concatenated_softmax[0]),
-                            single_interact=single_interact)
+                            single_interact=single_interact,
+                            navigation_superpixels=navigation_superpixels)
                     pred_mask_index = (pred_action_index -
                             len(constants.NAV_ACTIONS)) % len(masks[0])
                     selected_mask = masks[0][pred_mask_index]
