@@ -97,6 +97,8 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
         gt_segmentations = []
     else:
         gt_segmentations = None
+    if images_video_save_path is not None:
+        errs = []
 
     actions = (constants.SIMPLE_ACTIONS if single_interact else
             constants.COMPLEX_ACTIONS)
@@ -329,6 +331,8 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
 
         next_frame, reward, done, (action_success, event, err) = (
                 env.step(selected_action, interact_mask=selected_mask))
+        if images_video_save_path is not None:
+            errs.append(err)
 
         if curiosity_model is not None:
             next_stacked_frames = stack_frames([frames[-frame_stack+1:] +
@@ -460,6 +464,7 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
             json.dump(trajectory_info, jsonfile, indent=0)
 
     if images_video_save_path is not None:
+        trajectory_results['errs'] = errs
         write_images_video(model, trajectory_results, images_video_save_path,
                 gt_segmentations=gt_segmentations,
                 single_interact=single_interact, fusion_model=fusion_model,
@@ -1107,10 +1112,8 @@ def write_images_video(model, trajectory_results, images_video_save_path,
 
         marked_boundaries_image = (mark_boundaries(frame.numpy(), label_img) *
                 255)
-        images_to_write.append(frame.numpy())
-        images_to_write.append(marked_boundaries_image)
 
-        # Highlight chosen superpixel/mask
+        # Generate image with highlighted chosen superpixel/mask
         pred_mask_index = trajectory_results['pred_mask_indexes'][frame_index]
         if pred_mask_index >= 0:
             # Crop out the mask part of the image, set that mask portion to
@@ -1140,13 +1143,13 @@ def write_images_video(model, trajectory_results, images_video_save_path,
                     constants.MASK_BOUNDING_BOX_COLOR) # Right line
             highlighted_superpixel_image[min_y:max_y, min_x] = (
                     constants.MASK_BOUNDING_BOX_COLOR) # Left line
-
-
             action_image = highlighted_superpixel_image
         else:
             action_image = marked_boundaries_image
-        # Last, add text of the taken action
-        pred_action_index = trajectory_results['pred_action_indexes'][frame_index]
+        # Last, add text of the taken action, success+reward, and err to the
+        # third image
+        pred_action_index = trajectory_results['pred_action_indexes'][
+                frame_index]
         action_scores = trajectory_results['all_action_scores'][frame_index]
         actions = (constants.SIMPLE_ACTIONS if single_interact else
                 constants.COMPLEX_ACTIONS)
@@ -1165,9 +1168,32 @@ def write_images_video(model, trajectory_results, images_video_save_path,
                     navigation_superpixels=navigation_superpixels)
         cv2.putText(action_image, text=action_text,
                 org=(100,200), fontFace=cv2.FONT_HERSHEY_SIMPLEX,
-                fontScale=1, color=(0,255,255), thickness=2,
+                fontScale=1, color=constants.TEXT_COLOR, thickness=2,
                 lineType=cv2.LINE_AA)
+        action_success = trajectory_results['action_successes'][frame_index]
+        reward = trajectory_results['rewards'][frame_index]
+        detail_text = (('success' if action_success else 'failure') + ' ' +
+                str(reward))
+        cv2.putText(action_image, text=detail_text,
+                org=(100,215), fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+                fontScale=0.5, color=constants.TEXT_COLOR, thickness=1,
+                lineType=cv2.LINE_AA)
+        err = str(trajectory_results['errs'][frame_index])
+        if err is None:
+            err = 'None'
+        for start in range(0, len(err), constants.CHARS_PER_LINE):
+            img_start_y = 225 + (start // constants.CHARS_PER_LINE) * 8
+            if img_start_y >= constants.SCREEN_HEIGHT:
+                break
+            cv2.putText(action_image,
+                    text=err[start:start+constants.CHARS_PER_LINE],
+                    org=(100,img_start_y),
+                    fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.3,
+                    color=constants.TEXT_COLOR, thickness=1,
+                    lineType=cv2.LINE_AA)
 
+        images_to_write.append(frame.numpy())
+        images_to_write.append(marked_boundaries_image)
         images_to_write.append(action_image)
 
     for image_index, image in enumerate(images_to_write):
