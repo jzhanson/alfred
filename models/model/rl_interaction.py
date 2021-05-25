@@ -446,8 +446,18 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
         # depend on the number of superpixels) into environment/task action
         # indexes
         if fusion_model == 'SuperpixelFusion':
-            trajectory_info['pred_action_indexes'] = [pred_action_index.item() for
-                    pred_action_index in pred_action_indexes]
+            if outer_product_sampling:
+                trajectory_info['pred_action_indexes'] = [action_to_index[
+                    superpixelactionconcat_index_to_action(
+                        pred_action_index.item(), len(action_scores),
+                        single_interact=single_interact,
+                        navigation_superpixels=navigation_superpixels)] for
+                    pred_action_index, action_scores in
+                    zip(pred_action_indexes, all_action_scores)]
+            else:
+                trajectory_info['pred_action_indexes'] = [
+                        pred_action_index.item() for pred_action_index in
+                        pred_action_indexes]
         elif fusion_model == 'SuperpixelActionConcat':
             trajectory_info['pred_action_indexes'] = [action_to_index[
                 superpixelactionconcat_index_to_action(
@@ -596,7 +606,8 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
             # log probability, and you can likewise add action and mask
             # entropies to get the joint entropy
 
-            if fusion_model == 'SuperpixelFusion' and outer_product_sampling:
+            if (fusion_model == 'SuperpixelFusion' and outer_product_sampling
+                    and not navigation_superpixels):
                 # Scores are already softmaxed and have action and mask
                 # combined
                 action_log_prob = torch.log(trajectory_results[
