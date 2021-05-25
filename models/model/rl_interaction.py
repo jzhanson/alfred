@@ -313,8 +313,11 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
             if navigation_superpixels:
                 pred_mask_index = pred_action_index % num_superpixels
             else:
-                pred_mask_index = ((pred_action_index - len(constants.NAV_ACTIONS))
-                        % num_superpixels)
+                if pred_action_index < len(constants.NAV_ACTIONS):
+                    pred_mask_index = -1
+                else:
+                    pred_mask_index = ((pred_action_index -
+                        len(constants.NAV_ACTIONS)) % num_superpixels)
 
             selected_action, selected_mask, prev_action_features = (
                     actions_masks_features[0][pred_action_index])
