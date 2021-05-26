@@ -125,7 +125,7 @@ if __name__ == '__main__':
     elif type(args.visual_fc_units) is int:
         args.visual_fc_units = [args.visual_fc_units]
 
-    if args.policy_model_superpixel_context is None:
+    if args.superpixel_context is None:
         visual_input_size = args.visual_feature_size
     else:
         visual_input_size = args.visual_feature_size + args.superpixel_feature_size
@@ -154,18 +154,18 @@ if __name__ == '__main__':
     if args.fusion_model == 'SuperpixelFusion':
         model = SuperpixelFusion(action_embeddings=action_embeddings,
               visual_model=visual_model, superpixel_model=superpixel_model,
-              policy_model=policy_model, policy_model_superpixel_context=
-              args.policy_model_superpixel_context, slic_kwargs=slic_kwargs,
-              boundary_pixels=args.boundary_pixels,
+              policy_model=policy_model,
+              superpixel_context=args.superpixel_context,
+              slic_kwargs=slic_kwargs, boundary_pixels=args.boundary_pixels,
               neighbor_depth=args.neighbor_depth,
               neighbor_connectivity=args.neighbor_connectivity,
               black_outer=args.black_outer, device=device)
     elif args.fusion_model == 'SuperpixelActionConcat':
         model = SuperpixelActionConcat(action_embeddings=action_embeddings,
               visual_model=visual_model, superpixel_model=superpixel_model,
-              policy_model=policy_model, policy_model_superpixel_context=
-              args.policy_model_superpixel_context, slic_kwargs=slic_kwargs,
-              boundary_pixels=args.boundary_pixels,
+              policy_model=policy_model,
+              superpixel_context=args.superpixel_context,
+              slic_kwargs=slic_kwargs, boundary_pixels=args.boundary_pixels,
               neighbor_depth=args.neighbor_depth,
               neighbor_connectivity=args.neighbor_connectivity,
               black_outer=args.black_outer,
