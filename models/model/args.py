@@ -2,6 +2,7 @@ import argparse
 parser = argparse.ArgumentParser()
 
 # General arguments
+parser.add_argument('-s', '--seed', type=int, default=0, help='random seed')
 parser.add_argument('-lr', '--lr', type=float, default=0.01, help='learning rate')
 parser.add_argument('--optimizer', type=str, default='adam', help='optimizer (\'sgd\', \'rmsprop\', \'adam\', or \'adam-amsgrad\') to use (default: \'adam\')')
 parser.add_argument('-mgn', '--max-grad-norm', type=float, default=50, help='maximum grad norm before clamping (default: 50)')
