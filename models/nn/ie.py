@@ -219,7 +219,7 @@ class ResnetSuperpixelWrapper(nn.Module):
 class SuperpixelFusion(nn.Module):
     def __init__(self, visual_model=None, superpixel_model=None,
             action_embeddings=None, policy_model=None,
-            policy_model_superpixel_context=None, slic_kwargs={},
+            superpixel_context=None, slic_kwargs={},
             boundary_pixels=0, neighbor_depth=0, neighbor_connectivity=2,
             black_outer=False, device=torch.device('cpu')):
         """
@@ -231,7 +231,7 @@ class SuperpixelFusion(nn.Module):
         self.superpixel_model = superpixel_model
         self.action_embeddings = action_embeddings
         self.policy_model = policy_model
-        self.policy_model_superpixel_context = policy_model_superpixel_context
+        self.superpixel_context = superpixel_context
         self.slic_kwargs = slic_kwargs
         self.boundary_pixels = boundary_pixels
         self.neighbor_depth = neighbor_depth
@@ -287,12 +287,12 @@ class SuperpixelFusion(nn.Module):
                 superpixel_features = torch.squeeze(superpixel_features, -1)
             batch_superpixel_features.append(superpixel_features)
 
-        if self.policy_model_superpixel_context is None:
+        if self.superpixel_context is None:
             policy_input = visual_features
         else:
-            if self.policy_model_superpixel_context == 'hidden':
+            if self.superpixel_context == 'hidden':
                 batch_superpixel_query = policy_hidden[0]
-            elif self.policy_model_superpixel_context == 'scene':
+            elif self.superpixel_context == 'scene':
                 batch_superpixel_query = visual_features
 
             batch_superpixel_context = (
@@ -494,7 +494,7 @@ class SuperpixelFusion(nn.Module):
 class SuperpixelActionConcat(SuperpixelFusion):
     def __init__(self, visual_model=None, superpixel_model=None,
             action_embeddings=None, policy_model=None,
-            policy_model_superpixel_context=None, slic_kwargs={},
+            superpixel_context=None, slic_kwargs={},
             boundary_pixels=0, neighbor_depth=0, neighbor_connectivity=2,
             black_outer=False, superpixel_feature_size=512,
             single_interact=False, zero_null_superpixel_features=False,
@@ -503,9 +503,9 @@ class SuperpixelActionConcat(SuperpixelFusion):
         super(SuperpixelActionConcat, self).__init__(visual_model=visual_model,
                 superpixel_model=superpixel_model,
                 action_embeddings=action_embeddings, policy_model=policy_model,
-                policy_model_superpixel_context=
-                policy_model_superpixel_context, slic_kwargs=slic_kwargs,
-                boundary_pixels=boundary_pixels, neighbor_depth=neighbor_depth,
+                superpixel_context=superpixel_context,
+                slic_kwargs=slic_kwargs, boundary_pixels=boundary_pixels,
+                neighbor_depth=neighbor_depth,
                 neighbor_connectivity=neighbor_connectivity,
                 black_outer=black_outer, device=device)
         self.superpixel_feature_size = superpixel_feature_size
@@ -565,12 +565,12 @@ class SuperpixelActionConcat(SuperpixelFusion):
                 superpixel_features = torch.squeeze(superpixel_features, -1)
             batch_superpixel_features.append(superpixel_features)
 
-        if self.policy_model_superpixel_context is None:
+        if self.superpixel_context is None:
             policy_input = visual_features
         else:
-            if self.policy_model_superpixel_context == 'hidden':
+            if self.superpixel_context == 'hidden':
                 batch_superpixel_query = policy_hidden[0]
-            elif self.policy_model_superpixel_context == 'scene':
+            elif self.superpixel_context == 'scene':
                 batch_superpixel_query = visual_features
 
             batch_superpixel_context = (
