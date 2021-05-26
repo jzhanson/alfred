@@ -97,14 +97,16 @@ if __name__ == '__main__':
 
     if args.separate_superpixel_model:
         if 'resnet' in args.superpixel_model:
-            args.superpixel_feature_size = 512
+            # TODO: set superpixel_feature_size to be consistent with
+            # ResnetSuperpixelWrapper output
+            superpixel_feature_size = 512
             superpixel_model = Resnet(resnet_args, use_conv_feat=False,
                     pretrained=args.pretrained_visual_model,
                     frozen=args.frozen_visual_model)
         else:
             print("superpixel model '" + args.superpixel_model + "' not supported")
     else:
-        args.superpixel_feature_size = visual_feature_size
+        superpixel_feature_size = visual_feature_size
         superpixel_model = visual_model
 
     if args.superpixel_fc_units is None:
@@ -133,19 +135,19 @@ if __name__ == '__main__':
     if args.use_visual_feature:
         visual_input_size += visual_feature_size
     if args.superpixel_context is not None:
-        visual_input_size += args.superpixel_feature_size
+        visual_input_size += superpixel_feature_size
 
     if args.fusion_model == 'SuperpixelFusion':
         prev_action_size = (args.action_embedding_dim +
-            args.superpixel_feature_size)
+            superpixel_feature_size)
     elif args.fusion_model == 'SuperpixelActionConcat':
         if args.superpixelactionconcat_add_superpixel_action:
             # args.action_embedding_dim should equal
-            # args.superpixel_feature_size
+            # superpixel_feature_size
             prev_action_size = args.action_embedding_dim
         else:
             prev_action_size = (args.action_embedding_dim +
-                args.superpixel_feature_size)
+                superpixel_feature_size)
 
     policy_model = LSTMPolicy(
             visual_feature_size=visual_input_size,
@@ -211,13 +213,13 @@ if __name__ == '__main__':
             # TODO: should curiosity use action embeddings or action/mask
             # logits for vanilla SuperpixelFusion?
             action_embedding_dim = (args.action_embedding_dim +
-                args.superpixel_feature_size)
+                superpixel_feature_size)
         elif args.fusion_model == 'SuperpixelActionConcat':
             if args.superpixelactionconcat_add_superpixel_action:
                 action_embedding_dim = args.action_embedding_dim
             else:
                 action_embedding_dim = (args.action_embedding_dim +
-                    args.superpixel_feature_size)
+                    superpixel_feature_size)
 
         # TODO: make curiosity match use_visual_feature and superpixel_context
         curiosity_model = CuriosityIntrinsicReward(
