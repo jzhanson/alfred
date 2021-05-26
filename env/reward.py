@@ -246,8 +246,9 @@ class InteractionReward(object):
         coverage, interaction coverage by object, state change coverage by
         object, interaction coverage by type, state change coverage by type.
 
-        Coverage metric can be a little weird if single_interact, but
-        single_interact contextual interact was not designed to be a final
+        Coverage metric can be a little weird if single_interact since some
+        actions may not be possible with the contextual action choosing rules,
+        but single_interact contextual interact was not designed to be a final
         metric, only a sanity check stepping-stone.
         """
         navigation_location_coverage = (len(
