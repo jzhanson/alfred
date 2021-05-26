@@ -4,6 +4,8 @@ sys.path.append(os.path.join(os.environ['ALFRED_ROOT']))
 sys.path.append(os.path.join(os.environ['ALFRED_ROOT'], 'gen'))
 sys.path.append(os.path.join(os.environ['ALFRED_ROOT'], 'models'))
 import json
+import random
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -21,6 +23,11 @@ from models.model.rl_interaction import train
 
 if __name__ == '__main__':
     args = parse_args()
+
+    # Set random seed for everything
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
 
     if args.save_path is not None and not os.path.isdir(args.save_path):
         print('making directory', args.save_path)
