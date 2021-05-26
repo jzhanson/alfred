@@ -1080,7 +1080,8 @@ def write_results(writer, results, train_steps, train_frames=None,
 
 def write_images_video(model, trajectory_results, images_video_save_path,
         gt_segmentations=None, single_interact=False, fusion_model='',
-        outer_product_sampling=False, navigation_superpixels=False):
+        outer_product_sampling=False, navigation_superpixels=False,
+        keep_images=False):
     scene_name_or_num = str(trajectory_results['scene_name_or_num'])
     reward = str(trajectory_results['rewards'])
     trajectory_length = str(len(trajectory_results['frames']))
@@ -1219,4 +1220,9 @@ def write_images_video(model, trajectory_results, images_video_save_path,
             'video.mp4')
     video_saver.save(os.path.join(images_video_save_path,
         '*.png'), video_save_path)
+    if not keep_images:
+        for image_index in range(len(images_to_write)):
+            image_save_path = os.path.join(images_video_save_path, '%09d.png' %
+                    image_index)
+            os.remove(image_save_path)
 
