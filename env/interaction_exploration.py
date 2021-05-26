@@ -49,8 +49,13 @@ class InteractionExploration(object):
             # environment with more objects, but then we need to compute
             # max coverage live. Can also consider randomizing object states
             # (e.g.  open/closed, toggled), but for consistency we don't
+            #
+            # Could also use self.env.random_initialize for this, or add
+            # arguments like randomizeOpen, uniquePickupableObjectTypes,
+            # excludeObjectIds, excludeReceptacleObjectPairs, maxNumRepeats, or
+            # removeProb
             event = self.env.step(dict(action='InitialRandomSpawn',
-                    randomSeed=0,
+                    randomSeed=random.randint(0, 2**32),
                     forceVisible=False,
                     numPlacementAttempts=5,
                     placeStationary=True,
