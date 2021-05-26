@@ -502,11 +502,21 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
     writer = SummaryWriter(log_dir='tensorboard_logs' if save_path is None else
             os.path.join(save_path, 'tensorboard_logs'))
 
+    # We have to load model inside train instead of outside because we need to
+    # know train_steps, so we either pass it as an argument or load inside
+    # train
     if load_path is not None:
         checkpoint = torch.load(load_path)
         train_steps = checkpoint['train_steps']
         train_frames = checkpoint['train_frames']
         model.load_state_dict(checkpoint['model_state_dict'])
+        # Can also check if checkpoint has curiosity_model_state_dict for
+        # backwards compatibility and other reasons to load a model but
+        # initialize fresh curiosity. For now, we enforce that if you're
+        # loading and are using curiosity, you have to have curiosity saved
+        if curiosity_model is not None:
+            curiosity_model.load_state_dict(
+                    checkpoint['curiosity_model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         print('loading from ' + load_path + ' iteration ' + str(train_steps))
     else:
@@ -747,13 +757,17 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
                             str(train_steps) + '.pth')
                 else:
                     checkpoint_save_path = os.path.join(save_path, 'model.pth')
-                print('saving to ' + checkpoint_save_path)
-                torch.save({
+                save_dict = {
                     'train_steps' : train_steps,
                     'train_frames' : train_frames,
                     'model_state_dict' : model.state_dict(),
                     'optimizer_state_dict' : optimizer.state_dict(),
-                }, checkpoint_save_path)
+                }
+                if curiosity_model is not None:
+                    save_dict['curiosity_model_state_dict'] = (
+                            curiosity_model.state_dict())
+                print('saving to ' + checkpoint_save_path)
+                torch.save(save_dict, checkpoint_save_path)
 
 def write_results(writer, results, train_steps, train_frames=None,
         train_trajectories=None, fusion_model='SuperpixelFusion',
