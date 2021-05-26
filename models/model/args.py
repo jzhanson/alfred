@@ -125,6 +125,9 @@ parser.add_argument('--reward-use-discount', dest='reward_use_novelty', action='
 parser.set_defaults(reward_use_novelty=False)
 
 # Model parameters
+parser.add_argument('--use-visual-feature', dest='use_visual_feature', action='store_true', help='use visual model and pass visual scene features as input to policy model')
+parser.add_argument('--no-visual-feature', dest='use_visual_feature', action='store_false', help='don\'t use visual model to process visual scene features as input to policy model. policy model only takes superpixel context (--superpixel-context argument should be set to something)')
+parser.set_defaults(use_visual_feature=True)
 parser.add_argument('--superpixel-context', type=str, default=None, help='whether to include superpixel context vector as input to policy model, and mode (\'hidden\' or \'scene\')')
 parser.add_argument('--separate-superpixel-model', dest='separate_superpixel_model', action='store_true', help='use a separate superpixel visual model than scene features')
 parser.add_argument('--no-separate-superpixel-model', dest='separate_superpixel_model', action='store_false', help='use visual_model to get superpixel features')
