@@ -97,8 +97,6 @@ if __name__ == '__main__':
 
     if args.separate_superpixel_model:
         if 'resnet' in args.superpixel_model:
-            # TODO: set superpixel_feature_size to be consistent with
-            # ResnetSuperpixelWrapper output
             superpixel_feature_size = 512
             superpixel_model = Resnet(resnet_args, use_conv_feat=False,
                     pretrained=args.pretrained_visual_model,
@@ -113,6 +111,10 @@ if __name__ == '__main__':
         args.superpixel_fc_units = []
     elif type(args.superpixel_fc_units) is int:
         args.superpixel_fc_units = [args.superpixel_fc_units]
+    # If there are superpixel fc layers, set superpixel_featre_size to the size
+    # of the last layer
+    if len(args.superpixel_fc_units) > 0:
+        superpixel_feature_size = args.superpixel_fc_units[-1]
     superpixel_model = ResnetSuperpixelWrapper(
             superpixel_model=superpixel_model,
             superpixel_fc_units=args.superpixel_fc_units, dropout=args.dropout,
