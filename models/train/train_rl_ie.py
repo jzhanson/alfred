@@ -83,8 +83,12 @@ if __name__ == '__main__':
 
     resnet_args = Namespace(visual_model='resnet', gpu=args.gpu >= 0,
             gpu_index=args.gpu)
+    # Even if args.use_visual_feature is False, still initialize a visual model
+    # since it makes the code simpler and clearer, especially in awkward cases
+    # surrounding args.separate_superpixel_model and args.superpixel_context
+    # being 'visual'
     if 'resnet' in args.visual_model:
-        args.visual_feature_size = 512
+        visual_feature_size = 512
         visual_model = Resnet(resnet_args, use_conv_feat=False,
                 pretrained=args.pretrained_visual_model,
                 frozen=args.frozen_visual_model)
@@ -100,7 +104,7 @@ if __name__ == '__main__':
         else:
             print("superpixel model '" + args.superpixel_model + "' not supported")
     else:
-        args.superpixel_feature_size = args.visual_feature_size
+        args.superpixel_feature_size = visual_feature_size
         superpixel_model = visual_model
 
     if args.superpixel_fc_units is None:
@@ -125,10 +129,12 @@ if __name__ == '__main__':
     elif type(args.visual_fc_units) is int:
         args.visual_fc_units = [args.visual_fc_units]
 
-    if args.superpixel_context is None:
-        visual_input_size = args.visual_feature_size
-    else:
-        visual_input_size = args.visual_feature_size + args.superpixel_feature_size
+    visual_input_size = 0
+    if args.use_visual_feature:
+        visual_input_size += visual_feature_size
+    if args.superpixel_context is not None:
+        visual_input_size += args.superpixel_feature_size
+
     if args.fusion_model == 'SuperpixelFusion':
         prev_action_size = (args.action_embedding_dim +
             args.superpixel_feature_size)
@@ -155,6 +161,7 @@ if __name__ == '__main__':
         model = SuperpixelFusion(action_embeddings=action_embeddings,
               visual_model=visual_model, superpixel_model=superpixel_model,
               policy_model=policy_model,
+              use_visual_feature=args.use_visual_feature,
               superpixel_context=args.superpixel_context,
               slic_kwargs=slic_kwargs, boundary_pixels=args.boundary_pixels,
               neighbor_depth=args.neighbor_depth,
@@ -164,6 +171,7 @@ if __name__ == '__main__':
         model = SuperpixelActionConcat(action_embeddings=action_embeddings,
               visual_model=visual_model, superpixel_model=superpixel_model,
               policy_model=policy_model,
+              use_visual_feature=args.use_visual_feature,
               superpixel_context=args.superpixel_context,
               slic_kwargs=slic_kwargs, boundary_pixels=args.boundary_pixels,
               neighbor_depth=args.neighbor_depth,
@@ -211,6 +219,7 @@ if __name__ == '__main__':
                 action_embedding_dim = (args.action_embedding_dim +
                     args.superpixel_feature_size)
 
+        # TODO: make curiosity match use_visual_feature and superpixel_context
         curiosity_model = CuriosityIntrinsicReward(
                 visual_encoder=curiosity_visual_encoder,
                 action_embedding_dim=action_embedding_dim,
