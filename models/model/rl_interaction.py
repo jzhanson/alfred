@@ -495,7 +495,6 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
         curiosity_lambda=0.1, scene_numbers=None, reset_kwargs={},
         max_trajectory_length=None, frame_stack=1, zero_fill_frame_stack=False,
         teacher_force=False, sample_action=True, sample_mask=True,
-        train_episodes=10, valid_seen_episodes=10, valid_unseen_episodes=10,
         eval_interval=1000, max_steps=1000000, device=torch.device('cpu'),
         save_path=None, save_intermediate=False, save_images_video=False,
         save_trajectory_info=False, load_path=None):
