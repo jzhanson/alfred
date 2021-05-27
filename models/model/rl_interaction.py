@@ -736,6 +736,8 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
         # Save checkpoint every N trajectories, collect/print stats
         if train_steps % eval_interval == 0 or train_steps == max_steps:
             print('steps %d frames %d' % (train_steps, train_frames))
+            for metric, values in last_metrics.items():
+                last_metrics[metric] = []
             '''
             results = {}
             results['train'] = {}
