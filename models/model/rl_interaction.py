@@ -550,7 +550,7 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
             last_metrics['discrete_action_logits'] = []
     if curiosity_model is not None:
         last_metrics['curiosity_rewards'] = []
-        last_metrics['avg_curiosity_loss'] = []
+        last_metrics['curiosity_losses'] = []
 
     # TODO: want a replay memory?
     while train_steps < max_steps:
@@ -717,7 +717,7 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
             last_metrics['curiosity_rewards'].append(
                     torch.sum(torch.stack(
                         trajectory_results['curiosity_rewards'])).item())
-            last_metrics['avg_curiosity_loss'].append(
+            last_metrics['curiosity_losses'].append(
                     torch.mean(torch.stack(
                         trajectory_results['curiosity_losses'])).item())
 
