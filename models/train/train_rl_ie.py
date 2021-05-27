@@ -32,6 +32,8 @@ if __name__ == '__main__':
     if args.save_path is not None and not os.path.isdir(args.save_path):
         print('making directory', args.save_path)
         os.makedirs(args.save_path)
+    with open(os.path.join(args.save_path, 'args.json'), 'w') as jsonfile:
+        json.dump(args.__dict__, jsonfile)
     trajectory_info_path = os.path.join(args.save_path, 'trajectory_info')
     if args.save_trajectory_info and not os.path.isdir(trajectory_info_path):
         print('making directory', trajectory_info_path)
