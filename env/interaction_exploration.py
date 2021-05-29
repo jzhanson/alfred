@@ -155,15 +155,18 @@ class InteractionExploration(object):
             else:
                 if self.single_interact:
                     # Figure out which action based on the object
-                    contextual_action = self.contextual_action(
+                    contextual_actions = self.get_contextual_actions(
                             target_instance_id)
-                    if contextual_action is None:
+                    if contextual_actions is None:
                         err = ('No valid contextual interaction for object ' +
                                 target_instance_id)
                         success = False
                         return (self.env.last_event.frame,
                                 self.reward.invalid_action(interaction=True),
                                 self.done, (success, self.env.last_event, err))
+                    contextual_action = (random.choice(contextual_actions) if
+                            self.sample_contextual_action else
+                            contextual_actions[0])
                 else:
                     contextual_action = action
                 event, success, err = self.exec_targeted_action(
@@ -179,15 +182,18 @@ class InteractionExploration(object):
                             " to determine contextual Interact")
                     success = False
                 else:
-                    contextual_action = self.contextual_action(
+                    contextual_actions = self.get_contextual_action(
                             target_instance_id)
-                    if contextual_action is None:
+                    if contextual_actions is None:
                         err = ('No valid contextual interaction for object ' +
                                 target_instance_id)
                         success = False
                         return (self.env.last_event.frame,
                                 self.reward.invalid_action(interaction=True),
                                 self.done, (success, self.env.last_event, err))
+                    contextual_action = (random.choice(contextual_actions) if
+                            self.sample_contextual_action else
+                            contextual_actions[0])
                     # Could call env/thor_env.py's va_interact, for some nice
                     # debug code
                     #success, event, target_instance_id, err, _ = \
@@ -323,7 +329,7 @@ class InteractionExploration(object):
                 closest_object_distance = distance
         return closest_object_id
 
-    def contextual_action(self, target_instance_id):
+    def get_contextual_actions(self, target_instance_id):
         """
         Returns action for the object with the given id based on object
         attributes.
@@ -357,8 +363,7 @@ class InteractionExploration(object):
             valid_actions.append('SliceObject')
 
         if len(valid_actions) > 0:
-            return (random.choice(valid_actions) if
-                    self.sample_contextual_action else valid_actions[0])
+            return valid_actions
         else:
             # Sometimes there won't be a valid interaction
             return None
