@@ -295,6 +295,7 @@ if __name__ == '__main__':
             navigation_superpixels=args.navigation_superpixels,
             curiosity_model=curiosity_model,
             curiosity_lambda=args.curiosity_lambda,
+            seen_state_loss_coefficient=args.seen_state_loss_coefficient,
             scene_numbers=scene_numbers, reset_kwargs=reset_kwargs,
             max_trajectory_length=args.max_trajectory_length,
             frame_stack=args.frame_stack,
