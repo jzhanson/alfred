@@ -13,6 +13,8 @@ from env.thor_env import ThorEnv
 import gen.constants as constants
 from gen.graph.graph_obj import Graph
 from env.reward import InteractionReward
+from gen.utils.game_util import (get_objects_of_type,
+        get_obj_of_type_closest_to_obj)
 
 class InteractionExploration(object):
     """Task is to interact with all objects in a scene"""
@@ -468,6 +470,100 @@ class InteractionExploration(object):
                         and not target_object['isSliced'] and
                         len(inventory_objects) > 0 and 'Knife' in
                         inventory_objects[0]['objectType'])
+
+    def has_new_state_change(self, action, target_object):
+        event = self.env.last_event
+        if (action == 'ToggleObjectOn' and 'Faucet' in
+                target_object['objectId']):
+            sink_basin = get_obj_of_type_closest_to_obj('SinkBasin',
+                    target_object['objectId'], event.metadata)
+            cleaned_object_ids = sink_basin['receptacleObjectIds']
+            new_object_ids = cleaned_object_ids
+            trajectory_object_ids = self.reward.trajectory_cleaned_objects
+        elif (action == 'ToggleObjectOn' and 'Microwave' in
+                target_object['objectId']):
+            microwave = get_objects_of_type('Microwave', event.metadata)[0]
+            heated_object_ids = microwave['receptacleObjectIds']
+            new_object_ids = heated_object_ids
+            trajectory_object_ids = self.reward.trajectory_heated_objects
+        elif action == 'CloseObject' and 'Fridge' in target_object['objectId']:
+            fridge = get_objects_of_type('Fridge', event.metadata)[0]
+            cooled_object_ids = fridge['receptacleObjectIds']
+            new_object_ids = cooled_object_ids
+            trajectory_object_ids = self.reward.trajectory_cooled_objects
+        else:
+            return False
+
+        has_new_state_change = any([new_object_id not in trajectory_object_ids
+            for new_object_id in new_object_ids])
+        return has_new_state_change
+
+    def get_seen_state_labels(self, actions_masks):
+        """
+        TODO: Does not support mask-less contextual interaction.
+
+        Counts rotations and look angles, and state changes depending on what
+        is set in self.reward.
+        """
+        labels = []
+        for action, mask in actions_masks:
+            if action in constants.NAV_ACTIONS:
+                # Calculate new pose and see if pose has been encountered
+                # before in trajectory from reward tracking
+                new_pose_discrete = self.get_new_pose_discrete(action)
+                new_location = new_pose_discrete[:2]
+                rotation = new_pose_discrete[2]
+                look_angle = new_pose_discrete[3]
+                # Make sure new location is valid (i.e. a point in nav graph).
+                if not self.valid_action(action):
+                    labels.append(0)
+                    continue
+                # Then, check whether the location has been seen before
+                if (new_location not in
+                        self.reward.trajectory_visited_locations_poses):
+                    labels.append(1)
+                else:
+                    if ((rotation, look_angle) in
+                            self.reward.trajectory_visited_locations_poses[
+                                new_location] and
+                            self.reward.reward_rotations_look_angles):
+                        labels.append(1)
+                    else:
+                        labels.append(0)
+            else:
+                # For interaction actions, start by getting target object id,
+                # then checking if that interaction has been done before.
+                target_instance_id = self.env.mask_to_target_instance_id(mask)
+                if target_instance_id is None:
+                    labels.append(0)
+                    continue
+                # After this conditional, action is one of
+                # constants.COMPLEX_ACTIONS
+                if action == constants.ACTIONS_INTERACT:
+                    contextual_actions = self.get_contextual_actions(
+                            target_instance_id)
+                    action = (random.choice(contextual_actions) if
+                            self.sample_contextual_action else
+                            contextual_actions[0])
+                interaction = (target_instance_id, action)
+                target_object = self.env.last_event.get_object(
+                        target_instance_id)
+                # Check that that action is a valid action for that object
+                if not self.valid_action(action,
+                        target_instance_id=target_instance_id):
+                    labels.append(0)
+                    continue
+
+                if interaction in self.reward.trajectory_interactions:
+                    if (self.reward.reward_state_changes and
+                            self.has_new_state_change(action, target_object)):
+                            labels.append(1)
+                    else:
+                        labels.append(0)
+                else:
+                    labels.append(1)
+
+        return labels
 
 if __name__ == '__main__':
     single_interact = False
