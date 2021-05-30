@@ -20,6 +20,7 @@ class InteractionReward(object):
         self.env = env
         self.rewards = rewards
         self.reward_rotations_look_angles = reward_rotations_look_angles
+        self.reward_state_changes = reward_state_changes
         self.persist_state = persist_state
         self.repeat_discount = repeat_discount
         # If use_novelty=True, repeat_discount will not be used
@@ -67,32 +68,41 @@ class InteractionReward(object):
                     times_visited)
             # Also, if action resulted in objects becoming clean, heated, or
             # cooled, give reward for each one
-            newly_cleaned = (len(self.env.cleaned_objects) -
-                    len(self.trajectory_cleaned_objects))
-            newly_heated = (len(self.env.heated_objects) -
-                    len(self.trajectory_heated_objects))
-            newly_cooled = (len(self.env.cooled_objects) -
-                    len(self.trajectory_cooled_objects))
-            for env_objects, trajectory_objects, memory_objects in zip(
-                    [self.env.cleaned_objects, self.env.heated_objects,
-                        self.env.cooled_objects],
-                    [self.trajectory_cleaned_objects,
-                        self.trajectory_heated_objects,
-                        self.trajectory_cooled_objects],
-                    [self.cleaned_objects, self.heated_objects,
-                        self.cooled_objects]):
-                # TODO: cleaning/heating/cooling only gives reward once per
-                # episode per object (which makes sense since you can only
-                # clean/heat/cool objects once) while navigation and
-                # interaction can give decayed reward multiple times per
-                # episode. can we check cleaned/heated/cooled conditions in the
-                # same way env/thor_env.py does and apply reward per
-                # interaction?
-                num_new_objects = len(env_objects) - len(trajectory_objects)
-                if num_new_objects > 0:
-                    # Go through all objects marked as cleaned/heated/cooled in
-                    # the environment, and if it is newly added, add it to our
-                    # tracking set and our memory
+            if self.reward_state_changes:
+                newly_cleaned = (len(self.env.cleaned_objects) -
+                        len(self.trajectory_cleaned_objects))
+                newly_heated = (len(self.env.heated_objects) -
+                        len(self.trajectory_heated_objects))
+                newly_cooled = (len(self.env.cooled_objects) -
+                        len(self.trajectory_cooled_objects))
+                for env_objects, trajectory_objects, memory_objects in zip(
+                        [self.env.cleaned_objects, self.env.heated_objects,
+                            self.env.cooled_objects],
+                        [self.trajectory_cleaned_objects,
+                            self.trajectory_heated_objects,
+                            self.trajectory_cooled_objects],
+                        [self.cleaned_objects, self.heated_objects,
+                            self.cooled_objects]):
+                    # TODO: cleaning/heating/cooling only gives reward once per
+                    # episode per object (which makes sense since you can only
+                    # clean/heat/cool objects once) while navigation and
+                    # interaction can give decayed reward multiple times per
+                    # episode. can we check cleaned/heated/cooled conditions in
+                    # the same way env/thor_env.py does and apply reward per
+                    # interaction?
+                    #
+                    # The lines
+                    #
+                    # self.cleaned_objects = self.cleaned_objects |
+                    # set(cleaned_object_ids) if cleaned_object_ids is
+                    # not None else set()
+                    #
+                    # and the like for heated and cooled objects in
+                    # env/thor_env.py empty the env's object tracking if the
+                    # faucet/microwave/fridge is turned on/closed and there's
+                    # nothing in them, which is odd and means we have to go
+                    # through env_objects every tiime
+                    objects_changed = False
                     for object_id in env_objects:
                         if object_id not in trajectory_objects:
                             trajectory_objects.update(object_id)
@@ -104,9 +114,11 @@ class InteractionReward(object):
                             reward += self.get_discounted_reward(
                                     self.rewards['state_change'],
                                     times_visited)
+                            objects_changed = True
                     # A single action can only result in one type of state
                     # change
-                    break
+                    if objects_changed:
+                        break
         # Could also do state.metadata['lastAction'] == 'TeleportFull'
         elif (state.metadata['lastActionSuccess'] and action in
                 constants.NAV_ACTIONS):
