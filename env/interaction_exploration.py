@@ -384,6 +384,91 @@ class InteractionExploration(object):
     def get_coverages(self):
         return self.reward.get_coverages()
 
+    def get_new_pose_discrete(self, action):
+        x, z, rotation, look_angle = self.env.last_event.pose_discrete
+        if action == 'MoveAhead':
+            if rotation == 0:
+                z += 1
+            elif rotation == 1:
+                x += 1
+            elif rotation == 2:
+                z -= 1
+            elif rotation == 3:
+                x -= 1
+        elif action == 'RotateLeft':
+            rotation = (rotation - 1) % 4
+        elif action == 'RotateRight':
+            rotation = (rotation + 1) % 4
+        elif action == 'LookUp':
+            if look_angle == -90:
+                look_angle += constants.AGENT_HORIZON_ADJ
+            else:
+                look_angle -= constants.AGENT_HORIZON_ADJ
+        elif action == 'LookDown':
+            if look_angle == 90:
+                look_angle -= constants.AGENT_HORIZON_ADJ
+            else:
+                look_angle += constants.AGENT_HORIZON_ADJ
+        new_pose_discrete = (x, z, rotation, look_angle)
+        return new_pose_discrete
+
+    def valid_action(self, action, target_instance_id=None):
+        if action == 'MoveAhead':
+            # Some edge cases like being blocked by a refrigerator door or
+            # a cabinet will return valid when they are not, but hopefully
+            # these are rare
+            new_pose_discrete = self.get_new_pose_discrete(action)
+            new_location = new_pose_discrete[:2]
+            return new_location in self.graph.points
+        elif action in constants.NAV_ACTIONS:
+            return True
+        else:
+            # We check for visibility, which also determines when objects are
+            # close enough to be interacted with(?) for actions that don't have
+            # forceAction=True
+            # Hopefully other edge cases which we can't really detect like
+            # receptacles being full or not having enough room for an object
+            # are fairly infrequent
+            if target_instance_id is None:
+                return False
+            target_object = self.env.last_event.get_object(target_instance_id)
+            if action == 'OpenObject':
+                return (target_object['visible'] and target_object['openable']
+                        and not target_object['isOpen'])
+            elif action == 'CloseObject':
+                # forceAction=True in env/thor_env.py:to_thor_api_exec, so no
+                # need for target_object['visible']
+                return (target_object['openable'] and target_object['isOpen'])
+            elif action == 'PickupObject':
+                return (target_object['visible'] and
+                        target_object['pickupable'] and
+                        len(self.env.last_event.metadata['inventoryObjects'])
+                        == 0)
+            elif action == 'PutObject':
+                inventory_objects = self.env.last_event.metadata[
+                        'inventoryObjects']
+                # Likewise, forceAction=True, so no 'visible' check
+                return (target_object['receptacle'] and
+                        len(inventory_objects) > 0 and
+                        inventory_objects[0]['objectType'] in
+                        constants.VAL_RECEPTACLE_OBJECTS[
+                            target_object['objectType']])
+            elif action == 'ToggleObjectOn':
+                return (target_object['visible'] and
+                        target_object['toggleable'] and not
+                        target_object['isToggled'])
+            elif action == 'ToggleObjectOff':
+                return (target_object['visible'] and
+                        target_object['toggleable'] and
+                        target_object['isToggled'])
+            elif action == 'SliceObject':
+                inventory_objects = self.env.last_event.metadata[
+                        'inventoryObjects']
+                return (target_object['visible'] and target_object['sliceable']
+                        and not target_object['isSliced'] and
+                        len(inventory_objects) > 0 and 'Knife' in
+                        inventory_objects[0]['objectType'])
+
 if __name__ == '__main__':
     single_interact = False
     use_masks = True
