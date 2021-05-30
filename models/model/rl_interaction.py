@@ -41,13 +41,80 @@ env/thor_env.py:to_thor_api_exec.
 https://github.com/allenai/ai2thor/issues/391#issuecomment-618696398
 """
 
+def get_seen_state_loss(env, actions=constants.COMPLEX_ACTIONS,
+        fusion_model=None, outer_product_sampling=False,
+        navigation_superpixels=False, masks=None, action_scores=None):
+    """
+    This function splits some logic out of rollout_trajectory, even though the
+    argument passing pattern kind of gross.
+
+    The argument action_scores is either concatenated_softmax,
+    flat_outer_scores, (action_scores, mask_scores), or action_scores from
+    rollout_trajectory depending on fusion_model, outer_product_sampling, and
+    navigation_superpixels.
+
+    The argument masks is either masks or actions_masks_features, depending on
+    fusion_model.
+    """
+    actions_masks = []
+    if fusion_model == 'SuperpixelFusion':
+        if outer_product_sampling and not navigation_superpixels:
+            concatenated_softmax = action_scores
+            # concatenated_softmax is a list of tensors in case there are
+            # different numbers of masks and we want to do batching in this
+            # function
+            seen_state_scores = torch.stack(concatenated_softmax)
+            for action_i, action in enumerate(actions):
+                if action in constants.NAV_ACTIONS:
+                    actions_masks.append((action, None))
+                else:
+                    for mask in masks[0]:
+                        actions_masks.append((action, mask))
+        elif outer_product_sampling and navigation_superpixels:
+            flat_outer_scores = action_scores
+            seen_state_scores = flat_outer_scores
+            for action_i, action in enumerate(actions):
+                for mask in masks[0]:
+                    if action in constants.NAV_ACTIONS:
+                        actions_masks.append((action, None))
+                    else:
+                        actions_masks.append((action, mask))
+        else:
+            action_scores, mask_scores = action_scores
+            seen_state_scores = []
+            for action_i, action in enumerate(actions):
+                if action in constants.NAV_ACTIONS:
+                    actions_masks.append((action, None))
+                    seen_state_scores.append(action_scores[0][action_i])
+                else:
+                    for mask_i, mask in enumerate(masks[0]):
+                        actions_masks.append((action, mask))
+                        # TODO: should this be adding the "log-prob" logits, or
+                        # should we do a log-softmax and add after?
+                        seen_state_scores.append(action_scores[0][action_i] +
+                                mask_scores[0][mask_i])
+            # Add batch dimension
+            seen_state_scores = torch.stack(seen_state_scores).unsqueeze(0)
+    elif fusion_model == 'SuperpixelActionConcat':
+        actions_masks_features = masks
+        # action_scores is also a list of tensors because different steps could
+        # have different numbers of superpixels
+        seen_state_scores = torch.stack(action_scores)
+        actions_masks = [(amf[0], amf[1]) for amf in actions_masks_features[0]]
+    # No batch dimension on actions_masks, so add it to seen_state_labels
+    seen_state_labels = torch.Tensor(env.get_seen_state_labels(
+        actions_masks)).unsqueeze(0)
+    return F.binary_cross_entropy_with_logits(seen_state_scores,
+            seen_state_labels)
+
 def rollout_trajectory(env, model, single_interact=False, use_masks=True,
         use_gt_segmentation=False, fusion_model='SuperpixelFusion',
         outer_product_sampling=False, inverse_score=False,
         zero_null_superpixel_features=True, navigation_superpixels=False,
-        curiosity_model=None, max_trajectory_length=None, frame_stack=1,
-        zero_fill_frame_stack=False, teacher_force=False, sample_action=True,
-        sample_mask=True, scene_name_or_num=None, reset_kwargs={},
+        curiosity_model=None, compute_seen_state_losses=False,
+        max_trajectory_length=None, frame_stack=1, zero_fill_frame_stack=False,
+        teacher_force=False, sample_action=True, sample_mask=True,
+        scene_name_or_num=None, reset_kwargs={},
         trajectory_info_save_path=None, images_video_save_path=None,
         device=torch.device('cpu')):
     """
@@ -73,6 +140,8 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
     if curiosity_model is not None:
         curiosity_rewards = []
         curiosity_losses = []
+    if compute_seen_state_losses:
+        seen_state_losses = []
     frame = env.reset(scene_name_or_num, **reset_kwargs)
     done = False
     num_steps = 0
@@ -326,6 +395,38 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
                     constants.NAV_ACTIONS):
                 selected_mask = None
 
+        # Construct list of actions+masks and pass to env to calculate seen
+        # state labels
+        if compute_seen_state_losses:
+            if fusion_model == 'SuperpixelFusion':
+                if outer_product_sampling and not navigation_superpixels:
+                    seen_state_loss = get_seen_state_loss(env, actions=actions,
+                            fusion_model=fusion_model,
+                            outer_product_sampling=outer_product_sampling,
+                            navigation_superpixels=navigation_superpixels,
+                            masks=masks, action_scores=concatenated_softmax)
+                elif outer_product_sampling and navigation_superpixels:
+                    seen_state_loss = get_seen_state_loss(env, actions=actions,
+                            fusion_model=fusion_model,
+                            outer_product_sampling=outer_product_sampling,
+                            navigation_superpixels=navigation_superpixels,
+                            masks=masks, action_scores=flat_outer_scores)
+                else:
+                    seen_state_loss = get_seen_state_loss(env, actions=actions,
+                            fusion_model=fusion_model,
+                            outer_product_sampling=outer_product_sampling,
+                            navigation_superpixels=navigation_superpixels,
+                            masks=masks, action_scores=(action_scores, mask_scores))
+            elif fusion_model == 'SuperpixelActionConcat':
+                # Don't need navigation_superpixels because the branch for
+                # SuperpixelActionConcat relies on actions_masks_features
+                seen_state_loss = get_seen_state_loss(env, actions=actions,
+                        fusion_model=fusion_model,
+                        navigation_superpixels=navigation_superpixels,
+                        masks=actions_masks_features,
+                        action_scores=action_scores)
+                seen_state_losses.append(seen_state_loss)
+
         if teacher_force:
             # selected_action and therefore action_success will not match
             # pred_action_index if teacher forcing!
@@ -440,6 +541,8 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
     if curiosity_model is not None:
         trajectory_results['curiosity_rewards'] = curiosity_rewards
         trajectory_results['curiosity_losses'] = curiosity_losses
+    if compute_seen_state_losses:
+        trajectory_results['seen_state_losses'] = seen_state_losses
 
     if trajectory_info_save_path is not None:
         # If saving trajectory info, turn pred_action_indexes (which might
@@ -492,11 +595,12 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
         fusion_model='SuperpixelFusion', outer_product_sampling=False,
         inverse_score=False, zero_null_superpixel_features=True,
         navigation_superpixels=False, curiosity_model=None,
-        curiosity_lambda=0.1, scene_numbers=None, reset_kwargs={},
-        max_trajectory_length=None, frame_stack=1, zero_fill_frame_stack=False,
-        teacher_force=False, sample_action=True, sample_mask=True,
-        eval_interval=1000, max_steps=1000000, device=torch.device('cpu'),
-        save_path=None, save_intermediate=False, save_images_video=False,
+        curiosity_lambda=0.1, seen_state_loss_coefficient=None,
+        scene_numbers=None, reset_kwargs={}, max_trajectory_length=None,
+        frame_stack=1, zero_fill_frame_stack=False, teacher_force=False,
+        sample_action=True, sample_mask=True, eval_interval=1000,
+        max_steps=1000000, device=torch.device('cpu'), save_path=None,
+        save_intermediate=False, save_images_video=False,
         save_trajectory_info=False, load_path=None):
     writer = SummaryWriter(log_dir='tensorboard_logs' if save_path is None else
             os.path.join(save_path, 'tensorboard_logs'))
@@ -551,6 +655,8 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
     if curiosity_model is not None:
         last_metrics['curiosity_rewards'] = []
         last_metrics['curiosity_losses'] = []
+    if seen_state_loss_coefficient is not None:
+        last_metrics['seen_state_losses'] = []
 
     # TODO: want a replay memory?
     while train_steps < max_steps:
@@ -577,7 +683,8 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
                 zero_null_superpixel_features=zero_null_superpixel_features,
                 navigation_superpixels=navigation_superpixels,
                 curiosity_model=curiosity_model,
-                max_trajectory_length=max_trajectory_length,
+                compute_seen_state_losses=seen_state_loss_coefficient is not
+                None, max_trajectory_length=max_trajectory_length,
                 frame_stack=frame_stack,
                 zero_fill_frame_stack=zero_fill_frame_stack,
                 teacher_force=teacher_force, sample_action=sample_action,
@@ -647,14 +754,19 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
                 mask_entropy = 0
             policy_loss = (policy_loss - action_log_prob * gae -
                     entropy_coefficient * (action_entropy + mask_entropy))
+        loss = policy_loss + value_loss_coefficient * value_loss
 
         if curiosity_model is not None:
             curiosity_loss = torch.mean(torch.stack(
                 trajectory_results['curiosity_losses']))
-            loss = curiosity_lambda * (policy_loss + value_loss_coefficient *
-                    value_loss) + curiosity_loss
-        else:
-            loss = policy_loss + value_loss_coefficient * value_loss
+            # TODO: make curiosity_lambda be curiosity_loss_coefficient
+            # instead?
+            loss = curiosity_lambda * loss + curiosity_loss
+
+        if seen_state_loss_coefficient is not None:
+            loss += (seen_state_loss_coefficient *
+                    torch.mean(torch.stack(
+                        trajectory_results['seen_state_losses'])))
 
         optimizer.zero_grad()
         # If RuntimeError: cuDNN error: CUDNN_STATUS_EXECUTION_FAILED shows up,
@@ -720,6 +832,9 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
             last_metrics['curiosity_losses'].append(
                     torch.mean(torch.stack(
                         trajectory_results['curiosity_losses'])).item())
+        if seen_state_loss_coefficient is not None:
+            last_metrics['seen_state_losses'].append(torch.mean(
+                torch.stack(trajectory_results['seen_state_losses'])).item())
 
         results = {}
         results['train'] = {}
