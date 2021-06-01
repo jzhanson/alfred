@@ -21,37 +21,12 @@ from models.nn.ie import (CuriosityIntrinsicReward, LSTMPolicy,
         ResnetSuperpixelWrapper, SuperpixelFusion, SuperpixelActionConcat)
 from models.model.rl_interaction import train
 
-if __name__ == '__main__':
-    args = parse_args()
-
-    # Set random seed for everything
-    random.seed(args.seed)
-    np.random.seed(args.seed)
-    torch.manual_seed(args.seed)
-
-    if args.save_path is not None and not os.path.isdir(args.save_path):
-        print('making directory', args.save_path)
-        os.makedirs(args.save_path)
-    with open(os.path.join(args.save_path, 'args.json'), 'w') as jsonfile:
-        json.dump(args.__dict__, jsonfile)
-    trajectory_info_path = os.path.join(args.save_path, 'trajectory_info')
-    if args.save_trajectory_info and not os.path.isdir(trajectory_info_path):
-        print('making directory', trajectory_info_path)
-        os.mkdir(trajectory_info_path)
-
+def setup_env(args):
     thor_env = ThorEnv()
 
     with open(os.path.join(os.environ['ALFRED_ROOT'], 'models/config/rewards.json'),
             'r') as jsonfile:
         reward_config = json.load(jsonfile)[args.reward_config_name]
-
-    if args.gpu_ids is not None and type(args.gpu_ids) is int:
-        args.gpu_ids = [args.gpu_ids]
-
-    if args.gpu_ids is not None:
-        device = torch.device('cuda:' + str(args.gpu_ids[0]))
-    else:
-        device = torch.device('cpu')
 
     reward = InteractionReward(thor_env, reward_config,
             reward_rotations_look_angles=args.reward_rotations_look_angles,
@@ -65,6 +40,10 @@ if __name__ == '__main__':
             sample_contextual_action=args.sample_contextual_action,
             use_masks=args.use_masks)
 
+    return ie
+
+# Need to take gpu_id instead of device as argument because resnet needs gpu_id
+def setup_model(args, gpu_id=None):
     class Namespace:
         def __init__(self, **kwargs):
             self.__dict__.update(kwargs)
@@ -87,12 +66,16 @@ if __name__ == '__main__':
     else:
         num_actions = len(constants.COMPLEX_ACTIONS)
 
+    if gpu_id is not None:
+        device = torch.device('cuda:' + str(gpu_id))
+    else:
+        device = torch.device('cpu')
+
     action_embeddings = nn.Embedding(num_embeddings=num_actions,
             embedding_dim=args.action_embedding_dim).to(device)
 
-    resnet_args = Namespace(visual_model='resnet', gpu=args.gpu_ids is not
-            None, gpu_index=args.gpu_ids[0] if args.gpu_ids is not None else
-            -1)
+    resnet_args = Namespace(visual_model='resnet', gpu=gpu_id is not None,
+            gpu_index=gpu_id if gpu_id is not None else -1)
     # Even if args.use_visual_feature is False, still initialize a visual model
     # since it makes the code simpler and clearer, especially in awkward cases
     # surrounding args.separate_superpixel_model and args.superpixel_context
@@ -248,16 +231,37 @@ if __name__ == '__main__':
     else:
         curiosity_model = None
 
-    if args.optimizer == 'sgd':
-        optimizer = optim.SGD(model.parameters(), lr=args.lr)
-    elif args.optimizer == 'rmsprop':
-        optimizer = optim.RMSprop(model.parameters(), lr=args.lr)
-    if 'adam' in args.optimizer:
-        amsgrad = 'amsgrad' in args.optimizer
-        optimizer = optim.Adam(model.parameters(), lr=args.lr, amsgrad=amsgrad)
+    return model, curiosity_model
 
-    print('model parameters: ' + str(sum(p.numel() for p in model.parameters()
-        if p.requires_grad)))
+def setup_train(rank, args, shared_model, shared_curiosity_model,
+        shared_optimizer):
+    # Set random seed for worker process
+    random.seed(args.seed + rank)
+    np.random.seed(args.seed + rank)
+    torch.manual_seed(args.seed + rank)
+
+    ie = setup_env(args)
+
+    if args.gpu_ids is not None:
+        gpu_id = args.gpu_ids[rank % len(args.gpu_ids)]
+        device = torch.device('cuda:' + str(gpu_id))
+    else:
+        gpu_id = None
+        device = torch.device('cpu')
+
+    model, curiosity_model = setup_model(args, gpu_id=gpu_id)
+
+    if shared_optimizer is None:
+        if args.optimizer == 'sgd':
+            optimizer = optim.SGD(shared_model.parameters(), lr=args.lr)
+        elif args.optimizer == 'rmsprop':
+            optimizer = optim.RMSprop(shared_model.parameters(), lr=args.lr)
+        if 'adam' in args.optimizer:
+            amsgrad = 'amsgrad' in args.optimizer
+            optimizer = optim.Adam(shared_model.parameters(), lr=args.lr,
+                    amsgrad=amsgrad)
+    else:
+        optimizer = shared_optimizer
 
     scene_numbers = []
     if args.scene_numbers is not None:
@@ -309,3 +313,40 @@ if __name__ == '__main__':
             save_trajectory_info=args.save_trajectory_info,
             load_path=args.load_path)
 
+if __name__ == '__main__':
+    args = parse_args()
+
+    # Set random seed for everything
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+
+    if args.save_path is not None and not os.path.isdir(args.save_path):
+        print('making directory', args.save_path)
+        os.makedirs(args.save_path)
+    with open(os.path.join(args.save_path, 'args.json'), 'w') as jsonfile:
+        json.dump(args.__dict__, jsonfile)
+    trajectory_info_path = os.path.join(args.save_path, 'trajectory_info')
+    if args.save_trajectory_info and not os.path.isdir(trajectory_info_path):
+        print('making directory', trajectory_info_path)
+        os.mkdir(trajectory_info_path)
+
+    if args.gpu_ids is not None and type(args.gpu_ids) is int:
+        args.gpu_ids = [args.gpu_ids]
+
+    # Keep shared model on CPU
+    shared_model, shared_curiosity_model = setup_model(args, gpu_id=None)
+
+    if args.shared_optimizer:
+        # TODO
+        shared_optimizer = None
+    else:
+        shared_optimizer = None
+
+    print('shared model parameters: ' + str(sum(p.numel() for p in
+        shared_model.parameters() if p.requires_grad)))
+    print('total parameters: ' + str(sum(p.numel() for p in
+        shared_model.parameters() if p.requires_grad) * args.num_processes))
+
+    setup_train(0, args, shared_model, shared_curiosity_model,
+        shared_optimizer)
