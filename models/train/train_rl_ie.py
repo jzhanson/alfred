@@ -259,6 +259,8 @@ def setup_train(rank, args, shared_model, shared_curiosity_model,
     random.seed(args.seed + rank)
     np.random.seed(args.seed + rank)
     torch.manual_seed(args.seed + rank)
+    if args.gpu_ids is not None:
+        torch.cuda.manual_seed(args.seed + rank)
 
     ie = setup_env(args)
 
@@ -334,6 +336,8 @@ if __name__ == '__main__':
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
+    if args.gpu_ids is not None:
+        torch.cuda.manual_seed(args.seed)
 
     if args.save_path is not None and not os.path.isdir(args.save_path):
         print('making directory', args.save_path)
