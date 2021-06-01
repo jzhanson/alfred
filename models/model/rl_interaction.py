@@ -41,6 +41,23 @@ env/thor_env.py:to_thor_api_exec.
 https://github.com/allenai/ai2thor/issues/391#issuecomment-618696398
 """
 
+def load_checkpoint(load_path, model, curiosity_model, optimizer):
+    checkpoint = torch.load(load_path)
+    train_steps = checkpoint['train_steps']
+    train_frames = checkpoint['train_frames']
+    model.load_state_dict(checkpoint['model_state_dict'])
+    # Can also check if checkpoint has curiosity_model_state_dict for
+    # backwards compatibility and other reasons to load a model but
+    # initialize fresh curiosity. For now, we enforce that if you're
+    # loading and are using curiosity, you have to have curiosity saved
+    if curiosity_model is not None:
+        curiosity_model.load_state_dict(
+                checkpoint['curiosity_model_state_dict'])
+    if optimizer is not None:
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    print('loading from ' + load_path + ' iteration ' + str(train_steps))
+    return train_steps, train_frames
+
 def get_seen_state_loss(env, actions=constants.COMPLEX_ACTIONS,
         fusion_model=None, outer_product_sampling=False,
         navigation_superpixels=False, masks=None, action_scores=None,
@@ -614,19 +631,10 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
     # know train_steps, so we either pass it as an argument or load inside
     # train
     if load_path is not None:
-        checkpoint = torch.load(load_path)
-        train_steps = checkpoint['train_steps']
-        train_frames = checkpoint['train_frames']
-        model.load_state_dict(checkpoint['model_state_dict'])
-        # Can also check if checkpoint has curiosity_model_state_dict for
-        # backwards compatibility and other reasons to load a model but
-        # initialize fresh curiosity. For now, we enforce that if you're
-        # loading and are using curiosity, you have to have curiosity saved
-        if curiosity_model is not None:
-            curiosity_model.load_state_dict(
-                    checkpoint['curiosity_model_state_dict'])
-        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        print('loading from ' + load_path + ' iteration ' + str(train_steps))
+        # TODO: optimizer state, if shared, might get loaded a bunch of
+        # different times here - add a shared_optimizer argument?
+        train_steps, train_frames = load_checkpoint(load_path, model,
+                curiosity_model, optimizer)
     else:
         train_steps = 0
         train_frames = 0
