@@ -16,7 +16,8 @@ import gen.constants as constants
 from models.utils.metric import per_step_entropy, trajectory_avg_entropy
 from models.utils.helper_utils import (stack_frames,
         superpixelactionconcat_get_num_superpixels,
-        superpixelactionconcat_index_to_action, multinomial)
+        superpixelactionconcat_index_to_action, multinomial,
+        ensure_shared_grads)
 import cv2
 from utils.video_util import VideoSaver
 # For frame(+segmentation) -> masks functions for videos
@@ -611,18 +612,18 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
 
     return trajectory_results
 
-def train(model, env, optimizer, gamma=1.0, tau=1.0,
+def train(model, shared_model, env, optimizer, gamma=1.0, tau=1.0,
         value_loss_coefficient=0.5, entropy_coefficient=0.01, max_grad_norm=50,
         single_interact=False, use_masks=True, use_gt_segmentation=False,
         fusion_model='SuperpixelFusion', outer_product_sampling=False,
         inverse_score=False, zero_null_superpixel_features=True,
         navigation_superpixels=False, curiosity_model=None,
-        curiosity_lambda=0.1, seen_state_loss_coefficient=None,
-        scene_numbers=None, reset_kwargs={}, max_trajectory_length=None,
-        frame_stack=1, zero_fill_frame_stack=False, teacher_force=False,
-        sample_action=True, sample_mask=True, eval_interval=1000,
-        max_steps=1000000, device=torch.device('cpu'), save_path=None,
-        save_intermediate=False, save_images_video=False,
+        shared_curiosity_model=None, curiosity_lambda=0.1,
+        seen_state_loss_coefficient=None, scene_numbers=None, reset_kwargs={},
+        max_trajectory_length=None, frame_stack=1, zero_fill_frame_stack=False,
+        teacher_force=False, sample_action=True, sample_mask=True,
+        eval_interval=1000, max_steps=1000000, device=torch.device('cpu'),
+        save_path=None, save_intermediate=False, save_images_video=False,
         save_trajectory_info=False, load_path=None):
     writer = SummaryWriter(log_dir='tensorboard_logs' if save_path is None else
             os.path.join(save_path, 'tensorboard_logs'))
@@ -685,6 +686,8 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
         else:
             images_video_save_path = None
 
+        # Load state dict from shared model
+        model.load_state_dict(shared_model.state_dict())
         # Collect a trajectory
         scene_num = random.choice(scene_numbers)
         trajectory_results = rollout_trajectory(env, model,
@@ -781,12 +784,24 @@ def train(model, env, optimizer, gamma=1.0, tau=1.0,
                     torch.mean(torch.stack(
                         trajectory_results['seen_state_losses'])))
 
+        if device != torch.device('cpu'):
+            print('memory_allocated:', torch.cuda.memory_allocated(device=device))
+            print('memory_cached:', torch.cuda.memory_cached(device=device))
+
         optimizer.zero_grad()
         # If RuntimeError: cuDNN error: CUDNN_STATUS_EXECUTION_FAILED shows up,
         # may have to do try: loss.backward(retain_graph=True) except:
         # loss.backward()
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
+        parameters = set(model.parameters())
+        if curiosity_model is not None:
+            parameters |= set(curiosity_model.parameters())
+        torch.nn.utils.clip_grad_norm_(parameters, max_grad_norm)
+        ensure_shared_grads(model, shared_model, gpu=(not device ==
+            torch.device('cpu')))
+        if curiosity_model is not None:
+            ensure_shared_grads(curiosity_model, shared_curiosity_model,
+                    gpu=(not device == torch.device('cpu')))
         optimizer.step()
 
         # Compute and save some stats
