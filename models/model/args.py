@@ -43,7 +43,8 @@ parser.add_argument('--save-trajectory-info', dest='save_trajectory_info', actio
 parser.add_argument('--no-save-trajectory-info', dest='save_trajectory_info', action='store_false', help='don\'t save trajectory info to reproduce trajectories')
 parser.set_defaults(save_trajectory_info=False)
 parser.add_argument('-lp', '--load-path', type=str, default=None, help='path (.pth) to load model checkpoint from')
-parser.add_argument('-g', '--gpu', type=int, default=3, help='GPU to run model on')
+parser.add_argument('-g', '--gpu', type=int, default=3, help='GPU to run model on, used for superivsed find (default: 3)')
+parser.add_argument('--gpu-ids', type=int, nargs='+', default=None, help='GPU ids to run model on, used for interaction exploration. default of None means run on CPU (default: None)')
 '''
 parser.add_argument('-sn', '--save-name', type=str, default='model', help='model save name')
 parser.add_argument('-id', '--model-id', type=str, default='model', help='model id')
