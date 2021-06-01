@@ -45,11 +45,11 @@ if __name__ == '__main__':
             'r') as jsonfile:
         reward_config = json.load(jsonfile)[args.reward_config_name]
 
-    # TODO: if adding threads, add support for running on multiple gpus, e.g.
-    # gpu_ids like
-    # https://github.com/dgriff777/rl_a3c_pytorch/blob/master/train.py
-    if args.gpu >= 0:
-        device = torch.device('cuda:' + str(args.gpu))
+    if args.gpu_ids is not None and type(args.gpu_ids) is int:
+        args.gpu_ids = [args.gpu_ids]
+
+    if args.gpu_ids is not None:
+        device = torch.device('cuda:' + str(args.gpu_ids[0]))
     else:
         device = torch.device('cpu')
 
@@ -90,8 +90,9 @@ if __name__ == '__main__':
     action_embeddings = nn.Embedding(num_embeddings=num_actions,
             embedding_dim=args.action_embedding_dim).to(device)
 
-    resnet_args = Namespace(visual_model='resnet', gpu=args.gpu >= 0,
-            gpu_index=args.gpu)
+    resnet_args = Namespace(visual_model='resnet', gpu=args.gpu_ids is not
+            None, gpu_index=args.gpu_ids[0] if args.gpu_ids is not None else
+            -1)
     # Even if args.use_visual_feature is False, still initialize a visual model
     # since it makes the code simpler and clearer, especially in awkward cases
     # surrounding args.separate_superpixel_model and args.superpixel_context
