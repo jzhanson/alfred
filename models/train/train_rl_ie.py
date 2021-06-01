@@ -20,6 +20,7 @@ from models.nn.resnet import Resnet
 from models.nn.ie import (CuriosityIntrinsicReward, LSTMPolicy,
         ResnetSuperpixelWrapper, SuperpixelFusion, SuperpixelActionConcat)
 from models.model.rl_interaction import train
+from models.utils.shared_optim import SharedRMSprop, SharedAdam
 
 def setup_env(args):
     thor_env = ThorEnv()
@@ -234,17 +235,22 @@ def setup_model(args, gpu_id=None):
     return model, curiosity_model
 
 def setup_optimizer(model, optimizer_name='', lr=0.01, shared=False):
-    # TODO
     if shared:
-        pass
+        # SharedSGD not implemented
+        if optimizer_name == 'rmsprop':
+            optimizer = SharedRMSprop(model.parameters(), lr=lr)
+        elif 'adam' in optimizer_name:
+            amsgrad = 'amsgrad' in optimizer_name
+            optimizer = SharedAdam(model.parameters(), lr=lr, amsgrad=amsgrad)
         optimizer.share_memory()
-    if optimizer_name == 'sgd':
-        optimizer = optim.SGD(model.parameters(), lr=lr)
-    elif optimizer_name == 'rmsprop':
-        optimizer = optim.RMSprop(model.parameters(), lr=lr)
-    if 'adam' in optimizer_name:
-        amsgrad = 'amsgrad' in optimizer_name
-        optimizer = optim.Adam(model.parameters(), lr=lr, amsgrad=amsgrad)
+    else:
+        if optimizer_name == 'sgd':
+            optimizer = optim.SGD(model.parameters(), lr=lr)
+        elif optimizer_name == 'rmsprop':
+            optimizer = optim.RMSprop(model.parameters(), lr=lr)
+        elif 'adam' in optimizer_name:
+            amsgrad = 'amsgrad' in optimizer_name
+            optimizer = optim.Adam(model.parameters(), lr=lr, amsgrad=amsgrad)
     return optimizer
 
 def setup_train(rank, args, shared_model, shared_curiosity_model,
