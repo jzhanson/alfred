@@ -20,7 +20,7 @@ from models.model.args import parse_args
 from models.nn.resnet import Resnet
 from models.nn.ie import (CuriosityIntrinsicReward, LSTMPolicy,
         ResnetSuperpixelWrapper, SuperpixelFusion, SuperpixelActionConcat)
-from models.model.rl_interaction import train
+from models.model.rl_interaction import load_checkpoint, train
 from models.utils.shared_optim import SharedRMSprop, SharedAdam
 
 def setup_env(args):
@@ -371,6 +371,10 @@ if __name__ == '__main__':
                 optimizer_name=args.optimizer, lr=args.lr, shared=True)
     else:
         shared_optimizer = None
+
+    if args.load_path is not None:
+        load_checkpoint(args.load_path, shared_model, shared_curiosity_model,
+                shared_optimizer)
 
     print('shared model parameters: ' + str(sum(p.numel() for p in
         shared_model.parameters() if p.requires_grad)))
