@@ -233,6 +233,20 @@ def setup_model(args, gpu_id=None):
 
     return model, curiosity_model
 
+def setup_optimizer(model, optimizer_name='', lr=0.01, shared=False):
+    # TODO
+    if shared:
+        pass
+        optimizer.share_memory()
+    if optimizer_name == 'sgd':
+        optimizer = optim.SGD(model.parameters(), lr=lr)
+    elif optimizer_name == 'rmsprop':
+        optimizer = optim.RMSprop(model.parameters(), lr=lr)
+    if 'adam' in optimizer_name:
+        amsgrad = 'amsgrad' in optimizer_name
+        optimizer = optim.Adam(model.parameters(), lr=lr, amsgrad=amsgrad)
+    return optimizer
+
 def setup_train(rank, args, shared_model, shared_curiosity_model,
         shared_optimizer):
     # Set random seed for worker process
@@ -252,14 +266,8 @@ def setup_train(rank, args, shared_model, shared_curiosity_model,
     model, curiosity_model = setup_model(args, gpu_id=gpu_id)
 
     if shared_optimizer is None:
-        if args.optimizer == 'sgd':
-            optimizer = optim.SGD(shared_model.parameters(), lr=args.lr)
-        elif args.optimizer == 'rmsprop':
-            optimizer = optim.RMSprop(shared_model.parameters(), lr=args.lr)
-        if 'adam' in args.optimizer:
-            amsgrad = 'amsgrad' in args.optimizer
-            optimizer = optim.Adam(shared_model.parameters(), lr=args.lr,
-                    amsgrad=amsgrad)
+        optimizer = setup_optimizer(shared_model,
+                optimizer_name=args.optimizer, lr=args.lr, shared=False)
     else:
         optimizer = shared_optimizer
 
@@ -338,8 +346,8 @@ if __name__ == '__main__':
     shared_model, shared_curiosity_model = setup_model(args, gpu_id=None)
 
     if args.shared_optimizer:
-        # TODO
-        shared_optimizer = None
+        shared_optimizer = setup_optimizer(shared_model,
+                optimizer_name=args.optimizer, lr=args.lr, shared=True)
     else:
         shared_optimizer = None
 
