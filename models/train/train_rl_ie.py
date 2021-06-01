@@ -9,6 +9,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import torch.multiprocessing as mp
 
 import gen.constants as constants
 sys.path.append(os.path.join(os.environ['ALFRED_ROOT'], 'env'))
@@ -187,6 +188,7 @@ def setup_model(args, gpu_id=None):
     except:
         model = model.to(device)
 
+    # TODO: does curiosity even have an optimizer attached to it?
     if args.use_curiosity:
         if 'resnet' in args.curiosity_visual_encoder:
             curiosity_visual_encoder = Resnet(resnet_args, use_conv_feat=False,
@@ -366,5 +368,22 @@ if __name__ == '__main__':
     print('total parameters: ' + str(sum(p.numel() for p in
         shared_model.parameters() if p.requires_grad) * args.num_processes))
 
-    setup_train(0, args, shared_model, shared_curiosity_model,
-        shared_optimizer)
+    # From https://github.com/dgriff777/rl_a3c_pytorch/blob/master/main.py,
+    # which is from
+    # https://github.com/pytorch/examples/tree/master/mnist_hogwild
+    if args.gpu_ids is not None:
+        mp.set_start_method('spawn')
+
+    processes = []
+
+    p = mp
+    for rank in range(0, args.num_processes):
+        p = mp.Process(target=setup_train, args=(rank, args, shared_model,
+            shared_curiosity_model, shared_optimizer))
+        p.start()
+        processes.append(p)
+        time.sleep(0.1)
+
+    for p in processes:
+        time.sleep(0.1)
+        p.join()
