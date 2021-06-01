@@ -313,7 +313,7 @@ def setup_train(rank, args, shared_model, shared_curiosity_model,
             'random_look_angle' : args.random_look_angle
     }
 
-    train(model, ie, optimizer, gamma=args.gamma, tau=args.tau,
+    train(model, shared_model, ie, optimizer, gamma=args.gamma, tau=args.tau,
             value_loss_coefficient=args.value_loss_coefficient,
             entropy_coefficient=args.entropy_coefficient,
             max_grad_norm=args.max_grad_norm,
@@ -325,6 +325,7 @@ def setup_train(rank, args, shared_model, shared_curiosity_model,
             zero_null_superpixel_features=args.zero_null_superpixel_features,
             navigation_superpixels=args.navigation_superpixels,
             curiosity_model=curiosity_model,
+            shared_curiosity_model=shared_curiosity_model,
             curiosity_lambda=args.curiosity_lambda,
             seen_state_loss_coefficient=args.seen_state_loss_coefficient,
             scene_numbers=scene_numbers, reset_kwargs=reset_kwargs,
@@ -333,7 +334,10 @@ def setup_train(rank, args, shared_model, shared_curiosity_model,
             zero_fill_frame_stack=args.zero_fill_frame_stack,
             teacher_force=args.teacher_force, sample_action=args.sample_action,
             sample_mask=args.sample_mask, eval_interval=args.eval_interval,
-            max_steps=args.max_steps, device=device, save_path=args.save_path,
+            max_steps=args.max_steps, device=device,
+            # Only save checkpoints, images_video, and trajectory_info if this
+            # process is the "first"
+            save_path=args.save_path if rank == 0 else None,
             save_intermediate=args.save_intermediate,
             save_images_video=args.save_images_video,
             save_trajectory_info=args.save_trajectory_info,
@@ -373,6 +377,9 @@ if __name__ == '__main__':
         shared_optimizer = None
 
     if args.load_path is not None:
+        # TODO: make sure loading works if model was saved on GPU for whatever
+        # reason, or make sure that saved model is always CPU. Likewise for
+        # loading in models/model/rl_interaction.py:train
         load_checkpoint(args.load_path, shared_model, shared_curiosity_model,
                 shared_optimizer)
 
