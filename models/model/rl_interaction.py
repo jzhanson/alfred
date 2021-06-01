@@ -43,7 +43,8 @@ https://github.com/allenai/ai2thor/issues/391#issuecomment-618696398
 
 def get_seen_state_loss(env, actions=constants.COMPLEX_ACTIONS,
         fusion_model=None, outer_product_sampling=False,
-        navigation_superpixels=False, masks=None, action_scores=None):
+        navigation_superpixels=False, masks=None, action_scores=None,
+        device=torch.device('cpu')):
     """
     This function splits some logic out of rollout_trajectory, even though the
     argument passing pattern kind of gross.
@@ -94,7 +95,8 @@ def get_seen_state_loss(env, actions=constants.COMPLEX_ACTIONS,
                         seen_state_scores.append(action_scores[0][action_i] +
                                 mask_scores[0][mask_i])
             # Add batch dimension
-            seen_state_scores = torch.stack(seen_state_scores).unsqueeze(0)
+            seen_state_scores = (torch.stack(seen_state_scores).unsqueeze(0)
+                    .to(device))
     elif fusion_model == 'SuperpixelActionConcat':
         actions_masks_features = masks
         # action_scores is also a list of tensors because different steps could
@@ -103,7 +105,7 @@ def get_seen_state_loss(env, actions=constants.COMPLEX_ACTIONS,
         actions_masks = [(amf[0], amf[1]) for amf in actions_masks_features[0]]
     # No batch dimension on actions_masks, so add it to seen_state_labels
     seen_state_labels = torch.Tensor(env.get_seen_state_labels(
-        actions_masks)).unsqueeze(0)
+        actions_masks)).unsqueeze(0).to(device)
     return F.binary_cross_entropy_with_logits(seen_state_scores,
             seen_state_labels)
 
@@ -404,19 +406,22 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
                             fusion_model=fusion_model,
                             outer_product_sampling=outer_product_sampling,
                             navigation_superpixels=navigation_superpixels,
-                            masks=masks, action_scores=concatenated_softmax)
+                            masks=masks, action_scores=concatenated_softmax,
+                            device=device)
                 elif outer_product_sampling and navigation_superpixels:
                     seen_state_loss = get_seen_state_loss(env, actions=actions,
                             fusion_model=fusion_model,
                             outer_product_sampling=outer_product_sampling,
                             navigation_superpixels=navigation_superpixels,
-                            masks=masks, action_scores=flat_outer_scores)
+                            masks=masks, action_scores=flat_outer_scores,
+                            device=device)
                 else:
                     seen_state_loss = get_seen_state_loss(env, actions=actions,
                             fusion_model=fusion_model,
                             outer_product_sampling=outer_product_sampling,
                             navigation_superpixels=navigation_superpixels,
-                            masks=masks, action_scores=(action_scores, mask_scores))
+                            masks=masks, action_scores=(action_scores,
+                                mask_scores), device=device)
             elif fusion_model == 'SuperpixelActionConcat':
                 # Don't need navigation_superpixels because the branch for
                 # SuperpixelActionConcat relies on actions_masks_features
@@ -424,8 +429,8 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
                         fusion_model=fusion_model,
                         navigation_superpixels=navigation_superpixels,
                         masks=actions_masks_features,
-                        action_scores=action_scores)
-                seen_state_losses.append(seen_state_loss)
+                        action_scores=action_scores, device=device)
+            seen_state_losses.append(seen_state_loss)
 
         if teacher_force:
             # selected_action and therefore action_success will not match
