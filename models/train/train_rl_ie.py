@@ -188,7 +188,6 @@ def setup_model(args, gpu_id=None):
     except:
         model = model.to(device)
 
-    # TODO: does curiosity even have an optimizer attached to it?
     if args.use_curiosity:
         if 'resnet' in args.curiosity_visual_encoder:
             curiosity_visual_encoder = Resnet(resnet_args, use_conv_feat=False,
@@ -236,23 +235,31 @@ def setup_model(args, gpu_id=None):
 
     return model, curiosity_model
 
-def setup_optimizer(model, optimizer_name='', lr=0.01, shared=False):
+def setup_optimizer(model, curiosity_model=None, optimizer_name='', lr=0.01,
+        shared=False):
+    # This set trick from
+    # https://discuss.pytorch.org/t/how-to-train-several-network-at-the-same-time/4920/2
+    # No need for a separate optimizer for curiosity - loss coefficients serve
+    # the same purpose as a separate learning rate for the most part
+    parameters = set(model.parameters())
+    if curiosity_model is not None:
+        parameters |= set(curiosity_model.parameters())
     if shared:
         # SharedSGD not implemented
         if optimizer_name == 'rmsprop':
-            optimizer = SharedRMSprop(model.parameters(), lr=lr)
+            optimizer = SharedRMSprop(parameters, lr=lr)
         elif 'adam' in optimizer_name:
             amsgrad = 'amsgrad' in optimizer_name
-            optimizer = SharedAdam(model.parameters(), lr=lr, amsgrad=amsgrad)
+            optimizer = SharedAdam(parameters, lr=lr, amsgrad=amsgrad)
         optimizer.share_memory()
     else:
         if optimizer_name == 'sgd':
-            optimizer = optim.SGD(model.parameters(), lr=lr)
+            optimizer = optim.SGD(parameters, lr=lr)
         elif optimizer_name == 'rmsprop':
-            optimizer = optim.RMSprop(model.parameters(), lr=lr)
+            optimizer = optim.RMSprop(parameters, lr=lr)
         elif 'adam' in optimizer_name:
             amsgrad = 'amsgrad' in optimizer_name
-            optimizer = optim.Adam(model.parameters(), lr=lr, amsgrad=amsgrad)
+            optimizer = optim.Adam(parameters, lr=lr, amsgrad=amsgrad)
     return optimizer
 
 def setup_train(rank, args, shared_model, shared_curiosity_model,
@@ -277,6 +284,7 @@ def setup_train(rank, args, shared_model, shared_curiosity_model,
 
     if shared_optimizer is None:
         optimizer = setup_optimizer(shared_model,
+                curiosity_model=shared_curiosity_model,
                 optimizer_name=args.optimizer, lr=args.lr, shared=False)
     else:
         optimizer = shared_optimizer
@@ -359,6 +367,7 @@ if __name__ == '__main__':
 
     if args.shared_optimizer:
         shared_optimizer = setup_optimizer(shared_model,
+                curiosity_model=shared_curiosity_model,
                 optimizer_name=args.optimizer, lr=args.lr, shared=True)
     else:
         shared_optimizer = None
