@@ -619,8 +619,9 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
     return trajectory_results
 
 def train(model, shared_model, env, optimizer, gamma=1.0, tau=1.0,
-        value_loss_coefficient=0.5, entropy_coefficient=0.01, max_grad_norm=50,
-        single_interact=False, use_masks=True, use_gt_segmentation=False,
+        policy_loss_coefficient=1.0, value_loss_coefficient=0.5,
+        entropy_coefficient=0.01, max_grad_norm=50, single_interact=False,
+        use_masks=True, use_gt_segmentation=False,
         fusion_model='SuperpixelFusion', outer_product_sampling=False,
         inverse_score=False, zero_null_superpixel_features=True,
         navigation_superpixels=False, curiosity_model=None,
@@ -777,7 +778,8 @@ def train(model, shared_model, env, optimizer, gamma=1.0, tau=1.0,
                 mask_entropy = 0
             policy_loss = (policy_loss - action_log_prob * gae -
                     entropy_coefficient * (action_entropy + mask_entropy))
-        loss = policy_loss + value_loss_coefficient * value_loss
+        loss = (policy_loss_coefficient * policy_loss + value_loss_coefficient
+                * value_loss)
 
         if curiosity_model is not None:
             curiosity_loss = torch.mean(torch.stack(
