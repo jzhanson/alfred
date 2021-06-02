@@ -396,9 +396,6 @@ if __name__ == '__main__':
         shared_optimizer = None
 
     if args.load_path is not None:
-        # TODO: make sure loading works if model was saved on GPU for whatever
-        # reason, or make sure that saved model is always CPU. Likewise for
-        # loading in models/model/rl_interaction.py:train
         load_checkpoint(args.load_path, shared_model, shared_curiosity_model,
                 shared_optimizer)
 
