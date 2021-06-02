@@ -43,6 +43,12 @@ https://github.com/allenai/ai2thor/issues/391#issuecomment-618696398
 """
 
 def load_checkpoint(load_path, model, curiosity_model, optimizer):
+    """Load a model checkpoint.
+
+    Pytorch 1.1.0 doesn't make the distinction between cpu and cuda tensors in
+    saved checkpoints, so we don't have to worry about loading onto different
+    devices than were saved onto.
+    """
     checkpoint = torch.load(load_path)
     train_steps = checkpoint['train_steps']
     train_frames = checkpoint['train_frames']
