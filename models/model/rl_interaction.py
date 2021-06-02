@@ -695,6 +695,9 @@ def train(model, shared_model, env, optimizer, gamma=1.0, tau=1.0,
 
         # Load state dict from shared model
         if model != shared_model:
+            # We don't load optimizers for each worker process - if having a
+            # shared/synchronized optimizer state is needed then there's a
+            # shared_optimizer option in models/train/train_rl_ie.py
             model.load_state_dict(shared_model.state_dict())
         # Collect a trajectory
         scene_num = random.choice(scene_numbers)
@@ -909,6 +912,11 @@ def train(model, shared_model, env, optimizer, gamma=1.0, tau=1.0,
                             str(train_steps) + '.pth')
                 else:
                     checkpoint_save_path = os.path.join(save_path, 'model.pth')
+                # Save state dict of shared model
+                # TODO: save optimizer state dicts for each worker process?
+                # that saving strategy may be eventually related to/same logic
+                # as tracking train_steps across worker processes or
+                # tensorboard logging
                 save_dict = {
                     'train_steps' : train_steps,
                     'train_frames' : train_frames,
