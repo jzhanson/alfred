@@ -624,7 +624,7 @@ def train(model, shared_model, env, optimizer, gamma=1.0, tau=1.0,
         fusion_model='SuperpixelFusion', outer_product_sampling=False,
         inverse_score=False, zero_null_superpixel_features=True,
         navigation_superpixels=False, curiosity_model=None,
-        shared_curiosity_model=None, curiosity_lambda=0.1,
+        shared_curiosity_model=None, curiosity_loss_coefficient=0.1,
         seen_state_loss_coefficient=None, scene_numbers=None, reset_kwargs={},
         max_trajectory_length=None, frame_stack=1, zero_fill_frame_stack=False,
         teacher_force=False, sample_action=True, sample_mask=True,
@@ -782,9 +782,7 @@ def train(model, shared_model, env, optimizer, gamma=1.0, tau=1.0,
         if curiosity_model is not None:
             curiosity_loss = torch.mean(torch.stack(
                 trajectory_results['curiosity_losses']))
-            # TODO: make curiosity_lambda be curiosity_loss_coefficient
-            # instead?
-            loss = curiosity_lambda * loss + curiosity_loss
+            loss += curiosity_loss_coefficient * curiosity_loss
 
         if seen_state_loss_coefficient is not None:
             loss += (seen_state_loss_coefficient *
