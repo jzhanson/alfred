@@ -281,7 +281,18 @@ def setup_train(rank, args, shared_model, shared_curiosity_model,
         gpu_id = None
         device = torch.device('cpu')
 
-    model, curiosity_model = setup_model(args, gpu_id=gpu_id)
+    # Here, we allow the model to be the same as the shared_model in case
+    # we're only running a single worker so we don't have two copies of
+    # models. I guess this could also be used for multiple workers with one
+    # worker process's model being the shared model, but that kind of
+    # defeats the purpose of having a shared model in the first place
+    # (which is to allow the possibility of locking, and self-locking is
+    # more complex and less clean)
+    if args.num_processes > 1:
+        model, curiosity_model = setup_model(args, gpu_id=gpu_id)
+    else:
+        # Shared models will already be on the single GPU that is being used
+        model, curiosity_model = shared_model, shared_curiosity_model
 
     if shared_optimizer is None:
         optimizer = setup_optimizer(shared_model,
@@ -367,8 +378,15 @@ if __name__ == '__main__':
     if args.gpu_ids is not None and type(args.gpu_ids) is int:
         args.gpu_ids = [args.gpu_ids]
 
-    # Keep shared model on CPU
-    shared_model, shared_curiosity_model = setup_model(args, gpu_id=None)
+    # Put shared models on GPU if there's only one process and we're using GPU
+    # to save the CPU memory of a "useless" shared_model
+    #
+    # Be careful about moving models carelessly between devices because the
+    # custom Resnet class has a self.device member that won't be changed by
+    # model.to(device)!
+    shared_model, shared_curiosity_model = setup_model(args,
+            gpu_id=args.gpu_ids[0] if args.gpu_ids is not None and
+            args.num_processes == 1 else None)
 
     if args.shared_optimizer:
         shared_optimizer = setup_optimizer(shared_model,
