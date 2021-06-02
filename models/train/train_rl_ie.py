@@ -10,6 +10,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.multiprocessing as mp
+import time
 
 import gen.constants as constants
 sys.path.append(os.path.join(os.environ['ALFRED_ROOT'], 'env'))
@@ -388,11 +389,13 @@ if __name__ == '__main__':
     print('total parameters: ' + str(sum(p.numel() for p in
         shared_model.parameters() if p.requires_grad) * args.num_processes))
 
-    # From https://github.com/dgriff777/rl_a3c_pytorch/blob/master/main.py,
-    # which is from
-    # https://github.com/pytorch/examples/tree/master/mnist_hogwild
-    if args.gpu_ids is not None:
-        mp.set_start_method('spawn')
+    # The rest of this file is from
+    # https://github.com/dgriff777/rl_a3c_pytorch/blob/master/main.py, which is
+    # from https://github.com/pytorch/examples/tree/master/mnist_hogwild
+    #
+    # Don't know why dgriff777 only sets start method if running with gpu, code
+    # hangs when running on CPU unless I set it
+    mp.set_start_method('spawn')
 
     processes = []
 
