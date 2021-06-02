@@ -687,7 +687,8 @@ def train(model, shared_model, env, optimizer, gamma=1.0, tau=1.0,
             images_video_save_path = None
 
         # Load state dict from shared model
-        model.load_state_dict(shared_model.state_dict())
+        if model != shared_model:
+            model.load_state_dict(shared_model.state_dict())
         # Collect a trajectory
         scene_num = random.choice(scene_numbers)
         trajectory_results = rollout_trajectory(env, model,
@@ -797,11 +798,12 @@ def train(model, shared_model, env, optimizer, gamma=1.0, tau=1.0,
         if curiosity_model is not None:
             parameters |= set(curiosity_model.parameters())
         torch.nn.utils.clip_grad_norm_(parameters, max_grad_norm)
-        ensure_shared_grads(model, shared_model, gpu=(not device ==
-            torch.device('cpu')))
-        if curiosity_model is not None:
-            ensure_shared_grads(curiosity_model, shared_curiosity_model,
-                    gpu=(not device == torch.device('cpu')))
+        if model != shared_model:
+            ensure_shared_grads(model, shared_model, gpu=(not device ==
+                torch.device('cpu')))
+            if curiosity_model is not None:
+                ensure_shared_grads(curiosity_model, shared_curiosity_model,
+                        gpu=(not device == torch.device('cpu')))
         optimizer.step()
 
         # Compute and save some stats
