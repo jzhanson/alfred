@@ -326,6 +326,7 @@ def setup_train(rank, args, shared_model, shared_curiosity_model,
     }
 
     train(model, shared_model, ie, optimizer, gamma=args.gamma, tau=args.tau,
+            policy_loss_coefficient=args.policy_loss_coefficient,
             value_loss_coefficient=args.value_loss_coefficient,
             entropy_coefficient=args.entropy_coefficient,
             max_grad_norm=args.max_grad_norm,
