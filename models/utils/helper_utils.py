@@ -125,15 +125,17 @@ def multinomial(probs=None, logits=None, temperature=1, num_samples=1,
     probs = torch.exp(logits)
     return torch.multinomial(probs, num_samples)
 
-# From https://github.com/dgriff777/rl_a3c_pytorch/blob/master/utils.py
+# Loosely from https://github.com/dgriff777/rl_a3c_pytorch/blob/master/utils.py
 def ensure_shared_grads(model, shared_model, gpu=False):
     for param, shared_param in zip(model.parameters(),
-                                   shared_model.parameters()):
-        # I suspect this branch is for running a single model on CPU where
-        # shared_model is also the worker process's model
-        if shared_param.grad is not None and not gpu:
-            return
-        elif not gpu:
+            shared_model.parameters()):
+        if not param.requires_grad:
+            continue
+        elif param.grad is None:
+            print('param', name, 'requires grad but grad is None')
+        # Moved checking if condition that checks if model is the same as
+        # shared_model outside fo this function
+        if not gpu:
             shared_param._grad = param.grad
         else:
             shared_param._grad = param.grad.cpu()
