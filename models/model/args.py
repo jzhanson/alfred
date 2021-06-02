@@ -188,7 +188,7 @@ parser.add_argument('--curiosity-inverse-fc-units', type=int, nargs='+', default
 parser.add_argument('--curiosity-eta', type=float, default=0.01, help='coefficient for scaling curiosity reward (default: 0.01)')
 parser.add_argument('--curiosity-beta', type=float, default=0.2, help='how much to use inverse loss for curiosity (1 - beta) versus forward loss (beta) (default: 0.01)')
 parser.add_argument('--curiosity-visual-encoder', type=str, default='resnet', help='which visual encoder to use for curiosity (\'resnet\' only supported for now)')
-parser.add_argument('--curiosity-lambda', type=float, default=0.1, help='how much to use policy gradient loss (lambda) versus curiosity reward (1) (default: 0.1)')
+parser.add_argument('--curiosity-loss-coefficient', type=float, default=10, help='coefficient for curiosity loss (default: 10)')
 
 def parse_args():
     return parser.parse_args()
