@@ -51,7 +51,6 @@ def load_checkpoint(load_path, model, curiosity_model, optimizer):
     """
     checkpoint = torch.load(load_path)
     train_steps = checkpoint['train_steps']
-    train_frames = checkpoint['train_frames']
     model.load_state_dict(checkpoint['model_state_dict'])
     # Can also check if checkpoint has curiosity_model_state_dict for
     # backwards compatibility and other reasons to load a model but
@@ -63,7 +62,7 @@ def load_checkpoint(load_path, model, curiosity_model, optimizer):
     if optimizer is not None:
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
     print('loading from ' + load_path + ' iteration ' + str(train_steps))
-    return train_steps, train_frames
+    return train_steps
 
 def get_seen_state_loss(env, actions=constants.COMPLEX_ACTIONS,
         fusion_model=None, outer_product_sampling=False,
@@ -641,14 +640,12 @@ def train(model, shared_model, env, optimizer, gamma=1.0, tau=1.0,
     if load_path is not None:
         # TODO: optimizer state, if shared, might get loaded a bunch of
         # different times here - add a shared_optimizer argument?
-        train_steps, train_frames = load_checkpoint(load_path, model,
+        train_steps = load_checkpoint(load_path, model,
                 curiosity_model, optimizer)
     else:
         train_steps = 0
-        train_frames = 0
     # If loading from file, metrics will be blank, but that's okay because
-    # train_steps and train_frames will be accurate, so it will just pick up
-    # where it left off
+    # train_steps will be accurate, so it will just pick up where it left off
     last_metrics = {}
     last_metrics['loss'] = []
     last_metrics['policy_loss'] = []
@@ -817,7 +814,6 @@ def train(model, shared_model, env, optimizer, gamma=1.0, tau=1.0,
 
         # Compute and save some stats
         train_steps += 1
-        train_frames += len(trajectory_results['frames'])
         last_metrics['loss'].append(loss.item())
         last_metrics['policy_loss'].append(policy_loss.item())
         last_metrics['value_loss'].append(value_loss.item())
@@ -889,7 +885,11 @@ def train(model, shared_model, env, optimizer, gamma=1.0, tau=1.0,
 
         # Save checkpoint every N trajectories, collect/print stats
         if train_steps % eval_interval == 0 or train_steps == max_steps:
-            print('steps %d frames %d' % (train_steps, train_frames))
+            if max_trajectory_length is None:
+                print('steps %d' % train_steps)
+            else:
+                print('steps %d frames %d' % (train_steps, train_steps *
+                    max_trajectory_length))
             for metric, values in last_metrics.items():
                 last_metrics[metric] = []
             '''
@@ -920,7 +920,6 @@ def train(model, shared_model, env, optimizer, gamma=1.0, tau=1.0,
                 # tensorboard logging
                 save_dict = {
                     'train_steps' : train_steps,
-                    'train_frames' : train_frames,
                     'model_state_dict' : shared_model.state_dict(),
                     'optimizer_state_dict' : optimizer.state_dict(),
                 }
