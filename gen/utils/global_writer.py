@@ -1,10 +1,13 @@
-from .writer import SummaryWriter
+from tensorboardX import SummaryWriter
 from multiprocessing import Value
-import multiprocessing as mp
+import torch.multiprocessing as mp
 
 global _writer
 _writer = None
 
+""" From
+https://github.com/lanpa/tensorboardX/blob/master/tensorboardX/global_writer.py
+"""
 
 class GlobalSummaryWriter(object):
     """A class that implements an event writer that supports concurrent logging and global logging across
@@ -77,29 +80,29 @@ class GlobalSummaryWriter(object):
 
             self.smw.add_scalar(tag, scalar_value, self.scalar_tag_to_step[tag], walltime)
 
-    # def add_histogram(self, tag, values, bins='tensorflow', walltime=None, max_bins=None):
-    #     """Add histogram to summary.
+    def add_histogram(self, tag, values, bins='tensorflow', walltime=None, max_bins=None):
+        """Add histogram to summary.
 
-    #     Args:
-    #         tag (string): Data identifier
-    #         values (torch.Tensor, numpy.array): Values to build histogram
-    #         bins (string): One of {'tensorflow','auto', 'fd', ...}.
-    #           This determines how the bins are made. You can find
-    #           other options in: https://docs.scipy.org/doc/numpy/reference/generated/numpy.histogram.html
-    #         walltime (float): Optional override default walltime (time.time()) of event
+        Args:
+            tag (string): Data identifier
+            values (torch.Tensor, numpy.array): Values to build histogram
+            bins (string): One of {'tensorflow','auto', 'fd', ...}.
+              This determines how the bins are made. You can find
+              other options in: https://docs.scipy.org/doc/numpy/reference/generated/numpy.histogram.html
+            walltime (float): Optional override default walltime (time.time()) of event
 
-    #     """
-    #     with self.new_tag_mutex.get_lock():
-    #         if tag in self.histogram_tag_to_step:
-    #             self.histogram_tag_to_step[tag] += 1
-    #         else:
-    #             self.histogram_tag_to_step[tag] = 0
-    #         self.smw.add_histogram(tag,
-    #                                values,
-    #                                self.histogram_tag_to_step[tag],
-    #                                bins=bins,
-    #                                walltime=walltime,
-    #                                max_bins=max_bins)
+        """
+        with self.lock:
+            if tag in self.histogram_tag_to_step:
+                self.histogram_tag_to_step[tag] += 1
+            else:
+                self.histogram_tag_to_step[tag] = 0
+            self.smw.add_histogram(tag,
+                                   values,
+                                   self.histogram_tag_to_step[tag],
+                                   bins=bins,
+                                   walltime=walltime,
+                                   max_bins=max_bins)
 
     def add_image(self, tag, img_tensor, walltime=None, dataformats='CHW'):
         """Add image data to summary.
@@ -166,7 +169,7 @@ class GlobalSummaryWriter(object):
             self.smw.add_text(tag, text_string, global_step=self.text_tag_to_step[tag], walltime=walltime)
 
     @staticmethod
-    def getSummaryWriter():
+    def getSummaryWriter(**kwargs):
         """Get the writer from global namespace.
 
         Examples::
@@ -188,8 +191,7 @@ class GlobalSummaryWriter(object):
         """
         global _writer
         if not hasattr(_writer, "smw") or _writer.smw is None:
-            _writer = GlobalSummaryWriter()
-
+            _writer = GlobalSummaryWriter(**kwargs)
         print("Using the global logger in:", _writer.smw.file_writer.get_logdir())
         return _writer
 
