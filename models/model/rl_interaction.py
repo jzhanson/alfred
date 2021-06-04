@@ -62,6 +62,18 @@ def save_checkpoint(shared_model, optimizer, train_steps, save_path='',
     print('saving to ' + checkpoint_save_path)
     torch.save(save_dict, checkpoint_save_path)
 
+def save_optimizer(rank, optimizer, train_steps, save_path='',
+        save_intermediate=False):
+    if save_intermediate:
+        checkpoint_save_path = os.path.join(save_path, 'optimizer_' +
+                str(train_steps) + '_' + str(rank) + '.pth')
+    else:
+        checkpoint_save_path = os.path.join(save_path, 'optimizer_' + str(rank)
+                + '.pth')
+    save_dict = { 'optimizer_state_dict' : optimizer.state_dict(), }
+    print('rank ' + str(rank) + ' saving to ' + checkpoint_save_path)
+    torch.save(save_dict, checkpoint_save_path)
+
 def load_checkpoint(load_path, model, curiosity_model, optimizer):
     """Load a model checkpoint.
 
@@ -717,7 +729,6 @@ def train(rank, num_processes, model, shared_model, env, optimizer,
         if train_steps_local > max_steps:
             break
 
-        # TODO: allow saving trajectory_info from all threads
         if save_path is not None and save_trajectory_info:
             trajectory_info_save_path = os.path.join(save_path,
                     'trajectory_info', str(train_steps_local) + '.json')
@@ -950,15 +961,29 @@ def train(rank, num_processes, model, shared_model, env, optimizer,
                         save_path=None)
             '''
 
-            if save_path is not None and save_checkpoint:
+            if save_path is not None:
                 # TODO: add locked saving
-                # TODO: save optimizer state dicts for each worker process? that saving
-                # strategy may be eventually related to/same logic as tracking
-                # train_steps across worker processes or tensorboard logging
-                save_checkpoint(shared_model, optimizer, train_steps_local,
-                        save_path=save_path,
-                        shared_curiosity_model=shared_curiosity_model,
-                        save_intermediate=save_intermediate)
+                # Due to the difficulties of inter-process communication, it's
+                # hard to guarantee that the checkpoint and each optimizer
+                # state is from the same moment in wall clock time, so the best
+                # we do is save checkpoints/optimizer states in intervals based
+                # on each process's observed values of train_steps_sync, which
+                # roughly happen at the same time due to the eval_interval
+                # interval wraparound logic
+                if save_checkpoint:
+                    save_checkpoint(shared_model, optimizer, train_steps_local,
+                            save_path=save_path,
+                            shared_curiosity_model=shared_curiosity_model,
+                            save_intermediate=save_intermediate)
+                else:
+                    # Multiple copies of a shared optimizer state will be saved
+                    # here by each worker process, but they won't be loaded, if
+                    # a shared optimizer is being used when loading, and it's a
+                    # little simpler than passing a shared_optimizer argument
+                    # to this function
+                    save_optimizer(rank, optimizer, train_steps_local,
+                            save_path=save_path,
+                            save_intermediate=save_intermediate)
 
 def write_results(writer, results, train_steps, train_frames=None,
         train_trajectories=None, fusion_model='SuperpixelFusion',
