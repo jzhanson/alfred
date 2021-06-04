@@ -714,13 +714,21 @@ def train(rank, num_processes, model, shared_model, env, optimizer,
         last_metrics['seen_state_losses'] = []
 
     # TODO: want a replay memory?
+    # For checking if train_steps_sync has passed an eval_interval
+    last_train_steps_local = None
+    train_steps_local = None
     while True:
         # "Grab ticket" and increment train_steps_sync with the intention of
         # rolling out that trajectory and taking that gradient step We have to
         # increment here in case we need to save trajectory_info from all
         # threads
         with train_steps_sync.get_lock():
-            train_steps_local = train_steps_sync.value
+            if train_steps_local is None: # First iteration, even if loading
+                train_steps_local = train_steps_sync.value
+                last_train_steps_local = train_steps_local
+            else:
+                last_train_steps_local = train_steps_local
+                train_steps_local = train_steps_sync.value
             train_steps_sync.value += 1
         if train_steps_local >= max_steps:
             break
@@ -933,8 +941,11 @@ def train(rank, num_processes, model, shared_model, env, optimizer,
                     single_interact=single_interact, save_path=None)
 
         # Save checkpoint every N trajectories, collect/print stats
-        # TODO: add "wraparound logic" code here
-        if train_steps_local % eval_interval == 0:
+        # If an eval_interval was passed, execute code - hopefully
+        # eval_interval is set to something large enough relative to
+        # num_processes that multiple eval_intervals can't be passed in one go
+        if (last_train_steps_local // eval_interval != train_steps_local //
+                eval_interval):
             if max_trajectory_length is None:
                 print('steps %d' % train_steps_local)
             else:
