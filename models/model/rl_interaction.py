@@ -631,8 +631,18 @@ def train(model, shared_model, env, optimizer, gamma=1.0, tau=1.0,
         eval_interval=1000, max_steps=1000000, device=torch.device('cpu'),
         save_path=None, save_intermediate=False, save_images_video=False,
         save_trajectory_info=False, load_path=None):
-    writer = SummaryWriter(log_dir='tensorboard_logs' if save_path is None else
-            os.path.join(save_path, 'tensorboard_logs'))
+    # If multiple processes try to write to different SummaryWriters, only one
+    # tensorboard logfile is generated but the logged data seems to not be
+    # understandable by tensorboard. Also, GlobalSummaryWriter's _writer global
+    # doesn't seem to be shared across processes, even if initialized in the
+    # parent process
+    # TODO: log from all processes, probably using wandb. Probably will need to
+    # pass rank and num_procs arguments to this function.
+    if save_path is not None:
+        writer = SummaryWriter(log_dir=os.path.join(save_path,
+            'tensorboard_logs'))
+    else:
+        writer = None
 
     # We have to load model inside train instead of outside because we need to
     # know train_steps, so we either pass it as an argument or load inside
@@ -871,17 +881,19 @@ def train(model, shared_model, env, optimizer, gamma=1.0, tau=1.0,
             last_metrics['seen_state_losses'].append(torch.mean(
                 torch.stack(trajectory_results['seen_state_losses'])).item())
 
-        results = {}
-        results['train'] = {}
-        for metric in last_metrics.keys():
-            results['train'][metric] = [last_metrics[metric][-1]]
-        # Don't write training results to file, and only graph train_steps (no
-        # need for train_frames or train_trajectories to save on tensorboard
-        # file size)
-        write_results(writer, results, train_steps, fusion_model=fusion_model,
-                outer_product_sampling=outer_product_sampling,
-                navigation_superpixels=navigation_superpixels,
-                single_interact=single_interact, save_path=None)
+        if writer is not None:
+            results = {}
+            results['train'] = {}
+            for metric in last_metrics.keys():
+                results['train'][metric] = [last_metrics[metric][-1]]
+            # Don't write training results to file, and only graph train_steps
+            # (no need for train_frames or train_trajectories to save on
+            # tensorboard file size)
+            write_results(writer, results, train_steps,
+                    fusion_model=fusion_model,
+                    outer_product_sampling=outer_product_sampling,
+                    navigation_superpixels=navigation_superpixels,
+                    single_interact=single_interact, save_path=None)
 
         # Save checkpoint every N trajectories, collect/print stats
         if train_steps % eval_interval == 0 or train_steps == max_steps:
@@ -893,17 +905,18 @@ def train(model, shared_model, env, optimizer, gamma=1.0, tau=1.0,
             for metric, values in last_metrics.items():
                 last_metrics[metric] = []
             '''
-            results = {}
-            results['train'] = {}
-            for metric, values in last_metrics.items():
-                results['train']['avg/' + metric] = values
-                last_metrics[metric] = []
-            write_results(writer, results, train_steps,
-                    fusion_model=fusion_model,
-                    outer_product_sampling=outer_product_sampling,
-                    navigation_superpixels=navigation_superpixels,
-                    single_interact=single_interact,
-                    save_path=None)
+            if writer is not None:
+                results = {}
+                results['train'] = {}
+                for metric, values in last_metrics.items():
+                    results['train']['avg/' + metric] = values
+                    last_metrics[metric] = []
+                write_results(writer, results, train_steps,
+                        fusion_model=fusion_model,
+                        outer_product_sampling=outer_product_sampling,
+                        navigation_superpixels=navigation_superpixels,
+                        single_interact=single_interact,
+                        save_path=None)
             '''
 
             if save_path is not None:
