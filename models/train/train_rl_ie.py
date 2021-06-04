@@ -463,5 +463,3 @@ if __name__ == '__main__':
         time.sleep(0.1)
         p.join()
 
-    # TODO: save shared model here so we know the model has taken exactly
-    # max_steps
