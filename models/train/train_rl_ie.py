@@ -21,7 +21,7 @@ from models.model.args import parse_args
 from models.nn.resnet import Resnet
 from models.nn.ie import (CuriosityIntrinsicReward, LSTMPolicy,
         ResnetSuperpixelWrapper, SuperpixelFusion, SuperpixelActionConcat)
-from models.model.rl_interaction import load_checkpoint, train
+from models.model.rl_interaction import load_checkpoint, load_optimizer, train
 from models.utils.shared_optim import SharedRMSprop, SharedAdam
 
 def setup_env(args):
@@ -290,15 +290,48 @@ def setup_train(rank, args, shared_model, shared_curiosity_model,
     # more complex and less clean)
     if args.num_processes > 1:
         model, curiosity_model = setup_model(args, gpu_id=gpu_id)
+        # Load checkpoint but not optimizer
+        if args.load_path is not None:
+            load_checkpoint(args.load_path, model, curiosity_model, None)
     else:
-        # Shared models will already be on the single GPU that is being used
+        # Shared models will already be on the single GPU that is being used.
+        # Checkpoint is already loaded
         model, curiosity_model = shared_model, shared_curiosity_model
 
     if shared_optimizer is None:
         optimizer = setup_optimizer(shared_model,
                 curiosity_model=shared_curiosity_model,
                 optimizer_name=args.optimizer, lr=args.lr, shared=False)
+        if args.load_path is not None:
+            # Do some filename tomfoolery to see if there are saved optimizer
+            # files for the current worker process. If not (i.e. running with
+            # more processes than before), load checkpoint's saved optimizer
+            # state
+            load_dir, checkpoint_name = os.path.split(args.load_path)
+            if checkpoint_name == 'model.pth': # Wasn't using save_intermediate
+                optimizer_checkpoint_name = 'optimizer_' + str(rank) + '.pth'
+            else:
+                # Choose the optimizer closest to the checkpoint for that worker
+                load_step = int(checkpoint_name.split('.')[0].split('_')[1])
+                optimizer_steps = [int(fname.split('.')[0].split('_')[1]) for
+                        fname in os.listdir(load_dir) if 'optimizer' in fname
+                        and int(fname.split('.')[0].split('_')[2]) == rank]
+                if len(optimizer_steps) > 0:
+                    closest_optimizer_step = min(optimizer_steps, key=lambda
+                            x:abs(x - load_step))
+                else:
+                    closest_optimizer_step = -1
+                optimizer_checkpoint_name = ('optimizer_' +
+                        str(closest_optimizer_step) + '_' + str(rank) + '.pth')
+
+            optimizer_load_path = os.path.join(load_dir,
+                    optimizer_checkpoint_name)
+            if os.path.isfile(optimizer_load_path):
+                load_optimizer(optimizer_load_path, optimizer)
+            else:
+                load_optimizer(args.load_path, optimizer)
     else:
+        # Likewise, shared optimizer state is already loaded
         optimizer = shared_optimizer
 
     scene_numbers = []
