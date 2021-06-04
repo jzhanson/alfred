@@ -666,7 +666,7 @@ def train(rank, num_processes, model, shared_model, env, optimizer,
         teacher_force=False, sample_action=True, sample_mask=True,
         eval_interval=1000, max_steps=1000000, device=torch.device('cpu'),
         save_path=None, save_checkpoint=False, save_intermediate=False,
-        save_images_video=False, save_trajectory_info=False, load_path=None):
+        save_images_video=False, save_trajectory_info=False):
     # If multiple processes try to write to different SummaryWriters, only one
     # tensorboard logfile is generated but the logged data seems to not be
     # understandable by tensorboard. Also, GlobalSummaryWriter's _writer global
@@ -680,15 +680,6 @@ def train(rank, num_processes, model, shared_model, env, optimizer,
     else:
         writer = None
 
-    # We have to load model inside train instead of outside because we need to
-    # know train_steps, so we either pass it as an argument or load inside
-    # train
-    # TODO: move this outside of train now that we have train_steps outside of
-    # train
-    if load_path is not None:
-        # TODO: optimizer state, if shared, might get loaded a bunch of
-        # different times here - add a shared_optimizer argument?
-        load_checkpoint(load_path, model, curiosity_model, optimizer)
     # If loading from file, metrics will be blank, but that's okay because
     # train_steps will be accurate, so it will just pick up where it left off
     last_metrics = {}
