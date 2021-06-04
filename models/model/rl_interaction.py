@@ -1094,8 +1094,8 @@ def write_results(writer, results, train_steps, train_frames=None,
                 for trajectory_mask_scores in values:
                     for mask_scores in trajectory_mask_scores:
                         flat_mask_scores.extend(mask_scores)
-                writer.add_histogram(steps_name,
-                        torch.stack(flat_mask_scores), train_steps)
+                writer.add_histogram(steps_name, torch.stack(flat_mask_scores),
+                        train_steps)
                 if train_frames is not None:
                     writer.add_histogram(frames_name,
                             torch.stack(flat_mask_scores), train_frames)
@@ -1109,8 +1109,7 @@ def write_results(writer, results, train_steps, train_frames=None,
                 for value_scores in values:
                     flat_value_scores.extend(value_scores)
                 writer.add_histogram(steps_name,
-                        torch.stack(flat_value_scores),
-                        train_steps)
+                        torch.stack(flat_value_scores), train_steps)
                 if train_frames is not None:
                     writer.add_histogram(frames_name,
                             torch.stack(flat_value_scores), train_frames)
