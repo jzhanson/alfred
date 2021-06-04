@@ -823,7 +823,6 @@ def train(model, shared_model, env, optimizer, gamma=1.0, tau=1.0,
         optimizer.step()
 
         # Compute and save some stats
-        train_steps += 1
         last_metrics['loss'].append(loss.item())
         last_metrics['policy_loss'].append(policy_loss.item())
         last_metrics['value_loss'].append(value_loss.item())
@@ -941,6 +940,7 @@ def train(model, shared_model, env, optimizer, gamma=1.0, tau=1.0,
                             shared_curiosity_model.state_dict())
                 print('saving to ' + checkpoint_save_path)
                 torch.save(save_dict, checkpoint_save_path)
+        train_steps += 1
 
 def write_results(writer, results, train_steps, train_frames=None,
         train_trajectories=None, fusion_model='SuperpixelFusion',
