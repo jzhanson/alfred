@@ -7,6 +7,7 @@ import json
 import random
 import copy
 from collections import defaultdict
+from time import sleep
 
 import numpy as np
 import torch
@@ -721,7 +722,7 @@ def train(rank, num_processes, model, shared_model, env, optimizer,
         with train_steps_sync.get_lock():
             train_steps_local = train_steps_sync.value
             train_steps_sync.value += 1
-        if train_steps_local > max_steps:
+        if train_steps_local >= max_steps:
             break
 
         if save_path is not None and save_trajectory_info:
@@ -979,6 +980,26 @@ def train(rank, num_processes, model, shared_model, env, optimizer,
                     save_optimizer(rank, optimizer, train_steps_local,
                             save_path=save_path,
                             save_intermediate=save_intermediate)
+
+    if save_path is not None:
+        if save_checkpoint:
+            # Wait until all other processes have taken their last (extra)
+            # ticket/increment before saving checkpoint to make sure that
+            # max_steps gradient updates have happened
+            while train_steps_local < max_steps + num_processes - 1:
+                # Other solutions that aren't sleepwaiting are a lot more
+                # complex for not much gain
+                sleep(1)
+                with train_steps_sync.get_lock():
+                    train_steps_local = train_steps_sync.value
+            save_checkpoint(shared_model, optimizer, max_steps,
+                    save_path=save_path,
+                    shared_curiosity_model=shared_curiosity_model,
+                    save_intermediate=save_intermediate)
+        else:
+            save_optimizer(rank, optimizer, max_steps,
+                    save_path=save_path,
+                    save_intermediate=save_intermediate)
 
 def write_results(writer, results, train_steps, train_frames=None,
         train_trajectories=None, fusion_model='SuperpixelFusion',
