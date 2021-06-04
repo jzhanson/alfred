@@ -649,8 +649,8 @@ def train(model, shared_model, env, optimizer, train_steps_sync, gamma=1.0,
         max_trajectory_length=None, frame_stack=1, zero_fill_frame_stack=False,
         teacher_force=False, sample_action=True, sample_mask=True,
         eval_interval=1000, max_steps=1000000, device=torch.device('cpu'),
-        save_path=None, save_intermediate=False, save_images_video=False,
-        save_trajectory_info=False, load_path=None):
+        save_path=None, save_checkpoint=False, save_intermediate=False,
+        save_images_video=False, save_trajectory_info=False, load_path=None):
     # If multiple processes try to write to different SummaryWriters, only one
     # tensorboard logfile is generated but the logged data seems to not be
     # understandable by tensorboard. Also, GlobalSummaryWriter's _writer global
@@ -950,7 +950,7 @@ def train(model, shared_model, env, optimizer, train_steps_sync, gamma=1.0,
                         save_path=None)
             '''
 
-            if save_path is not None:
+            if save_path is not None and save_checkpoint:
                 # TODO: add locked saving
                 # TODO: save optimizer state dicts for each worker process? that saving
                 # strategy may be eventually related to/same logic as tracking
