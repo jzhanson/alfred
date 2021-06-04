@@ -617,8 +617,8 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
 
     return trajectory_results
 
-def train(model, shared_model, env, optimizer, gamma=1.0, tau=1.0,
-        policy_loss_coefficient=1.0, value_loss_coefficient=0.5,
+def train(model, shared_model, env, optimizer, train_steps_sync, gamma=1.0,
+        tau=1.0, policy_loss_coefficient=1.0, value_loss_coefficient=0.5,
         entropy_coefficient=0.01, max_grad_norm=50, single_interact=False,
         use_masks=True, use_gt_segmentation=False,
         fusion_model='SuperpixelFusion', outer_product_sampling=False,
@@ -647,13 +647,12 @@ def train(model, shared_model, env, optimizer, gamma=1.0, tau=1.0,
     # We have to load model inside train instead of outside because we need to
     # know train_steps, so we either pass it as an argument or load inside
     # train
+    # TODO: move this outside of train now that we have train_steps outside of
+    # train
     if load_path is not None:
         # TODO: optimizer state, if shared, might get loaded a bunch of
         # different times here - add a shared_optimizer argument?
-        train_steps = load_checkpoint(load_path, model,
-                curiosity_model, optimizer)
-    else:
-        train_steps = 0
+        load_checkpoint(load_path, model, curiosity_model, optimizer)
     # If loading from file, metrics will be blank, but that's okay because
     # train_steps will be accurate, so it will just pick up where it left off
     last_metrics = {}
@@ -687,16 +686,27 @@ def train(model, shared_model, env, optimizer, gamma=1.0, tau=1.0,
         last_metrics['seen_state_losses'] = []
 
     # TODO: want a replay memory?
-    while train_steps < max_steps:
+    while True:
+        # "Grab ticket" and increment train_steps_sync with the intention of
+        # rolling out that trajectory and taking that gradient step We have to
+        # increment here in case we need to save trajectory_info from all
+        # threads
+        with train_steps_sync.get_lock():
+            train_steps_local = train_steps_sync.value
+            train_steps_sync.value += 1
+        if train_steps_local > max_steps:
+            break
+
+        # TODO: allow saving trajectory_info from all threads
         if save_path is not None and save_trajectory_info:
             trajectory_info_save_path = os.path.join(save_path,
-                    'trajectory_info', str(train_steps) + '.json')
+                    'trajectory_info', str(train_steps_local) + '.json')
         else:
             trajectory_info_save_path = None
 
         if save_path is not None and save_images_video:
-            images_video_save_path = os.path.join(save_path,
-                    'images_video', str(train_steps))
+            images_video_save_path = os.path.join(save_path, 'images_video',
+                    str(train_steps_local))
         else:
             images_video_save_path = None
 
@@ -814,6 +824,7 @@ def train(model, shared_model, env, optimizer, gamma=1.0, tau=1.0,
         if curiosity_model is not None:
             parameters |= set(curiosity_model.parameters())
         torch.nn.utils.clip_grad_norm_(parameters, max_grad_norm)
+        # TODO: add option for locking update
         if model != shared_model:
             ensure_shared_grads(model, shared_model, gpu=(not device ==
                 torch.device('cpu')))
@@ -888,19 +899,20 @@ def train(model, shared_model, env, optimizer, gamma=1.0, tau=1.0,
             # Don't write training results to file, and only graph train_steps
             # (no need for train_frames or train_trajectories to save on
             # tensorboard file size)
-            write_results(writer, results, train_steps,
+            write_results(writer, results, train_steps_local,
                     fusion_model=fusion_model,
                     outer_product_sampling=outer_product_sampling,
                     navigation_superpixels=navigation_superpixels,
                     single_interact=single_interact, save_path=None)
 
         # Save checkpoint every N trajectories, collect/print stats
-        if train_steps % eval_interval == 0 or train_steps == max_steps:
+        # TODO: add "wraparound logic" code here
+        if train_steps_local % eval_interval == 0:
             if max_trajectory_length is None:
-                print('steps %d' % train_steps)
+                print('steps %d' % train_steps_local)
             else:
-                print('steps %d frames %d' % (train_steps, train_steps *
-                    max_trajectory_length))
+                print('steps %d frames %d' % (train_steps_local,
+                    train_steps_local * max_trajectory_length))
             for metric, values in last_metrics.items():
                 last_metrics[metric] = []
             '''
@@ -910,7 +922,7 @@ def train(model, shared_model, env, optimizer, gamma=1.0, tau=1.0,
                 for metric, values in last_metrics.items():
                     results['train']['avg/' + metric] = values
                     last_metrics[metric] = []
-                write_results(writer, results, train_steps,
+                write_results(writer, results, train_steps_local,
                         fusion_model=fusion_model,
                         outer_product_sampling=outer_product_sampling,
                         navigation_superpixels=navigation_superpixels,
@@ -921,7 +933,7 @@ def train(model, shared_model, env, optimizer, gamma=1.0, tau=1.0,
             if save_path is not None:
                 if save_intermediate:
                     checkpoint_save_path = os.path.join(save_path, 'model_' +
-                            str(train_steps) + '.pth')
+                            str(train_steps_local) + '.pth')
                 else:
                     checkpoint_save_path = os.path.join(save_path, 'model.pth')
                 # Save state dict of shared model - don't think it matters much
@@ -930,8 +942,9 @@ def train(model, shared_model, env, optimizer, gamma=1.0, tau=1.0,
                 # that saving strategy may be eventually related to/same logic
                 # as tracking train_steps across worker processes or
                 # tensorboard logging
+                # TODO: add locked saving
                 save_dict = {
-                    'train_steps' : train_steps,
+                    'train_steps' : train_steps_local,
                     'model_state_dict' : shared_model.state_dict(),
                     'optimizer_state_dict' : optimizer.state_dict(),
                 }
@@ -940,7 +953,6 @@ def train(model, shared_model, env, optimizer, gamma=1.0, tau=1.0,
                             shared_curiosity_model.state_dict())
                 print('saving to ' + checkpoint_save_path)
                 torch.save(save_dict, checkpoint_save_path)
-        train_steps += 1
 
 def write_results(writer, results, train_steps, train_frames=None,
         train_trajectories=None, fusion_model='SuperpixelFusion',
