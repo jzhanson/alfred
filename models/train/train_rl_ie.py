@@ -325,8 +325,8 @@ def setup_train(rank, args, shared_model, shared_curiosity_model,
             'random_look_angle' : args.random_look_angle
     }
 
-    train(model, shared_model, ie, optimizer, train_steps_sync,
-            gamma=args.gamma, tau=args.tau,
+    train(rank, args.num_processes, model, shared_model, ie, optimizer,
+            train_steps_sync, gamma=args.gamma, tau=args.tau,
             policy_loss_coefficient=args.policy_loss_coefficient,
             value_loss_coefficient=args.value_loss_coefficient,
             entropy_coefficient=args.entropy_coefficient,
