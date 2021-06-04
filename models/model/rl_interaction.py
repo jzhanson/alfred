@@ -96,6 +96,10 @@ def load_checkpoint(load_path, model, curiosity_model, optimizer):
     print('loading from ' + load_path + ' iteration ' + str(train_steps))
     return train_steps
 
+def load_optimizer(load_path, optimizer):
+    checkpoint = torch.load(load_path)
+    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+
 def get_seen_state_loss(env, actions=constants.COMPLEX_ACTIONS,
         fusion_model=None, outer_product_sampling=False,
         navigation_superpixels=False, masks=None, action_scores=None,
