@@ -264,7 +264,7 @@ def setup_optimizer(model, curiosity_model=None, optimizer_name='', lr=0.01,
     return optimizer
 
 def setup_train(rank, args, shared_model, shared_curiosity_model,
-        shared_optimizer):
+        shared_optimizer, train_steps_sync):
     # Set random seed for worker process
     random.seed(args.seed + rank)
     np.random.seed(args.seed + rank)
@@ -325,7 +325,8 @@ def setup_train(rank, args, shared_model, shared_curiosity_model,
             'random_look_angle' : args.random_look_angle
     }
 
-    train(model, shared_model, ie, optimizer, gamma=args.gamma, tau=args.tau,
+    train(model, shared_model, ie, optimizer, train_steps_sync,
+            gamma=args.gamma, tau=args.tau,
             policy_loss_coefficient=args.policy_loss_coefficient,
             value_loss_coefficient=args.value_loss_coefficient,
             entropy_coefficient=args.entropy_coefficient,
@@ -397,8 +398,10 @@ if __name__ == '__main__':
         shared_optimizer = None
 
     if args.load_path is not None:
-        load_checkpoint(args.load_path, shared_model, shared_curiosity_model,
-                shared_optimizer)
+        train_steps = load_checkpoint(args.load_path, shared_model,
+                shared_curiosity_model, shared_optimizer)
+    else:
+        train_steps = 0
 
     print('shared model parameters: ' + str(sum(p.numel() for p in
         shared_model.parameters() if p.requires_grad)))
@@ -415,10 +418,11 @@ if __name__ == '__main__':
 
     processes = []
 
-    p = mp
+    # Signed int should be large enough :P
+    train_steps_sync = mp.Value('i', train_steps)
     for rank in range(0, args.num_processes):
         p = mp.Process(target=setup_train, args=(rank, args, shared_model,
-            shared_curiosity_model, shared_optimizer))
+            shared_curiosity_model, shared_optimizer, train_steps_sync))
         p.start()
         processes.append(p)
         time.sleep(0.1)
@@ -426,3 +430,6 @@ if __name__ == '__main__':
     for p in processes:
         time.sleep(0.1)
         p.join()
+
+    # TODO: save shared model here so we know the model has taken exactly
+    # max_steps
