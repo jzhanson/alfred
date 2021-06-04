@@ -42,6 +42,26 @@ env/thor_env.py:to_thor_api_exec.
 https://github.com/allenai/ai2thor/issues/391#issuecomment-618696398
 """
 
+def save_checkpoint(shared_model, optimizer, train_steps, save_path='',
+        shared_curiosity_model=None, save_intermediate=False):
+    if save_intermediate:
+        checkpoint_save_path = os.path.join(save_path, 'model_' +
+                str(train_steps) + '.pth')
+    else:
+        checkpoint_save_path = os.path.join(save_path, 'model.pth')
+    # Save state dict of shared model - don't think it matters much whether we
+    # save the shared model or the worker process model
+    save_dict = {
+        'train_steps' : train_steps,
+        'model_state_dict' : shared_model.state_dict(),
+        'optimizer_state_dict' : optimizer.state_dict(),
+    }
+    if shared_curiosity_model is not None:
+        save_dict['curiosity_model_state_dict'] = (
+                shared_curiosity_model.state_dict())
+    print('saving to ' + checkpoint_save_path)
+    torch.save(save_dict, checkpoint_save_path)
+
 def load_checkpoint(load_path, model, curiosity_model, optimizer):
     """Load a model checkpoint.
 
@@ -931,28 +951,14 @@ def train(model, shared_model, env, optimizer, train_steps_sync, gamma=1.0,
             '''
 
             if save_path is not None:
-                if save_intermediate:
-                    checkpoint_save_path = os.path.join(save_path, 'model_' +
-                            str(train_steps_local) + '.pth')
-                else:
-                    checkpoint_save_path = os.path.join(save_path, 'model.pth')
-                # Save state dict of shared model - don't think it matters much
-                # whether we save the shared model or the worker process model
-                # TODO: save optimizer state dicts for each worker process?
-                # that saving strategy may be eventually related to/same logic
-                # as tracking train_steps across worker processes or
-                # tensorboard logging
                 # TODO: add locked saving
-                save_dict = {
-                    'train_steps' : train_steps_local,
-                    'model_state_dict' : shared_model.state_dict(),
-                    'optimizer_state_dict' : optimizer.state_dict(),
-                }
-                if curiosity_model is not None:
-                    save_dict['curiosity_model_state_dict'] = (
-                            shared_curiosity_model.state_dict())
-                print('saving to ' + checkpoint_save_path)
-                torch.save(save_dict, checkpoint_save_path)
+                # TODO: save optimizer state dicts for each worker process? that saving
+                # strategy may be eventually related to/same logic as tracking
+                # train_steps across worker processes or tensorboard logging
+                save_checkpoint(shared_model, optimizer, train_steps_local,
+                        save_path=save_path,
+                        shared_curiosity_model=shared_curiosity_model,
+                        save_intermediate=save_intermediate)
 
 def write_results(writer, results, train_steps, train_frames=None,
         train_trajectories=None, fusion_model='SuperpixelFusion',
