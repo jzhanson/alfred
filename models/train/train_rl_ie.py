@@ -387,8 +387,7 @@ def setup_train(rank, args, shared_model, shared_curiosity_model,
             save_path=args.save_path, save_checkpoint=(rank == 0),
             save_intermediate=args.save_intermediate,
             save_images_video=args.save_images_video,
-            save_trajectory_info=args.save_trajectory_info,
-            load_path=args.load_path)
+            save_trajectory_info=args.save_trajectory_info)
 
 if __name__ == '__main__':
     args = parse_args()
