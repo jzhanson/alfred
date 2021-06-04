@@ -637,10 +637,10 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
 
     return trajectory_results
 
-def train(model, shared_model, env, optimizer, train_steps_sync, gamma=1.0,
-        tau=1.0, policy_loss_coefficient=1.0, value_loss_coefficient=0.5,
-        entropy_coefficient=0.01, max_grad_norm=50, single_interact=False,
-        use_masks=True, use_gt_segmentation=False,
+def train(rank, num_processes, model, shared_model, env, optimizer,
+        train_steps_sync, gamma=1.0, tau=1.0, policy_loss_coefficient=1.0,
+        value_loss_coefficient=0.5, entropy_coefficient=0.01, max_grad_norm=50,
+        single_interact=False, use_masks=True, use_gt_segmentation=False,
         fusion_model='SuperpixelFusion', outer_product_sampling=False,
         inverse_score=False, zero_null_superpixel_features=True,
         navigation_superpixels=False, curiosity_model=None,
