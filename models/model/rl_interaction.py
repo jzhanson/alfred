@@ -666,8 +666,8 @@ def train(rank, num_processes, model, shared_model, env, optimizer,
         max_trajectory_length=None, frame_stack=1, zero_fill_frame_stack=False,
         teacher_force=False, sample_action=True, sample_mask=True,
         eval_interval=1000, max_steps=1000000, device=torch.device('cpu'),
-        save_path=None, save_checkpoint=False, save_intermediate=False,
-        save_images_video=False, save_trajectory_info=False):
+        save_path=None, save_intermediate=False, save_images_video=False,
+        save_trajectory_info=False):
     # If multiple processes try to write to different SummaryWriters, only one
     # tensorboard logfile is generated but the logged data seems to not be
     # understandable by tensorboard. Also, GlobalSummaryWriter's _writer global
@@ -977,7 +977,7 @@ def train(rank, num_processes, model, shared_model, env, optimizer,
                 # on each process's observed values of train_steps_sync, which
                 # roughly happen at the same time due to the eval_interval
                 # interval wraparound logic
-                if save_checkpoint:
+                if rank == 0:
                     save_checkpoint(shared_model, optimizer, train_steps_local,
                             save_path=save_path,
                             shared_curiosity_model=shared_curiosity_model,
@@ -993,7 +993,7 @@ def train(rank, num_processes, model, shared_model, env, optimizer,
                             save_intermediate=save_intermediate)
 
     if save_path is not None:
-        if save_checkpoint:
+        if rank == 0:
             # Wait until all other processes have taken their last (extra)
             # ticket/increment before saving checkpoint to make sure that
             # max_steps gradient updates have happened
