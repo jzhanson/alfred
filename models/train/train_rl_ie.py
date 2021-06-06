@@ -11,6 +11,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.multiprocessing as mp
 import time
+from itertools import chain
 
 import gen.constants as constants
 sys.path.append(os.path.join(os.environ['ALFRED_ROOT'], 'env'))
@@ -242,9 +243,22 @@ def setup_optimizer(model, curiosity_model=None, optimizer_name='', lr=0.01,
     # https://discuss.pytorch.org/t/how-to-train-several-network-at-the-same-time/4920/2
     # No need for a separate optimizer for curiosity - loss coefficients serve
     # the same purpose as a separate learning rate for the most part
-    parameters = set(model.parameters())
+    parameters = model.parameters()
     if curiosity_model is not None:
-        parameters |= set(curiosity_model.parameters())
+        # Have to use itertools.chain, since casting to set and |= messes up
+        # the ordering of params in param_groups in the optimizer which is
+        # important for saving and loading state dicts
+        #
+        # Discovered a bug where loading optimizer state dict led to parameters
+        # and optimizer state having mismatched sizes because (1) Adam state
+        # only includes averages for parameters that have grads, which means
+        # that pretrained, frozen ResNet parameters don't have a saved
+        # optimizer state and (2) when loading optimizer state dicts,
+        # load_state_dict tries to sequentially match saved optimizer states to
+        # parameters, which include the frozen ResNet parameters, so saved
+        # optimizer states for trainable parameters e.g. policy_model were
+        # being loaded into the wrong parameters
+        parameters = chain(parameters, curiosity_model.parameters())
     if shared:
         # SharedSGD not implemented
         if optimizer_name == 'rmsprop':
