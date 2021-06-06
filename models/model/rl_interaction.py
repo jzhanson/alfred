@@ -8,6 +8,7 @@ import random
 import copy
 from collections import defaultdict
 from time import sleep
+from itertools import chain
 
 import numpy as np
 import torch
@@ -855,9 +856,9 @@ def train(rank, num_processes, model, shared_model, env, optimizer,
         # may have to do try: loss.backward(retain_graph=True) except:
         # loss.backward()
         loss.backward()
-        parameters = set(model.parameters())
+        parameters = model.parameters()
         if curiosity_model is not None:
-            parameters |= set(curiosity_model.parameters())
+            parameters = chain(parameters, curiosity_model.parameters())
         torch.nn.utils.clip_grad_norm_(parameters, max_grad_norm)
         # TODO: add option for locking update
         if model != shared_model:
