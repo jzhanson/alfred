@@ -85,19 +85,29 @@ def setup_model(args, gpu_id=None):
     # surrounding args.separate_superpixel_model and args.superpixel_context
     # being 'visual'
     if 'resnet' in args.visual_model:
-        visual_feature_size = 512
+        visual_feature_size = (512 if args.pretrained_visual_model else
+                args.custom_resnet_planes[3])
         visual_model = Resnet(resnet_args, use_conv_feat=False,
                 pretrained=args.pretrained_visual_model,
-                frozen=args.frozen_visual_model)
+                frozen=args.frozen_visual_model,
+                layers=args.custom_resnet_layers,
+                inplanes=args.custom_resnet_inplanes,
+                planes=args.custom_resnet_planes)
     else:
         print("visual model '" + args.visual_model + "' not supported")
 
     if args.separate_superpixel_model:
         if 'resnet' in args.superpixel_model:
-            superpixel_feature_size = 512
+            superpixel_feature_size = (512 if args.pretrained_visual_model else
+                    args.custom_resnet_planes[3])
+            # TODO: add a separate option for using a separate superpixel model
+            # but a different custom ResNet architecture
             superpixel_model = Resnet(resnet_args, use_conv_feat=False,
                     pretrained=args.pretrained_visual_model,
-                    frozen=args.frozen_visual_model)
+                    frozen=args.frozen_visual_model,
+                    layers=args.custom_resnet_layers,
+                    inplanes=args.custom_resnet_inplanes,
+                    planes=args.custom_resnet_planes)
         else:
             print("superpixel model '" + args.superpixel_model + "' not supported")
     else:
@@ -194,7 +204,10 @@ def setup_model(args, gpu_id=None):
         if 'resnet' in args.curiosity_visual_encoder:
             curiosity_visual_encoder = Resnet(resnet_args, use_conv_feat=False,
                     pretrained=args.pretrained_visual_model,
-                    frozen=args.frozen_visual_model)
+                    frozen=args.frozen_visual_model,
+                    layers=args.custom_resnet_layers,
+                    inplanes=args.custom_resnet_inplanes,
+                    planes=args.custom_resnet_planes)
         else:
             print("curiosity visual encoder '" + args.curiosity_visual_encoder
                     + "' not supported")
