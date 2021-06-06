@@ -148,9 +148,14 @@ class Resnet18(nn.Module):
     '''
 
     def __init__(self, args, eval=True, share_memory=False, use_conv_feat=True,
-            pretrained=True, device=torch.device('cuda')):
+            pretrained=True, layers=[2, 2, 2, 2], inplanes=64,
+            planes=[64, 128, 256, 512], device=torch.device('cuda')):
         super(Resnet18, self).__init__()
-        self.model = models.resnet18(pretrained=pretrained)
+        if pretrained:
+            self.model = models.resnet18(pretrained=pretrained)
+        else:
+            self.model = CustomResNet(layers=layers, inplanes=inplanes,
+                    planes=planes)
         self.device=device
 
         if args.gpu:
@@ -218,7 +223,8 @@ class MaskRCNN(nn.Module):
 class Resnet(nn.Module):
 
     def __init__(self, args, eval=True, share_memory=False, use_conv_feat=True,
-            pretrained=True, frozen=True):
+            pretrained=True, frozen=True, layers=[2, 2, 2, 2], inplanes=64,
+            planes=[64, 128, 256, 512]):
         super(Resnet, self).__init__()
         self.model_type = args.visual_model
         self.gpu = args.gpu
@@ -232,17 +238,19 @@ class Resnet(nn.Module):
 
         # choose model type
         if self.model_type == "maskrcnn":
+            # MaskRCNN does not support custom layers/architecture
             self.resnet_model = MaskRCNN(args, eval, share_memory,
                     pretrained=pretrained, device=self.device)
             self.output_size = 2048 * 7 * 7 # Specific to MaskRCNN
         else:
             self.resnet_model = Resnet18(args, eval, share_memory,
                     pretrained=pretrained, use_conv_feat=use_conv_feat,
+                    layers=layers, inplanes=inplanes, planes=planes,
                     device=self.device)
             if use_conv_feat:
-                self.output_size = 512 * 7 * 7 # Specific to Resnet18
+                self.output_size = planes[3] * 7 * 7 # Specific to Resnet18
             else:
-                self.output_size = 512
+                self.output_size = planes[3]
 
         self.frozen = frozen
         if self.frozen:
