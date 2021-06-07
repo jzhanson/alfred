@@ -181,6 +181,7 @@ parser.set_defaults(inverse_score=False)
 parser.add_argument('--navigation-superpixels', dest='navigation_superpixels', action='store_true', help='pair navigation actions with superpixels along with interaction actions. works differently for SuperpixelFusion + outer_product_sampling and SuperpixelActionConcat, and zero_null_superpixel_features will not be used.')
 parser.add_argument('--no-navigation-superpixels', dest='navigation_superpixels', action='store_false', help='only have one navigation action (do not pair with superpixels)')
 parser.set_defaults(navigation_superpixels=False)
+parser.add_argument('--action-mask-score-combination', type=str, default='add', help='whether to \'add\' or \'multiply\' raw action and mask scores with --outer-product-sampling together with --navigation-superpixels (default: \'add\')')
 parser.add_argument('--seen-state-loss-coefficient', type=float, default=None, help='coefficient for supervised seen state aux loss, unset to turn off aux loss (default: None)')
 
 # Curiosity (intrinsic reward) config
