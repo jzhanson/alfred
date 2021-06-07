@@ -184,7 +184,7 @@ class InteractionExploration(object):
                             " to determine contextual Interact")
                     success = False
                 else:
-                    contextual_actions = self.get_contextual_action(
+                    contextual_actions = self.get_contextual_actions(
                             target_instance_id)
                     if contextual_actions is None:
                         err = ('No valid contextual interaction for object ' +
