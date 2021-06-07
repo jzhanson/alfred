@@ -954,17 +954,27 @@ def train(rank, num_processes, model, shared_model, env, optimizer,
             current_time = time.time()
             if max_trajectory_length is not None:
                 total_frames = train_steps_local * max_trajectory_length
-                print('total FPS since start %.6f' % (total_frames / (current_time -
-                    start_time)))
+                total_fps = total_frames / (current_time - start_time)
+                eval_interval_fps = eval_interval * max_trajectory_length / (
+                        current_time - last_eval_time)
+                print('total FPS since start %.6f' % total_fps)
                 print('total FPS over last %d steps %d frames %.6f' %
                         (eval_interval, eval_interval * max_trajectory_length,
-                            eval_interval * max_trajectory_length /
-                            (current_time - last_eval_time)))
+                            eval_interval_fps))
+                if rank == 0:
+                    writer.add_scalar('steps/train/fps_total_since_start',
+                            total_fps, train_steps_local)
+                    writer.add_scalar('steps/train/fps_total_last_interval',
+                            eval_interval_fps, train_steps_local)
             process_eval_frames = sum(last_metrics['trajectory_length'])
+            process_fps = process_eval_frames / (time.time() - last_eval_time)
             print('process-local FPS over last %d steps %d frames %.6f' %
                     (len(last_metrics['trajectory_length']),
-                        process_eval_frames, process_eval_frames / (time.time()
-                            - last_eval_time)))
+                        process_eval_frames, process_fps))
+            # Output FPS to tensorboard SummaryWriter
+            if rank == 0:
+                writer.add_scalar('steps/train/fps_process_last_interval',
+                        process_fps, train_steps_local)
 
             for metric, values in last_metrics.items():
                 last_metrics[metric] = []
