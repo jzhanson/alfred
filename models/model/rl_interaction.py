@@ -7,6 +7,7 @@ import json
 import random
 import copy
 from collections import defaultdict
+import time
 from time import sleep
 from itertools import chain
 
@@ -715,6 +716,8 @@ def train(rank, num_processes, model, shared_model, env, optimizer,
         last_metrics['seen_state_losses'] = []
 
     # TODO: want a replay memory?
+    start_time = time.time()
+    last_eval_time = start_time
     # For checking if train_steps_sync has passed an eval_interval
     last_train_steps_local = None
     train_steps_local = None
@@ -947,11 +950,22 @@ def train(rank, num_processes, model, shared_model, env, optimizer,
         # num_processes that multiple eval_intervals can't be passed in one go
         if (last_train_steps_local // eval_interval != train_steps_local //
                 eval_interval):
-            if max_trajectory_length is None:
-                print('steps %d' % train_steps_local)
-            else:
-                print('steps %d frames %d' % (train_steps_local,
-                    train_steps_local * max_trajectory_length))
+            print('steps %d ' % train_steps_local)
+            current_time = time.time()
+            if max_trajectory_length is not None:
+                total_frames = train_steps_local * max_trajectory_length
+                print('total FPS since start %.6f' % (total_frames / (current_time -
+                    start_time)))
+                print('total FPS over last %d steps %d frames %.6f' %
+                        (eval_interval, eval_interval * max_trajectory_length,
+                            eval_interval * max_trajectory_length /
+                            (current_time - last_eval_time)))
+            process_eval_frames = sum(last_metrics['trajectory_length'])
+            print('process-local FPS over last %d steps %d frames %.6f' %
+                    (len(last_metrics['trajectory_length']),
+                        process_eval_frames, process_eval_frames / (time.time()
+                            - last_eval_time)))
+
             for metric, values in last_metrics.items():
                 last_metrics[metric] = []
             '''
@@ -992,6 +1006,7 @@ def train(rank, num_processes, model, shared_model, env, optimizer,
                     save_optimizer(rank, optimizer, train_steps_local,
                             save_path=save_path,
                             save_intermediate=save_intermediate)
+            last_eval_time = time.time()
 
     if save_path is not None:
         if rank == 0:
