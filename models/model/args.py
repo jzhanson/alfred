@@ -192,6 +192,9 @@ parser.add_argument('--curiosity-inverse-fc-units', type=int, nargs='+', default
 parser.add_argument('--curiosity-eta', type=float, default=0.01, help='coefficient for scaling curiosity reward (default: 0.01)')
 parser.add_argument('--curiosity-beta', type=float, default=0.2, help='how much to use inverse loss for curiosity (1 - beta) versus forward loss (beta) (default: 0.01)')
 parser.add_argument('--curiosity-visual-encoder', type=str, default='resnet', help='which visual encoder to use for curiosity (\'resnet\' only supported for now)')
+parser.add_argument('--curiosity-resnet-layers', type=int, nargs='+', default=[2, 2, 2, 2], help='4 ints that determine how many residual blocks to use in each layer for curiosity visual encoder (default: 2 2 2 2)')
+parser.add_argument('--curiosity-resnet-inplanes', type=int, default=64, help='number of input planes before residual layers to use for curiosity visual encoder - probably the same as the first curiosity-resnet-planes? (default: 64)')
+parser.add_argument('--curiosity-resnet-planes', type=int, nargs='+', default=[64, 128, 256, 512], help='4 ints that determine how many filters/planes to use in each layer for curiosity visual encoder (default: 64, 128, 256, 512)')
 parser.add_argument('--curiosity-loss-coefficient', type=float, default=10, help='coefficient for curiosity loss (default: 10)')
 
 def parse_args():
