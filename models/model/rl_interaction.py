@@ -126,6 +126,14 @@ def get_seen_state_loss(env, actions=constants.COMPLEX_ACTIONS,
             # concatenated_softmax is a list of tensors in case there are
             # different numbers of masks and we want to do batching in this
             # function
+            #
+            # In this case, softmax mutual exclusion already being applied
+            # means that concatenated_softmax/seen_state_scores are a
+            # probability distribution (i.e. single class prediction) while
+            # seen state prediction with the binary_cross_entropy_with_logits
+            # is not (i.e. multiclass prediction). Because of the way we
+            # combine the action and mask "logits" in this case, it's not very
+            # easy to get around this inconsistency
             seen_state_scores = torch.stack(concatenated_softmax)
             for action_i, action in enumerate(actions):
                 if action in constants.NAV_ACTIONS:
@@ -152,8 +160,16 @@ def get_seen_state_loss(env, actions=constants.COMPLEX_ACTIONS,
                 else:
                     for mask_i, mask in enumerate(masks[0]):
                         actions_masks.append((action, mask))
-                        # TODO: should this be adding the "log-prob" logits, or
-                        # should we do a log-softmax and add after?
+                        # It's fine to add these scores, even though they're
+                        # not probabilities - for seen state prediction loss we
+                        # don't want there to be a mutual exclusion since
+                        # multiple actions can all lead to new states. Adding
+                        # rather than multiplying avoids awkward situations
+                        # where two large negative scores are multiplied
+                        # together to result in a large positive score. In this
+                        # setting, sampling (first from action_scores then from
+                        # mask_scores) does not have that property, so it's not
+                        # reflected here.
                         seen_state_scores.append(action_scores[0][action_i] +
                                 mask_scores[0][mask_i])
             # Add batch dimension
@@ -175,12 +191,12 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
         use_gt_segmentation=False, fusion_model='SuperpixelFusion',
         outer_product_sampling=False, inverse_score=False,
         zero_null_superpixel_features=True, navigation_superpixels=False,
-        curiosity_model=None, compute_seen_state_losses=False,
-        max_trajectory_length=None, frame_stack=1, zero_fill_frame_stack=False,
-        teacher_force=False, sample_action=True, sample_mask=True,
-        scene_name_or_num=None, reset_kwargs={},
-        trajectory_info_save_path=None, images_video_save_path=None,
-        device=torch.device('cpu')):
+        action_mask_score_combination='add', curiosity_model=None,
+        compute_seen_state_losses=False, max_trajectory_length=None,
+        frame_stack=1, zero_fill_frame_stack=False, teacher_force=False,
+        sample_action=True, sample_mask=True, scene_name_or_num=None,
+        reset_kwargs={}, trajectory_info_save_path=None,
+        images_video_save_path=None, device=torch.device('cpu')):
     """
     Returns dictionary of trajectory results.
 
@@ -355,9 +371,19 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
                 # Keep batch dimension for consistency
                 # First dimension is actions, second dimension is masks.
                 # torch.outer (torch.ger in 1.1.0) wants two 1D vectors
-                # TODO: consider adding scores instead of multiplying them
-                flat_outer_scores = torch.flatten(torch.ger(action_scores[0],
-                    mask_scores[0])).unsqueeze(0)
+                if action_mask_score_combination == 'add':
+                    # Repeat action_scores so rows (first dimension) are
+                    # actions and columns (second dimension) are masks. Need to
+                    # unsqueeze first so repeat will work
+                    outer_scores = action_scores[0].unsqueeze(1).repeat(1,
+                            len(mask_scores[0]))
+                    # Add mask scores to each row via broadcast
+                    outer_scores += mask_scores[0]
+                    flat_outer_scores = (
+                            torch.flatten(outer_scores).unsqueeze(0))
+                elif action_mask_score_combination == 'multiply':
+                    flat_outer_scores = torch.flatten(torch.ger(action_scores[0],
+                        mask_scores[0])).unsqueeze(0)
                 # Still keep batch dimension
                 softmax_outer_scores = F.softmax(flat_outer_scores, dim=-1)
                 if sample_action:
@@ -662,13 +688,14 @@ def train(rank, num_processes, model, shared_model, env, optimizer,
         single_interact=False, use_masks=True, use_gt_segmentation=False,
         fusion_model='SuperpixelFusion', outer_product_sampling=False,
         inverse_score=False, zero_null_superpixel_features=True,
-        navigation_superpixels=False, curiosity_model=None,
-        shared_curiosity_model=None, curiosity_loss_coefficient=0.1,
-        seen_state_loss_coefficient=None, scene_numbers=None, reset_kwargs={},
-        max_trajectory_length=None, frame_stack=1, zero_fill_frame_stack=False,
-        teacher_force=False, sample_action=True, sample_mask=True,
-        eval_interval=1000, max_steps=1000000, device=torch.device('cpu'),
-        save_path=None, save_intermediate=False, save_images_video=False,
+        navigation_superpixels=False, action_mask_score_combination='add',
+        curiosity_model=None, shared_curiosity_model=None,
+        curiosity_loss_coefficient=0.1, seen_state_loss_coefficient=None,
+        scene_numbers=None, reset_kwargs={}, max_trajectory_length=None,
+        frame_stack=1, zero_fill_frame_stack=False, teacher_force=False,
+        sample_action=True, sample_mask=True, eval_interval=1000,
+        max_steps=1000000, device=torch.device('cpu'), save_path=None,
+        save_intermediate=False, save_images_video=False,
         save_trajectory_info=False):
     # If multiple processes try to write to different SummaryWriters, only one
     # tensorboard logfile is generated but the logged data seems to not be
@@ -765,6 +792,7 @@ def train(rank, num_processes, model, shared_model, env, optimizer,
                 inverse_score=inverse_score,
                 zero_null_superpixel_features=zero_null_superpixel_features,
                 navigation_superpixels=navigation_superpixels,
+                action_mask_score_combination=action_mask_score_combination,
                 curiosity_model=curiosity_model,
                 compute_seen_state_losses=seen_state_loss_coefficient is not
                 None, max_trajectory_length=max_trajectory_length,
