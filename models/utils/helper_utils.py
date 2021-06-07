@@ -129,13 +129,13 @@ def multinomial(probs=None, logits=None, temperature=1, num_samples=1,
 def ensure_shared_grads(model, shared_model, gpu=False):
     for param, shared_param in zip(model.parameters(),
             shared_model.parameters()):
-        if not param.requires_grad:
+        if not param.requires_grad or param.grad is None:
             continue
-        elif param.grad is None:
-            print('param', name, 'requires grad but grad is None')
+        if param.grad is None:
+            shared_param._grad = None
         # Moved checking if condition that checks if model is the same as
-        # shared_model outside fo this function
-        if not gpu:
+        # shared_model outside of this function
+        elif not gpu:
             shared_param._grad = param.grad
         else:
             shared_param._grad = param.grad.cpu()
