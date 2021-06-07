@@ -205,9 +205,9 @@ def setup_model(args, gpu_id=None):
             curiosity_visual_encoder = Resnet(resnet_args, use_conv_feat=False,
                     pretrained=args.pretrained_visual_model,
                     frozen=args.frozen_visual_model,
-                    layers=args.custom_resnet_layers,
-                    inplanes=args.custom_resnet_inplanes,
-                    planes=args.custom_resnet_planes)
+                    layers=args.curiosity_resnet_layers,
+                    inplanes=args.curiosity_resnet_inplanes,
+                    planes=args.curiosity_resnet_planes)
         else:
             print("curiosity visual encoder '" + args.curiosity_visual_encoder
                     + "' not supported")
