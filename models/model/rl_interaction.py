@@ -958,7 +958,7 @@ def train(rank, num_processes, model, shared_model, env, optimizer,
             last_metrics['seen_state_losses'].append(torch.mean(
                 torch.stack(trajectory_results['seen_state_losses'])).item())
 
-        if writer is not None:
+        if writer is not None and rank == 0:
             results = {}
             results['train'] = {}
             for metric in last_metrics.keys():
