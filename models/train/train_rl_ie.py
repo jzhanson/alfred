@@ -412,7 +412,8 @@ def setup_train(rank, args, shared_model, shared_curiosity_model,
             max_steps=args.max_steps, device=device,
             save_path=args.save_path, save_intermediate=args.save_intermediate,
             save_images_video=args.save_images_video,
-            save_trajectory_info=args.save_trajectory_info)
+            save_trajectory_info=args.save_trajectory_info,
+            verbose_rollouts=args.verbose_rollouts)
 
 if __name__ == '__main__':
     args = parse_args()
