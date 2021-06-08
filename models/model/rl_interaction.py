@@ -1000,9 +1000,9 @@ def train(rank, num_processes, model, shared_model, env, optimizer,
                             eval_interval_fps, train_steps_local)
             process_eval_frames = sum(last_metrics['trajectory_length'])
             process_fps = process_eval_frames / (time.time() - last_eval_time)
-            print('process-local FPS over last %d steps %d frames %.6f' %
-                    (len(last_metrics['trajectory_length']),
-                        process_eval_frames, process_fps))
+            print('rank %d FPS over last %d steps %d frames %.6f' % (rank,
+                len(last_metrics['trajectory_length']), process_eval_frames,
+                process_fps))
             # Output FPS to tensorboard SummaryWriter
             if rank == 0:
                 writer.add_scalar('steps/train/fps_process_last_interval',
@@ -1051,6 +1051,7 @@ def train(rank, num_processes, model, shared_model, env, optimizer,
             last_eval_time = time.time()
 
     if save_path is not None:
+        print('steps %d ' % train_steps_local)
         if rank == 0:
             # Wait until all other processes have taken their last (extra)
             # ticket/increment before saving checkpoint to make sure that
