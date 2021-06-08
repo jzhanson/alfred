@@ -542,6 +542,9 @@ class InteractionExploration(object):
                 if action == constants.ACTIONS_INTERACT:
                     contextual_actions = self.get_contextual_actions(
                             target_instance_id)
+                    if contextual_actions is None:
+                        labels.append(0)
+                        continue
                     action = (random.choice(contextual_actions) if
                             self.sample_contextual_action else
                             contextual_actions[0])
