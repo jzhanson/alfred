@@ -52,6 +52,10 @@ parser.add_argument('-np', '--num-processes', type=int, default=1, help='number 
 parser.add_argument('--shared-optimizer', dest='shared_optimizer', action='store_true', help='use a shared optimizer (e.g. SharedAdam)')
 parser.add_argument('--separate-optimizers', dest='shared_optimizer', action='store_false', help='use separate optimizer for each worker process')
 parser.set_defaults(shared_optimizer=False)
+parser.add_argument('--verbose-rollouts', dest='verbose_rollouts', action='store_true', help='print every step action, reward, success, err (default: True)')
+parser.add_argument('--silent-rollouts', dest='verbose_rollouts', action='store_false', help='don\'t print action, reward, success, err info from rollouts')
+parser.set_defaults(verbose_rollouts=True)
+
 '''
 parser.add_argument('-sn', '--save-name', type=str, default='model', help='model save name')
 parser.add_argument('-id', '--model-id', type=str, default='model', help='model id')
