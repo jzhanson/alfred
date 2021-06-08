@@ -410,8 +410,6 @@ def setup_train(rank, args, shared_model, shared_curiosity_model,
             teacher_force=args.teacher_force, sample_action=args.sample_action,
             sample_mask=args.sample_mask, eval_interval=args.eval_interval,
             max_steps=args.max_steps, device=device,
-            # Only save checkpoints, images_video, and trajectory_info if this
-            # process is the "first"
             save_path=args.save_path, save_intermediate=args.save_intermediate,
             save_images_video=args.save_images_video,
             save_trajectory_info=args.save_trajectory_info)
