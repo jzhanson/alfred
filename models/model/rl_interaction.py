@@ -196,7 +196,8 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
         frame_stack=1, zero_fill_frame_stack=False, teacher_force=False,
         sample_action=True, sample_mask=True, scene_name_or_num=None,
         reset_kwargs={}, trajectory_info_save_path=None,
-        images_video_save_path=None, device=torch.device('cpu')):
+        images_video_save_path=None, verbose_rollouts=True,
+        device=torch.device('cpu')):
     """
     Returns dictionary of trajectory results.
 
@@ -541,10 +542,12 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
                     prev_action_features, next_stacked_frames)
             curiosity_rewards.append(curiosity_reward)
             curiosity_losses.append(curiosity_loss)
-            print(selected_action, action_success, reward,
-                    curiosity_reward.item(), err)
+            if verbose_rollouts:
+                print(selected_action, action_success, reward,
+                        curiosity_reward.item(), err)
         else:
-            print(selected_action, action_success, reward, err)
+            if verbose_rollouts:
+                print(selected_action, action_success, reward, err)
 
         frame = next_frame
         action_successes.append(action_success)
@@ -696,7 +699,7 @@ def train(rank, num_processes, model, shared_model, env, optimizer,
         sample_action=True, sample_mask=True, eval_interval=1000,
         max_steps=1000000, device=torch.device('cpu'), save_path=None,
         save_intermediate=False, save_images_video=False,
-        save_trajectory_info=False):
+        save_trajectory_info=False, verbose_rollouts=True):
     # If multiple processes try to write to different SummaryWriters, only one
     # tensorboard logfile is generated but the logged data seems to not be
     # understandable by tensorboard. Also, GlobalSummaryWriter's _writer global
@@ -803,7 +806,7 @@ def train(rank, num_processes, model, shared_model, env, optimizer,
                 reset_kwargs=reset_kwargs,
                 trajectory_info_save_path=trajectory_info_save_path,
                 images_video_save_path=images_video_save_path,
-                device=device)
+                verbose_rollouts=verbose_rollouts, device=device)
         all_action_scores = torch.cat(trajectory_results['all_action_scores'])
 
         # https://github.com/dgriff777/rl_a3c_pytorch/blob/master/train.py
