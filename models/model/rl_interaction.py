@@ -593,7 +593,8 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
                     policy_hidden=hidden_state, device=device)
         values.append(value[0])
 
-    print('trajectory len: ' + str(len(all_action_scores)))
+    if verbose_rollouts:
+        print('trajectory len: ' + str(len(all_action_scores)))
     success = done # If all objects are interacted, the episode is a success
     trajectory_results = {}
     trajectory_results['scene_name_or_num'] = env.get_scene_name_or_num()
