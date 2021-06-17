@@ -1304,6 +1304,10 @@ KEY_TO_ACTION = {
         }
 
 # Interaction exploration total coverages
+COVERAGE_TYPES = ['navigation', 'navigation_pose', 'interaction_by_object',
+        'state_change_by_object', 'interaction_by_type',
+        'state_change_by_type']
+
 # See gen/scripts/calculate_scene_coverages.py
 # Yet another note: coverage can behave strangely for the single_interact case.
 SCENE_NAVIGATION_COVERAGES = {1: 129, 2: 115, 3: 104, 4: 69, 5: 99, 6: 134, 7:
