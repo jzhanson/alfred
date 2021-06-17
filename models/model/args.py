@@ -33,7 +33,7 @@ parser.add_argument('-vse', '--valid-seen-episodes', type=int, default=10, help=
 parser.add_argument('-vue', '--valid-unseen-episodes', type=int, default=10, help='number of episodes to evaluate live on validation unseen scenes and trajectories')
 parser.add_argument('--scene-numbers', type=int, nargs='+', default=None, help='if set, scene numbers of scenes to use. use either this or --scene-types argument (default: None)')
 parser.add_argument('--scene-types', type=str, nargs='+', default=['kitchen', 'living_room', 'bedroom', 'bathroom'], help='allowed scene types. use either this or --scene-numbers argument. (\'kitchen\', \'living_room\', \'bedroom\', and/or \'bathroom\')')
-parser.add_argument('-ms', '--max-steps', type=float, default=100000, help='max training gradient steps')
+parser.add_argument('-ms', '--max-steps', type=int, default=100000, help='max training gradient steps')
 parser.add_argument('-do', '--dropout', type=float, default=0.0, help='dropout prob')
 parser.add_argument('-sp', '--save-path', type=str, default=None, help='path (directory) to save models and tensorboard stats')
 parser.add_argument('-si', '--save-intermediate', dest='save_intermediate', action='store_true', help='save intermediate checkpoints (once per eval interval)')
