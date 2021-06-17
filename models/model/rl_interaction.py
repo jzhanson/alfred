@@ -192,12 +192,12 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
         outer_product_sampling=False, inverse_score=False,
         zero_null_superpixel_features=True, navigation_superpixels=False,
         action_mask_score_combination='add', curiosity_model=None,
-        compute_seen_state_losses=False, max_trajectory_length=None,
-        frame_stack=1, zero_fill_frame_stack=False, teacher_force=False,
-        sample_action=True, sample_mask=True, scene_name_or_num=None,
-        reset_kwargs={}, trajectory_info_save_path=None,
-        images_video_save_path=None, verbose_rollouts=True,
-        device=torch.device('cpu')):
+        compute_seen_state_losses=False, get_per_step_coverages=False,
+        max_trajectory_length=None, frame_stack=1, zero_fill_frame_stack=False,
+        teacher_force=False, sample_action=True, sample_mask=True,
+        scene_name_or_num=None, reset_kwargs={},
+        trajectory_info_save_path=None, images_video_save_path=None,
+        verbose_rollouts=True, device=torch.device('cpu')):
     """
     Returns dictionary of trajectory results.
 
@@ -223,6 +223,9 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
         curiosity_losses = []
     if compute_seen_state_losses:
         seen_state_losses = []
+    if get_per_step_coverages:
+        per_step_coverages = []
+
     frame = env.reset(scene_name_or_num, **reset_kwargs)
     done = False
     num_steps = 0
@@ -521,6 +524,9 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
                         action_scores=action_scores, device=device)
             seen_state_losses.append(seen_state_loss)
 
+        if get_per_step_coverages:
+            per_step_coverages.append(env.get_coverages())
+
         if teacher_force:
             # selected_action and therefore action_success will not match
             # pred_action_index if teacher forcing!
@@ -640,6 +646,8 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
         trajectory_results['curiosity_losses'] = curiosity_losses
     if compute_seen_state_losses:
         trajectory_results['seen_state_losses'] = seen_state_losses
+    if get_per_step_coverages:
+        trajectory_results['per_step_coverages'] = per_step_coverages
 
     if trajectory_info_save_path is not None:
         # If saving trajectory info, turn pred_action_indexes (which might
@@ -799,7 +807,8 @@ def train(rank, num_processes, model, shared_model, env, optimizer,
                 action_mask_score_combination=action_mask_score_combination,
                 curiosity_model=curiosity_model,
                 compute_seen_state_losses=seen_state_loss_coefficient is not
-                None, max_trajectory_length=max_trajectory_length,
+                None, get_per_step_coverages=False,
+                max_trajectory_length=max_trajectory_length,
                 frame_stack=frame_stack,
                 zero_fill_frame_stack=zero_fill_frame_stack,
                 teacher_force=teacher_force, sample_action=sample_action,
@@ -1085,7 +1094,7 @@ def write_results(writer, results, train_steps, train_frames=None,
             trajectories_name = 'trajectories/' + split + '/' + metric
 
             # TODO: these special cases need to be helper functions
-            if metric in ['frames', 'scene_name_or_num']:
+            if metric in ['frames', 'scene_name_or_num', 'per_step_coverages']:
                 continue
             if fusion_model == 'SuperpixelFusion' and (
                     ('all_action_scores' in metric and not
