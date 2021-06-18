@@ -202,5 +202,10 @@ parser.add_argument('--curiosity-resnet-inplanes', type=int, default=64, help='n
 parser.add_argument('--curiosity-resnet-planes', type=int, nargs='+', default=[64, 128, 256, 512], help='4 ints that determine how many filters/planes to use in each layer for curiosity visual encoder (default: 64, 128, 256, 512)')
 parser.add_argument('--curiosity-loss-coefficient', type=float, default=10, help='coefficient for curiosity loss (default: 10)')
 
+# Visual probe experiment
+parser.add_argument('--loading-interaction', dest='loading_interaction', action='store_true', help='--load-path model checkpoint is from (RL) InteractionExploration ')
+parser.add_argument('--loading-probe', dest='loading_interaction', action='store_false', help='--load-path model checkpoint is from visual probe')
+parser.set_defaults(loading_interaction=False)
+
 def parse_args():
     return parser.parse_args()
