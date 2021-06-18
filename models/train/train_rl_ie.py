@@ -21,7 +21,7 @@ from env.reward import InteractionReward
 from models.model.args import parse_args
 from models.nn.resnet import Resnet
 from models.nn.ie import (CuriosityIntrinsicReward, LSTMPolicy,
-        ResnetSuperpixelWrapper, SuperpixelFusion, SuperpixelActionConcat)
+        ResnetWrapper, SuperpixelFusion, SuperpixelActionConcat)
 from models.model.rl_interaction import load_checkpoint, load_optimizer, train
 from models.utils.shared_optim import SharedRMSprop, SharedAdam
 
@@ -122,9 +122,8 @@ def setup_model(args, gpu_id=None):
     # of the last layer
     if len(args.superpixel_fc_units) > 0:
         superpixel_feature_size = args.superpixel_fc_units[-1]
-    superpixel_model = ResnetSuperpixelWrapper(
-            superpixel_model=superpixel_model,
-            superpixel_fc_units=args.superpixel_fc_units, dropout=args.dropout,
+    superpixel_model = ResnetWrapper(resnet_model=superpixel_model,
+            fc_units=args.superpixel_fc_units, dropout=args.dropout,
             use_tanh=args.use_tanh)
 
     if args.action_fc_units is None:
