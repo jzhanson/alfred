@@ -206,6 +206,9 @@ parser.add_argument('--curiosity-loss-coefficient', type=float, default=10, help
 parser.add_argument('--loading-interaction', dest='loading_interaction', action='store_true', help='--load-path model checkpoint is from (RL) InteractionExploration ')
 parser.add_argument('--loading-probe', dest='loading_interaction', action='store_false', help='--load-path model checkpoint is from visual probe')
 parser.set_defaults(loading_interaction=False)
+parser.add_argument('--sync-on-epoch', dest='sync_on_epoch', action='store_true', help='synchronize workers on epochs so each worker carries out an epoch at a time')
+parser.add_argument('--sync-on-step', dest='sync_on_epoch', action='store_false', help='synchronize workers on steps so each worker carries out one batch and gradient step at a time')
+parser.set_defaults(loading_interaction=False)
 
 def parse_args():
     return parser.parse_args()
