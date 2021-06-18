@@ -71,8 +71,7 @@ class CuriosityIntrinsicReward(nn.Module):
     def forward(self, state, action, next_state):
         state_feature = self.visual_encoder(state)
         next_state_feature = self.visual_encoder(next_state)
-        # We only need to do this if it's a raw Resnet and not a
-        # ResnetSuperpixelWrapper
+        # We only need to do this if it's a raw Resnet and not a ResnetWrapper
         if isinstance(self.visual_encoder, Resnet):
             state_feature = torch.squeeze(state_feature, -1)
             state_feature = torch.squeeze(state_feature, -1)
@@ -183,38 +182,38 @@ class LSTMPolicy(nn.Module):
         return (torch.zeros(batch_size, self.lstm_hidden_size, device=device),
                 torch.zeros(batch_size, self.lstm_hidden_size, device=device))
 
-class ResnetSuperpixelWrapper(nn.Module):
+class ResnetWrapper(nn.Module):
     """
     Class to wrap Resnet classes/models to put an extra fc layer + tanh
-    activation to make the features output for superpixels the same magnitude
-    as the visual vector output from the model.
+    activation which can make the features output for superpixels the same magnitude
+    as the visual vector output from the model, or be used for visual probe experiments
 
-    Requires superpixel_model to have superpixel_model.output_size.
+    Requires resnet_model to have resnet_model.output_size.
     """
-    def __init__(self, superpixel_model=None, superpixel_fc_units=[],
-            dropout=0.0, use_tanh=True):
-        super(ResnetSuperpixelWrapper, self).__init__()
-        self.superpixel_model = superpixel_model
-        self.superpixel_fc_units = superpixel_fc_units
+    def __init__(self, resnet_model=None, fc_units=[], dropout=0.0,
+            use_tanh=True):
+        super(ResnetWrapper, self).__init__()
+        self.resnet_model = resnet_model
+        self.fc_units = fc_units
         self.dropout = dropout
         self.use_tanh = use_tanh
 
-        self.superpixel_fc_layers = init_fc_layers(self.superpixel_fc_units,
-                self.superpixel_model.output_size, use_tanh=self.use_tanh,
+        self.fc_layers = init_fc_layers(self.fc_units,
+                self.resnet_model.output_size, use_tanh=self.use_tanh,
                 dropout=self.dropout, last_activation=True)
-        if len(superpixel_fc_units) > 0:
-            self.output_size = self.superpixel_fc_units[-1]
+        if len(self.fc_units) > 0:
+            self.output_size = self.fc_units[-1]
         else:
-            self.output_size = self.superpixel_model.output_size
+            self.output_size = self.resnet_model.output_size
 
-    def forward(self, superpixel_crop):
-        superpixel_fc_output = self.superpixel_model(superpixel_crop)
+    def forward(self, frame):
+        fc_output = self.resnet_model(frame)
         # We need to squeeze out the last two dimensions of the Resnet features
         # (N, 512, 1, 1) -> (N, 512)
-        superpixel_fc_output = superpixel_fc_output.squeeze(-1).squeeze(-1)
-        for superpixel_fc_layer in self.superpixel_fc_layers:
-            superpixel_fc_output = superpixel_fc_layer(superpixel_fc_output)
-        return superpixel_fc_output
+        fc_output = fc_output.squeeze(-1).squeeze(-1)
+        for fc_layer in self.fc_layers:
+            fc_output = fc_layer(fc_output)
+        return fc_output
 
 class SuperpixelFusion(nn.Module):
     def __init__(self, visual_model=None, superpixel_model=None,
@@ -284,7 +283,7 @@ class SuperpixelFusion(nn.Module):
                     self.superpixel_model, frame_crops)
             # Get rid of last two dimensions since Resnet features are (512, 1, 1)
             # We only need to do this if it's a raw Resnet and not a
-            # ResnetSuperpixelWrapper
+            # ResnetWrapper
             if isinstance(self.superpixel_model, Resnet):
                 superpixel_features = torch.squeeze(superpixel_features, -1)
                 superpixel_features = torch.squeeze(superpixel_features, -1)
@@ -332,7 +331,7 @@ class SuperpixelFusion(nn.Module):
     @classmethod
     def featurize(cls, model, stacked_frames):
         if (isinstance(model, Resnet) or isinstance(model,
-            ResnetSuperpixelWrapper)) and isinstance(stacked_frames,
+            ResnetWrapper)) and isinstance(stacked_frames,
                 torch.Tensor):
             # Unstack frames, featurize, then restack frames if using Resnet
             unstacked_visual_outputs = []
@@ -565,7 +564,7 @@ class SuperpixelActionConcat(SuperpixelFusion):
             # Get rid of last two dimensions since Resnet features are (512, 1,
             # 1)
             # Again, we only need to do this if it's a raw Resnet and not a
-            # ResnetSuperpixelWrapper
+            # ResnetWrapper
             if isinstance(self.visual_model, Resnet):
                 superpixel_features = torch.squeeze(superpixel_features, -1)
                 superpixel_features = torch.squeeze(superpixel_features, -1)
