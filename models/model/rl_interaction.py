@@ -996,11 +996,12 @@ def train(rank, num_processes, model, shared_model, env, optimizer,
             if max_trajectory_length is not None:
                 total_frames = train_steps_local * max_trajectory_length
                 total_fps = total_frames / (current_time - start_time)
-                eval_interval_fps = eval_interval * max_trajectory_length / (
-                        current_time - last_eval_time)
+                eval_interval_frames = eval_interval * max_trajectory_length
+                eval_interval_fps = eval_interval_frames / (current_time -
+                        last_eval_time)
                 print('total FPS since start %.6f' % total_fps)
                 print('total FPS over last %d steps %d frames %.6f' %
-                        (eval_interval, eval_interval * max_trajectory_length,
+                        (eval_interval, eval_interval_frames,
                             eval_interval_fps))
                 if rank == 0:
                     writer.add_scalar('steps/train/fps_total_since_start',
