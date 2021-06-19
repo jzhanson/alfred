@@ -25,6 +25,7 @@ def evaluate(model, shared_model, eval_dataloader, device=torch.device('cpu')):
     # First, load state dict
     if model != shared_model:
         model.load_state_dict(shared_model.state_dict())
+    model.eval()
     eval_loss = 0
     correct = 0
     with torch.no_grad():
@@ -38,6 +39,7 @@ def evaluate(model, shared_model, eval_dataloader, device=torch.device('cpu')):
             eval_loss += F.nll_loss(output_log_probs, target.to(device))
             max_values, max_indexes = torch.max(output_log_probs, 1)
             correct += max_indexes.eq(target.to(device)).sum().item()
+    model.train()
     return eval_loss.item(), correct / len(eval_dataloader.dataset)
 
 def take_step(model, shared_model, optimizer, data, target,
@@ -89,6 +91,7 @@ def train(rank, num_processes, model, shared_model, train_dataloader,
     # For checking if train_steps_sync has passed an eval_interval
     last_train_steps_local = None
     train_steps_local = None
+    model.train()
     while True:
         # "Grab ticket" and increment train_steps_sync with the intention of
         # rolling out that trajectory and taking that gradient step We have to
