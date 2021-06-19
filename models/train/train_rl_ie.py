@@ -417,6 +417,17 @@ def setup_train(rank, args, shared_model, shared_curiosity_model,
 if __name__ == '__main__':
     args = parse_args()
 
+    # Load ai2thor because it will crash if downloaded for the first
+    # time on multiple threads. Copied over from
+    # scripts/check_thor.py
+    from ai2thor.controller import Controller
+    c = Controller()
+    c.start()
+    event = c.step(dict(action="MoveAhead"))
+    assert event.frame.shape == (300, 300, 3)
+    print(event.frame.shape)
+    print("Everything works!!!")
+
     # Set random seed for everything
     random.seed(args.seed)
     np.random.seed(args.seed)
