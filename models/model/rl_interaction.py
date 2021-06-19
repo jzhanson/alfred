@@ -760,6 +760,9 @@ def train(rank, num_processes, model, shared_model, env, optimizer,
     # For checking if train_steps_sync has passed an eval_interval
     last_train_steps_local = None
     train_steps_local = None
+    model.train()
+    if curiosity_model is not None:
+        curiosity_model.train()
     while True:
         # "Grab ticket" and increment train_steps_sync with the intention of
         # rolling out that trajectory and taking that gradient step We have to
