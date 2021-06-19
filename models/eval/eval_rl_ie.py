@@ -31,6 +31,7 @@ def evaluate(rank, shared_model, ie, evaluate_steps_sync, single_interact=False,
         sample_mask=True, max_steps=100, device=torch.device('cpu'),
         save_path=None):
     start_time = time.time()
+    shared_model.eval()
     while True:
         trajectory_start_time = time.time()
         # "Grab ticket" with intention to rollout trajectory
