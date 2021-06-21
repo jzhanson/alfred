@@ -505,6 +505,36 @@ OBJECTS_PLURAL = [
     'winebottles',
 ]
 
+ENV_OBJECTS = [
+        'AlarmClock', 'Apple', 'ArmChair', 'BaseballBat', 'BasketBall',
+        'Bathtub', 'BathtubBasin', 'Bed', 'Blinds', 'Book', 'Boots', 'Bowl',
+        'Box', 'Bread', 'ButterKnife', 'CD', 'Cabinet', 'Candle', 'Cart',
+        'CellPhone', 'Chair', 'Cloth', 'CoffeeMachine', 'CoffeeTable',
+        'CounterTop', 'CreditCard', 'Cup', 'Curtains', 'Desk', 'DeskLamp',
+        'DiningTable', 'DishSponge', 'Drawer', 'Dresser', 'Egg', 'Faucet',
+        'FloorLamp', 'Footstool', 'Fork', 'Fridge', 'GarbageCan',
+        'Glassbottle', 'HandTowel', 'HandTowelHolder', 'HousePlant', 'Kettle',
+        'KeyChain', 'Knife', 'Ladle', 'Lamp', 'Laptop', 'LaundryHamper',
+        'LaundryHamperLid', 'Lettuce', 'LightSwitch', 'Microwave', 'Mirror',
+        'Mug', 'Newspaper', 'Ottoman', 'Painting', 'Pan', 'PaperTowelRoll',
+        'Pen', 'Pencil', 'PepperShaker', 'Pillow', 'Plate', 'Plunger',
+        'Poster', 'Pot', 'Potato', 'RemoteControl', 'Safe', 'SaltShaker',
+        'ScrubBrush', 'Shelf', 'ShowerCurtain', 'ShowerDoor', 'ShowerGlass',
+        'ShowerHead', 'SideTable', 'Sink', 'SinkBasin', 'SoapBar',
+        'SoapBottle', 'Sofa', 'Spatula', 'Spoon', 'SprayBottle', 'Statue',
+        'StoveBurner', 'StoveKnob', 'TVStand', 'TeddyBear', 'Television',
+        'TennisRacket', 'TissueBox', 'Toaster', 'Toilet', 'ToiletPaper',
+        'ToiletPaperHanger', 'Tomato', 'Towel', 'TowelHolder', 'Vase', 'Watch',
+        'WateringCan', 'Window', 'WineBottle'
+]
+
+NON_ENV_OBJECTS = ['PaintingHanger', 'PaperTowel', 'ToiletPaperRoll',
+        'AppleSliced', 'BreadSliced', 'EggCracked', 'LettuceSliced',
+        'PotatoSliced', 'TomatoSliced',
+]
+
+ALL_OBJECTS = ENV_OBJECTS + NON_ENV_OBJECTS
+
 MOVABLE_RECEPTACLES = [
     'Bowl',
     'Box',
