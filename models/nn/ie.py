@@ -264,7 +264,7 @@ class SuperpixelFusion(nn.Module):
                         SuperpixelFusion.get_gt_segmentation_masks_frame_crops(
                             frame[i][-3:], gt_segmentation,
                             boundary_pixels=self.boundary_pixels,
-                            black_outer=args.black_outer))
+                            black_outer=self.black_outer))
             else:
                 superpixel_masks, frame_crops = (
                         SuperpixelFusion.get_superpixel_masks_frame_crops(
