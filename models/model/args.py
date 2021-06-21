@@ -209,6 +209,7 @@ parser.set_defaults(loading_interaction=False)
 parser.add_argument('--sync-on-epoch', dest='sync_on_epoch', action='store_true', help='synchronize workers on epochs so each worker carries out an epoch at a time')
 parser.add_argument('--sync-on-step', dest='sync_on_epoch', action='store_false', help='synchronize workers on steps so each worker carries out one batch and gradient step at a time')
 parser.set_defaults(loading_interaction=False)
+parser.add_argument('--dataset-type', type=str, default='imagenet', help='type of dataset to use  for training visual probe (\'imagenet\' or \'interaction\')')
 
 def parse_args():
     return parser.parse_args()
