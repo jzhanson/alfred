@@ -2,6 +2,7 @@ import os
 import sys
 sys.path.append(os.path.join(os.environ['ALFRED_ROOT']))
 sys.path.append(os.path.join(os.environ['ALFRED_ROOT'], 'gen'))
+sys.path.append(os.path.join(os.environ['ALFRED_ROOT'], 'models'))
 
 import json
 import os
@@ -87,13 +88,6 @@ if __name__ == '__main__':
             'sigma' : args.slic_sigma,
             'min_size_factor' : args.slic_min_size_factor
     }
-
-    # Initialize a SuperpixelFusion class for the get_superpixel_masks_frame_crops
-    sf = SuperpixelFusion(slic_kwargs=slic_kwargs,
-            boundary_pixels=args.boundary_pixels,
-            neighbor_depth=args.neighbor_depth,
-            neighbor_connectivity=args.neighbor_connectivity,
-            black_outer=args.black_outer)
 
     if args.single_interact:
         num_actions = len(constants.SIMPLE_ACTIONS)
