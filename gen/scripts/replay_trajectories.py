@@ -5,7 +5,6 @@ sys.path.append(os.path.join(os.environ['ALFRED_ROOT'], 'gen'))
 sys.path.append(os.path.join(os.environ['ALFRED_ROOT'], 'models'))
 
 import json
-import os
 import constants
 import cv2
 import numpy as np
@@ -14,10 +13,7 @@ import time
 import random
 import gen.constants as constants
 from utils.video_util import VideoSaver
-from env.thor_env import ThorEnv
-from env.interaction_exploration import InteractionExploration
 from models.model.args import parse_args
-from env.reward import InteractionReward
 from models.nn.ie import SuperpixelFusion
 import torch
 
