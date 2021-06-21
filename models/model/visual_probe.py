@@ -30,10 +30,6 @@ def evaluate(model, shared_model, eval_dataloader, device=torch.device('cpu')):
     correct = 0
     with torch.no_grad():
         for data, target in eval_dataloader:
-            # TODO: remove this skip - don't know why caltech101 has only
-            # grayscale 1-channel images
-            if data.shape[1] != 3:
-                continue
             output = model(data.cpu())
             output_log_probs = F.log_softmax(output, dim=1)
             eval_loss += F.nll_loss(output_log_probs, target.to(device))
@@ -118,10 +114,6 @@ def train(rank, num_processes, model, shared_model, train_dataloader,
         # TODO: add option for locking update
         if sync_on_epoch:
             for data, target in train_dataloader:
-                # TODO: remove this skip - don't know why caltech101 has only
-                # grayscale 1-channel images
-                if data.shape[1] != 3:
-                    continue
                 loss, accuracy = take_step(model, shared_model, optimizer,
                         data, target, max_grad_norm=max_grad_norm,
                         device=device)
