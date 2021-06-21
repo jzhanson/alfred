@@ -360,7 +360,7 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
 
                 if pred_action_index < len(constants.NAV_ACTIONS):
                     selected_action = actions[pred_action_index]
-                    pred_mask_index = -1
+                    pred_mask_index = torch.Tensor([-1]).to(device)
                     selected_mask = None
                 else:
                     selected_action = superpixelactionconcat_index_to_action(
@@ -404,7 +404,7 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
                         single_interact=single_interact,
                         navigation_superpixels=navigation_superpixels)
                 if selected_action in constants.NAV_ACTIONS:
-                    pred_mask_index = -1
+                    pred_mask_index = torch.Tensor([-1]).to(device)
                     selected_mask = None
                 else:
                     pred_mask_index = pred_action_index % len(masks[0])
@@ -428,7 +428,7 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
                                 mask_scores[0]).unsqueeze(0)
                     selected_mask = masks[0][pred_mask_index]
                 else:
-                    pred_mask_index = -1
+                    pred_mask_index = torch.Tensor([-1]).to(device)
                     selected_mask = None
                 selected_action = actions[pred_action_index]
 
@@ -477,7 +477,7 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
                 pred_mask_index = pred_action_index % num_superpixels
             else:
                 if pred_action_index < len(constants.NAV_ACTIONS):
-                    pred_mask_index = -1
+                    pred_mask_index = torch.Tensor([-1]).to(device)
                 else:
                     pred_mask_index = ((pred_action_index -
                         len(constants.NAV_ACTIONS)) % num_superpixels)
