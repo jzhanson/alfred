@@ -15,7 +15,9 @@ import gen.constants as constants
 from utils.video_util import VideoSaver
 from models.model.args import parse_args
 from models.nn.ie import SuperpixelFusion
+from models.train.train_rl_ie import check_thor, setup_env
 import torch
+import multiprocessing as mp
 
 def get_object_counts_visible(event):
     object_counts = [0 for _ in constants.ALL_OBJECTS]
@@ -45,33 +47,9 @@ def get_object_counts_in_frame(event):
         object_counts[object_index] += 1
     return object_counts
 
-# TODO: make this multiprocessing
-if __name__ == '__main__':
-    """
-    Requires load-path, single-interact, slic arguments, use-gt-segmentation
-
-    Can use reward_config_name, reward_rotations_look_angles,
-    reward_state_changes, reward_persist_state, reward_repeat_discount,
-    reward_use_novelty arguments.
-    """
-    args = parse_args()
-    thor_env = ThorEnv()
-
-    with open(os.path.join(os.environ['ALFRED_ROOT'], 'models/config/rewards.json'),
-            'r') as jsonfile:
-        reward_config = json.load(jsonfile)[args.reward_config_name]
-
-    reward = InteractionReward(thor_env, reward_config,
-            reward_rotations_look_angles=args.reward_rotations_look_angles,
-            reward_state_changes=args.reward_state_changes,
-            persist_state=args.reward_persist_state,
-            repeat_discount=args.reward_repeat_discount,
-            use_novelty=args.reward_use_novelty)
-
-    ie = InteractionExploration(thor_env, reward,
-            single_interact=args.single_interact,
-            sample_contextual_action=False, use_masks=True)
-
+def setup_replay(rank, args, trajectory_jsonfiles, trajectory_index_sync):
+    ie = setup_env(args)
+    thor_env = ie.env
     slic_kwargs = {
             'max_iter' : args.slic_max_iter,
             'spacing' : None,
@@ -92,20 +70,22 @@ if __name__ == '__main__':
         num_actions = len(constants.COMPLEX_ACTIONS)
         index_to_action = constants.INDEX_TO_ACTION_COMPLEX
 
-    # TODO: access existing master index? Initialize master index? Do we need a
-    # master index?
-    if os.path.isdir(args.save_path):
-        pass
-    else:
-        os.makedirs(args.save_path)
-
-    trajectory_jsonfiles = [fname for fname in os.listdir(args.load_path)
-            if 'json' in fname]
-    trajectory_jsonfiles.sort()
-    #trajectory_jsonfiles = ['0.json']
     start_time = time.time()
     total_steps = 0
-    for trajectory_info_name in trajectory_jsonfiles:
+    trajectory_index_local = None
+    while True:
+        # "Grab ticket" and increment train_steps_sync with the intention of
+        # replaying out that trajectory
+        with trajectory_index_sync.get_lock():
+            if trajectory_index_local is None: # First iteration, even if loading
+                trajectory_index_local = trajectory_index_sync.value
+            else:
+                trajectory_index_local = trajectory_index_sync.value
+            trajectory_index_sync.value += 1
+        if trajectory_index_local >= len(trajectory_jsonfiles):
+            break
+
+        trajectory_info_name = trajectory_jsonfiles[trajectory_index_local]
         jsonfile_full_path = os.path.join(args.load_path, trajectory_info_name)
         with open(jsonfile_full_path, 'r') as jsonfile:
             trajectory_info = json.load(jsonfile)
@@ -154,7 +134,7 @@ if __name__ == '__main__':
                 color_to_object_id_str_keys[str(k)] = v
             trajectory_replay_dict['color_to_object_id'] = color_to_object_id_str_keys
         trajectory_start_time = time.time()
-        print('trajectory %d/%d ' % (trajectory_number,
+        print('trajectory %d/%d ' % (trajectory_index_local,
             len(trajectory_jsonfiles)))
         for pred_action_index, pred_mask_index in zip(
                 trajectory_info['pred_action_indexes'],
@@ -232,7 +212,49 @@ if __name__ == '__main__':
 
         total_steps += step
         current_time = time.time()
-        total_fps = total_steps / (current_time - start_time)
-        trajectory_fps = step / (current_time - trajectory_start_time)
-        print('total fps since start %.6f' % total_fps)
-        print('trajectory fps %.6f' % trajectory_fps)
+        process_fps = total_steps / (current_time - start_time)
+        process_trajectory_fps = step / (current_time - trajectory_start_time)
+        print('rank %d fps since start %.6f' % (rank, process_fps))
+        print('rank %d trajectory fps %.6f' % (rank, process_trajectory_fps))
+
+if __name__ == '__main__':
+    """
+    Requires load-path, single-interact, slic arguments, use-gt-segmentation
+
+    Can use reward_config_name, reward_rotations_look_angles,
+    reward_state_changes, reward_persist_state, reward_repeat_discount,
+    reward_use_novelty arguments.
+    """
+    args = parse_args()
+    check_thor()
+    # Set random seed for everything
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+
+    # TODO: access existing master index? Initialize master index? Do we need a
+    # master index?
+    if os.path.isdir(args.save_path):
+        pass
+    else:
+        os.makedirs(args.save_path)
+
+    trajectory_jsonfiles = [fname for fname in os.listdir(args.load_path)
+            if 'json' in fname]
+    trajectory_jsonfiles.sort()
+
+    mp.set_start_method('spawn')
+    processes = []
+
+    # Signed int should be large enough :P
+    trajectory_index_sync = mp.Value('i', 0)
+    for rank in range(0, args.num_processes):
+        p = mp.Process(target=setup_replay, args=(rank, args,
+            trajectory_jsonfiles, trajectory_index_sync))
+        p.start()
+        processes.append(p)
+        time.sleep(0.1)
+
+    for p in processes:
+        time.sleep(0.1)
+        p.join()
