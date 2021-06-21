@@ -24,6 +24,7 @@ scene_interaction_coverages_by_object = {}
 scene_state_change_coverages_by_object = {}
 scene_interaction_coverages_by_type = {}
 scene_state_change_coverages_by_type = {}
+all_object_types = set()
 
 for scene_number in tqdm(scene_numbers):
     event = thor_env.reset(scene_number)
@@ -55,6 +56,7 @@ for scene_number in tqdm(scene_numbers):
     state_change_coverage_by_object = 0
     state_change_coverage_by_type = 0
     for obj in event.metadata['objects']:
+        all_object_types.add(obj['objectType'])
         object_type_seen_before = (obj['objectType'] in
                 seen_object_types_in_scene)
         # Get interaction coverages by object (e.g. two instances of Fork both
@@ -145,6 +147,8 @@ for scene_number in tqdm(scene_numbers):
     scene_state_change_coverages_by_type[scene_number] = (
             state_change_coverage_by_type)
 
+print(all_object_types)
+'''
 print(scene_navigation_coverages)
 print(scene_interaction_coverages_by_object)
 print(scene_state_change_coverages_by_object)
@@ -166,6 +170,7 @@ with open(os.path.join(os.environ['ALFRED_ROOT'],
 with open(os.path.join(os.environ['ALFRED_ROOT'],
         'scene_state_change_coverages_by_type.json'), 'w') as jsonfile:
     json.dump(scene_state_change_coverages_by_type, jsonfile, indent=4)
+'''
 
 '''
 # Basic statistics and graphs
