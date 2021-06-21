@@ -210,6 +210,9 @@ parser.add_argument('--sync-on-epoch', dest='sync_on_epoch', action='store_true'
 parser.add_argument('--sync-on-step', dest='sync_on_epoch', action='store_false', help='synchronize workers on steps so each worker carries out one batch and gradient step at a time')
 parser.set_defaults(loading_interaction=False)
 parser.add_argument('--dataset-type', type=str, default='imagenet', help='type of dataset to use  for training visual probe (\'imagenet\' or \'interaction\')')
+parser.add_argument('--save-segmentation', dest='save_segmentation', action='store_true', help='save ground truth segmentations when replaying trajectories')
+parser.add_argument('--no-save-segmentation', dest='save_segmentation', action='store_false', help='do not save ground truth segmentations when replaying trajectories')
+parser.set_defaults(save_segmentation=False)
 
 def parse_args():
     return parser.parse_args()
