@@ -275,7 +275,7 @@ class InteractionExploration(object):
             if contextual and not any([obj[attribute] for attribute in
                 contextual_attributes]):
                 continue
-            if inventory_object_id == object_id:
+            if inventory_object_id == obj['objectId']:
                 continue
             mask = self.env.last_event.instance_masks[obj['objectId']]
             xs, ys = np.nonzero(mask)
