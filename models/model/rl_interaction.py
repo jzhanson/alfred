@@ -403,11 +403,14 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
                         pred_action_index, len(softmax_outer_scores[0]),
                         single_interact=single_interact,
                         navigation_superpixels=navigation_superpixels)
+                # pred_mask_index is always the mask predicted by the model,
+                # even if it's not used by the environment. pred_mask_index of
+                # -1 means that the model (because of architecture etc) did not
+                # predict a mask
+                pred_mask_index = pred_action_index % len(masks[0])
                 if selected_action in constants.NAV_ACTIONS:
-                    pred_mask_index = torch.Tensor([-1]).to(device)
                     selected_mask = None
                 else:
-                    pred_mask_index = pred_action_index % len(masks[0])
                     selected_mask = masks[0][pred_mask_index]
             else:
                 if sample_action:
@@ -416,23 +419,24 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
                 else:
                     pred_action_index = torch.argmax(
                             action_scores[0]).unsqueeze(0)
-                # Also sample a mask - only on interact action so
+                # Also sample a mask - only select a mask on interact action so
                 # InteractionExploration won't complain
+                if sample_mask:
+                    pred_mask_index = torch.multinomial(F.softmax(
+                        mask_scores[0], dim=-1), num_samples=1)
+                else:
+                    pred_mask_index = torch.argmax(
+                            mask_scores[0]).unsqueeze(0)
                 if (actions[pred_action_index] == constants.ACTIONS_INTERACT or
                         actions[pred_action_index] in constants.INT_ACTIONS):
-                    if sample_mask:
-                        pred_mask_index = torch.multinomial(F.softmax(
-                            mask_scores[0], dim=-1), num_samples=1)
-                    else:
-                        pred_mask_index = torch.argmax(
-                                mask_scores[0]).unsqueeze(0)
                     selected_mask = masks[0][pred_mask_index]
                 else:
-                    pred_mask_index = torch.Tensor([-1]).to(device)
                     selected_mask = None
                 selected_action = actions[pred_action_index]
 
             # Construct prev_action_features
+            # Don't include mask features if no mask was used in the
+            # environment, even if model predicted a mask
             if selected_mask is None:
                 if zero_null_superpixel_features:
                     null_mask_features = torch.zeros_like(mask_features[0][0],
@@ -675,8 +679,14 @@ def rollout_trajectory(env, model, single_interact=False, use_masks=True,
                 pred_action_index, action_scores in zip(pred_action_indexes,
                     all_action_scores)]
 
-        trajectory_info['pred_mask_indexes'] = [pred_mask_index.item() for
-                pred_mask_index in pred_mask_indexes]
+        # pred_mask_indexes sometimes has a mask index when no mask was used
+        # depending on the model type, so only include pred_mask_index if an
+        # interaction action was taken
+        trajectory_info['pred_mask_indexes'] = [pred_mask_index.item() if
+                pred_action_index >= len(constants.NAV_ACTIONS) else -1 for
+                (pred_action_index, pred_mask_index) in
+                zip(trajectory_info['pred_action_indexes'], pred_mask_indexes)]
+
         trajectory_info['rewards'] = rewards
         if curiosity_model is not None:
             trajectory_info['curiosity_rewards'] = [curiosity_reward.item() for
