@@ -192,7 +192,6 @@ def setup_replay(rank, args, trajectory_jsonfiles, trajectory_index_sync):
                             black_outer=args.black_outer))
 
             selected_action = index_to_action[pred_action_index]
-            print('masks, pred_mask_index', len(masks), pred_mask_index)
             selected_mask = (masks[pred_mask_index] if pred_mask_index >= 0
                     else None)
             _, reward, _, (action_success, event, err) = ie.step(
