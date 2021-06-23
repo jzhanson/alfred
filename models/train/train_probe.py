@@ -197,6 +197,9 @@ def setup_train(rank, args, shared_model, shared_optimizer, train_steps_sync):
     train(rank, args.num_processes, model, shared_model, train_dataloader,
             eval_dataloader, optimizer, train_steps_sync,
             batch_size=args.batch_size, sync_on_epoch=args.sync_on_epoch,
+            dataset_type=args.dataset_type,
+            interaction_scene_binary_labels=
+            args.interaction_scene_binary_labels,
             max_grad_norm=args.max_grad_norm, eval_interval=args.eval_interval,
             max_steps=args.max_steps, device=device, save_path=args.save_path,
             save_intermediate=args.save_intermediate)
