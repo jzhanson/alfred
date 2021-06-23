@@ -21,6 +21,7 @@ from models.nn.ie import ResnetWrapper
 from models.model.rl_interaction import load_checkpoint, load_optimizer
 from models.model.visual_probe import train
 from models.utils.shared_optim import SharedRMSprop, SharedAdam
+from data.interaction_dataset import InteractionDataset
 
 def load_interaction_checkpoint(load_path, model):
     checkpoint = torch.load(load_path)
@@ -35,15 +36,30 @@ def load_interaction_checkpoint(load_path, model):
 
 def setup_dataloaders(args):
     transform = transforms.Compose([transforms.ToTensor()])
-    # TODO: download ImageNet and change this to ImageNet
-    train_dataset = datasets.Caltech101('/data/jzhanson/Caltech101',
-            download=True, transform=transform)
-    train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size,
-            shuffle=True, num_workers=args.dataloader_workers, pin_memory=True)
-    eval_dataset = datasets.Caltech101('/data/jzhanson/Caltech101',
-            download=True, transform=transform)
-    eval_dataloader = DataLoader(eval_dataset, batch_size=args.batch_size,
-            shuffle=False, num_workers=args.dataloader_workers, pin_memory=True)
+    if args.dataset_type == 'imagenet':
+        train_dataset = datasets.ImageNet(args.dataset_path, split='train',
+                download=False, transform=transform)
+        train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size,
+                shuffle=True, num_workers=args.dataloader_workers,
+                pin_memory=True)
+        eval_dataset = datasets.ImageNet(args.dataset_path, split='val',
+                download=False, transform=transform)
+        eval_dataloader = DataLoader(eval_dataset, batch_size=args.batch_size,
+                shuffle=False, num_workers=args.dataloader_workers,
+                pin_memory=True)
+    elif args.dataset_type == 'interaction':
+        # TODO: come up with a different eval dataset?
+        dataset = InteractionDataset(args.dataset_path,
+                max_trajectory_length=args.max_trajectory_length,
+                target_type=args.interaction_target_type,
+                high_res_images=args.high_res_images,
+                scene_binary_labels=args.interaction_scene_binary_labels)
+        train_dataloader = DataLoader(dataset, batch_size=args.batch_size,
+                shuffle=True, num_workers=args.dataloader_workers,
+                pin_memory=True)
+        eval_dataloader = DataLoader(dataset, batch_size=args.batch_size,
+                shuffle=False, num_workers=args.dataloader_workers,
+                pin_memory=True)
     return train_dataloader, eval_dataloader
 
 # Need to take gpu_id instead of device as argument because resnet needs gpu_id
