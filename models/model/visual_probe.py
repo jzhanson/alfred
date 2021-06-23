@@ -21,7 +21,8 @@ import cv2
 
 from tensorboardX import SummaryWriter
 
-def evaluate(model, shared_model, eval_dataloader, device=torch.device('cpu')):
+def evaluate(model, shared_model, eval_dataloader, dataset_type='imagenet',
+        interaction_scene_binary_labels=True, device=torch.device('cpu')):
     # First, load state dict
     if model != shared_model:
         model.load_state_dict(shared_model.state_dict())
@@ -31,18 +32,43 @@ def evaluate(model, shared_model, eval_dataloader, device=torch.device('cpu')):
     with torch.no_grad():
         for data, target in eval_dataloader:
             output = model(data.cpu())
-            output_log_probs = F.log_softmax(output, dim=1)
-            eval_loss += F.nll_loss(output_log_probs, target.to(device))
-            max_values, max_indexes = torch.max(output_log_probs, 1)
-            correct += max_indexes.eq(target.to(device)).sum().item()
+            # TODO: change this conditional when adding classification
+            if dataset_type == 'imagenet':
+                output_log_probs = F.log_softmax(output, dim=1)
+                loss = F.nll_loss(output_log_probs, target.to(device))
+                max_values, max_indexes = torch.max(output_log_probs, 1)
+                correct += max_indexes.eq(target.to(device)).sum().item()
+            elif dataset_type == 'interaction':
+                # TODO: Add an option for classification of interaction objects
+                if interaction_scene_binary_labels:
+                    loss = F.binary_cross_entropy_with_logits(output,
+                            target.to(device))
+                else:
+                    loss = F.mse_loss(output, target.to(device))
+            eval_loss += loss
     model.train()
-    return eval_loss.item(), correct / len(eval_dataloader.dataset)
+    # TODO: change this conditional when adding classification
+    if dataset_type == 'imagenet':
+        accuracy = correct / len(eval_dataloader.dataset)
+    else:
+        accuracy = None
+    return eval_loss.item(), accuracy
 
 def take_step(model, shared_model, optimizer, data, target,
+        dataset_type='imagenet', interaction_scene_binary_labels=True,
         max_grad_norm=50, device=torch.device('cpu')):
     output = model(data.cpu())
-    output_log_probs = F.log_softmax(output, dim=1)
-    loss = F.nll_loss(output_log_probs, target.to(device))
+    # TODO: change this conditional when adding classification
+    if dataset_type == 'imagenet':
+        output_log_probs = F.log_softmax(output, dim=1)
+        loss = F.nll_loss(output_log_probs, target.to(device))
+    elif dataset_type == 'interaction':
+        # TODO: Add an option for interaction objects
+        if interaction_scene_binary_labels:
+            loss = F.binary_cross_entropy_with_logits(output,
+                    target.to(device))
+        else:
+            loss = F.mse_loss(output, target.to(device))
     optimizer.zero_grad()
     loss.backward()
     torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
@@ -50,9 +76,14 @@ def take_step(model, shared_model, optimizer, data, target,
         ensure_shared_grads(model, shared_model, gpu=(not device ==
             torch.device('cpu')))
     optimizer.step()
-    max_values, max_indexes = torch.max(output_log_probs, 1)
-    correct = max_indexes.eq(target.to(device)).sum().item()
-    return loss, correct / data.shape[0]
+    # TODO: change this conditional when adding classification
+    if dataset_type == 'imagenet':
+        max_values, max_indexes = torch.max(output_log_probs, 1)
+        correct = max_indexes.eq(target.to(device)).sum().item()
+        accuracy = correct / data.shape[0]
+    else:
+        accuracy = None
+    return loss, accuracy
 
 # A lot of this function is taken from train() in
 # models/model/rl_interaction.py
@@ -60,9 +91,10 @@ def take_step(model, shared_model, optimizer, data, target,
 # function and separate metrics and batch+step functions
 def train(rank, num_processes, model, shared_model, train_dataloader,
         eval_dataloader, optimizer, train_steps_sync, batch_size=50,
-        sync_on_epoch=False, max_grad_norm=50, eval_interval=10,
-        max_steps=1000000, device=torch.device('cpu'), save_path=None,
-        save_intermediate=False):
+        sync_on_epoch=False, dataset_type='imagenet',
+        interaction_scene_binary_labels=False, max_grad_norm=50,
+        eval_interval=10, max_steps=1000000, device=torch.device('cpu'),
+        save_path=None, save_intermediate=False):
     # If multiple processes try to write to different SummaryWriters, only one
     # tensorboard logfile is generated but the logged data seems to not be
     # understandable by tensorboard. Also, GlobalSummaryWriter's _writer global
@@ -114,24 +146,37 @@ def train(rank, num_processes, model, shared_model, train_dataloader,
         # TODO: add option for locking update
         if sync_on_epoch:
             for data, target in train_dataloader:
+                # accuracy is None if task is not classification
                 loss, accuracy = take_step(model, shared_model, optimizer,
-                        data, target, max_grad_norm=max_grad_norm,
-                        device=device)
+                        data, target, dataset_type=dataset_type,
+                        interaction_scene_binary_labels=
+                        interaction_scene_binary_labels,
+                        max_grad_norm=max_grad_norm, device=device)
                 last_metrics['loss'].append(loss.item())
-                last_metrics['accuracy'].append(accuracy)
+                # TODO: change this conditional when adding classification
+                if dataset_type == 'imagenet':
+                    last_metrics['accuracy'].append(accuracy)
         else:
             # TODO: fix this next call causing train_dataloader is not an
             # iterator
             data, target = next(train_dataloader)
-            loss, accuracy = take_step(model, shared_model, optimizer, data,
-                    target, max_grad_norm=max_grad_norm, device=device)
+            # accuracy is None if task is not classification
+            loss, accuracy = take_step(model, shared_model, optimizer,
+                    data, target, dataset_type=dataset_type,
+                    interaction_scene_binary_labels=
+                    interaction_scene_binary_labels,
+                    max_grad_norm=max_grad_norm, device=device)
             last_metrics['loss'].append(loss.item())
-            last_metrics['accuracy'].append(accuracy)
+            # TODO: change this conditional when adding classification
+            if dataset_type == 'imagenet':
+                last_metrics['accuracy'].append(accuracy)
 
         if writer is not None and rank == 0:
             results = {}
             results['train'] = {}
             for metric in last_metrics.keys():
+                if len(last_metrics[metric]) == 0:
+                    continue
                 results['train'][metric] = [last_metrics[metric][-1]]
             # Don't write training results to file
             write_results(writer, results, train_steps_local, save_path=None)
@@ -199,13 +244,18 @@ def train(rank, num_processes, model, shared_model, train_dataloader,
                             save_intermediate=save_intermediate)
             if rank == 0:
                 eval_loss, eval_accuracy = evaluate(model, shared_model,
-                        eval_dataloader, device=device)
-                print('eval loss %.6f eval accuracy %.6f', eval_loss,
-                        eval_accuracy)
+                        eval_dataloader, dataset_type=dataset_type,
+                        interaction_scene_binary_labels=
+                        interaction_scene_binary_labels,
+                        device=device)
+                print('eval loss %.6f' % eval_loss)
                 writer.add_scalar('steps/eval/loss',
                         eval_loss, train_steps_local)
-                writer.add_scalar('steps/eval/accuracy',
-                        eval_accuracy, train_steps_local)
+                # TODO: change this conditional when adding classification
+                if dataset_type == 'imagenet':
+                    print('eval accuracy %.6f' % eval_accuracy)
+                    writer.add_scalar('steps/eval/accuracy',
+                            eval_accuracy, train_steps_local)
 
             last_eval_time = time.time()
 
@@ -225,13 +275,18 @@ def train(rank, num_processes, model, shared_model, train_dataloader,
                     save_path=save_path,
                     save_intermediate=save_intermediate)
             eval_loss, eval_accuracy = evaluate(model, shared_model,
-                    eval_dataloader, device=device)
-            print('eval loss %.6f eval accuracy %.6f', eval_loss,
-                    eval_accuracy)
+                    eval_dataloader, dataset_type=dataset_type,
+                    interaction_scene_binary_labels=
+                    interaction_scene_binary_labels,
+                    device=device)
+            print('eval loss %.6f' % eval_loss)
             writer.add_scalar('steps/eval/loss',
                     eval_loss, train_steps_local)
-            writer.add_scalar('steps/eval/accuracy',
-                    eval_accuracy, train_steps_local)
+            # TODO: change this conditional when adding classification
+            if dataset_type == 'imagenet':
+                print('eval accuracy %.6f' % eval_accuracy)
+                writer.add_scalar('steps/eval/accuracy',
+                        eval_accuracy, train_steps_local)
         else:
             save_optimizer(rank, optimizer, max_steps,
                     save_path=save_path,
