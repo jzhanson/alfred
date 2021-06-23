@@ -25,8 +25,6 @@ from data.interaction_dataset import InteractionDataset
 
 def load_interaction_checkpoint(load_path, model):
     checkpoint = torch.load(load_path)
-    print('checkpoint state_dict', [k for k in checkpoint['model_state_dict'].keys() if 'visual_model' in k])
-    print('model state_dict', model.state_dict().keys())
     renamed_checkpoint_state_dict = {}
     for k, v in checkpoint['model_state_dict'].items():
         if 'visual_model' in k:
