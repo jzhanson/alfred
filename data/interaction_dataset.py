@@ -11,15 +11,16 @@ from torch.utils.data import Dataset, DataLoader
 class InteractionDataset(Dataset):
     """Indexes an interaction dataset, then returns frames by index."""
     def __init__(self, dataset_path, max_trajectory_length=None,
-            target_type='in_frame', high_res_images=False,
+            high_res_images=False, scene_target_type='in_frame',
             scene_binary_labels=True):
         self.dataset_path = dataset_path
         self.max_trajectory_length = max_trajectory_length
-        self.target_type = target_type
+        self.scene_target_type = scene_target_type
         self.high_res_images = high_res_images # .jpg or .png
         self.scene_binary_labels = scene_binary_labels
 
-        self.object_counts_target_type = 'object_counts_' + self.target_type
+        self.object_counts_target_type = ('object_counts_' +
+                self.scene_target_type)
         self.frame_extension = '.png' if self.high_res_images else '.jpg'
 
         # TODO: add option for bounding box object classifications
