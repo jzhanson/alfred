@@ -49,8 +49,8 @@ def setup_dataloaders(args):
         # TODO: come up with a different eval dataset?
         dataset = InteractionDataset(args.dataset_path,
                 max_trajectory_length=args.max_trajectory_length,
-                target_type=args.interaction_target_type,
                 high_res_images=args.high_res_images,
+                scene_target_type=args.interaction_scene_target_type,
                 scene_binary_labels=args.interaction_scene_binary_labels)
         train_dataloader = DataLoader(dataset, batch_size=args.batch_size,
                 shuffle=True, num_workers=args.dataloader_workers,
