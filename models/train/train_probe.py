@@ -52,7 +52,9 @@ def setup_dataloaders(args):
                 max_trajectory_length=args.max_trajectory_length,
                 high_res_images=args.high_res_images,
                 scene_target_type=args.interaction_scene_target_type,
-                scene_binary_labels=args.interaction_scene_binary_labels)
+                scene_binary_labels=args.interaction_scene_binary_labels,
+                excluded_object_types=args.excluded_object_types,
+                object_distance_threshold=args.object_distance_threshold)
         train_dataloader = DataLoader(dataset, batch_size=args.batch_size,
                 shuffle=True, num_workers=args.dataloader_workers,
                 pin_memory=True)
@@ -223,6 +225,8 @@ if __name__ == '__main__':
 
     if args.gpu_ids is not None and type(args.gpu_ids) is int:
         args.gpu_ids = [args.gpu_ids]
+    if type(args.excluded_object_types) is str:
+        args.excluded_object_types = [args.excluded_object_types]
 
     # Put shared models on GPU if there's only one process and we're using GPU
     # to save the CPU memory of a "useless" shared_model
