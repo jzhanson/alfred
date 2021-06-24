@@ -120,6 +120,8 @@ def train(rank, num_processes, model, shared_model, train_dataloader,
     last_train_steps_local = None
     train_steps_local = None
     model.train()
+    if not sync_on_epoch:
+        train_dataloader_iterator = iter(train_dataloader)
     while True:
         # "Grab ticket" and increment train_steps_sync with the intention of
         # rolling out that trajectory and taking that gradient step We have to
@@ -157,9 +159,14 @@ def train(rank, num_processes, model, shared_model, train_dataloader,
                 if dataset_type == 'imagenet':
                     last_metrics['accuracy'].append(accuracy)
         else:
-            # TODO: fix this next call causing train_dataloader is not an
-            # iterator
-            data, target = next(train_dataloader)
+            # Pattern from
+            # https://github.com/pytorch/pytorch/issues/1917#issuecomment-433698337
+            # for turning a Dataloader into an iterator
+            try:
+                data, target = next(train_dataloader_iterator)
+            except StopIteration:
+                train_dataloader_iterator = iter(train_dataloader)
+                data, target = next(train_dataloader_iterator)
             # accuracy is None if task is not classification
             loss, accuracy = take_step(model, shared_model, optimizer,
                     data, target, dataset_type=dataset_type,
