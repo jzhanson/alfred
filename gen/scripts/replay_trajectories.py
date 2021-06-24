@@ -91,19 +91,29 @@ def setup_replay(rank, args, trajectory_jsonfiles, trajectory_index_sync):
             trajectory_info = json.load(jsonfile)
 
         trajectory_number = int(trajectory_info_name.split('.')[0])
+        save_scene = args.create_scene_dataset
+        save_object = args.create_object_dataset
         replay_save_path = os.path.join(args.save_path, str(trajectory_number))
-        # Trajectory is already replayed (in a previous script run) if
-        # trajectory_replay_dict is saved
-        trajectory_replay_dict_save_path = os.path.join(replay_save_path,
-                'info.json')
-        if os.path.isdir(replay_save_path):
-            if os.path.isfile(trajectory_replay_dict_save_path):
-                continue
-            # If directory exists but trajectory_replay_dict was not saved to
-            # file (i.e. trajectory not completely replayed), no need to do
-            # anything
-        else:
-            os.mkdir(replay_save_path)
+        if args.create_scene_dataset:
+            scene_save_path = os.path.join(replay_save_path, 'scene')
+            scene_info_save_path = os.path.join(scene_save_path, 'info.json')
+            # Trajectory is already replayed (in a previous script run) if
+            # info.json is saved
+            if os.path.isdir(scene_save_path):
+                if os.path.isfile(scene_info_save_path):
+                    save_scene = False
+            else:
+                os.makedirs(scene_save_path)
+        if args.create_object_dataset:
+            object_save_path = os.path.join(replay_save_path, 'object')
+            object_info_save_path = os.path.join(object_save_path, 'info.json')
+            # Trajectory is already replayed (in a previous script run) if
+            # info.json is saved
+            if os.path.isdir(object_save_path):
+                if os.path.isfile(object_info_save_path):
+                    save_object = False
+            else:
+                os.makedirs(object_save_path)
 
         frame = ie.reset(trajectory_info['scene_num'])
         event = ie.get_last_event()
@@ -123,17 +133,30 @@ def setup_replay(rank, args, trajectory_jsonfiles, trajectory_index_sync):
         event = thor_env.step(init_pose_action)
 
         step = 0
-        object_counts_visible = []
-        object_counts_in_frame = []
-        trajectory_replay_dict = {}
-        trajectory_replay_dict['scene_num'] = trajectory_info['scene_num']
-        if args.save_segmentation:
-            # Convert color_to_object_id to dict of have string keys since
-            # json.dump doesn't like tuples
-            color_to_object_id_str_keys = {}
-            for k, v in event.color_to_object_id.items():
-                color_to_object_id_str_keys[str(k)] = v
-            trajectory_replay_dict['color_to_object_id'] = color_to_object_id_str_keys
+        if save_scene:
+            scene_info = {}
+            scene_info['scene_num'] = trajectory_info['scene_num']
+            # object_counts_visible can't be computed post-hoc because we don't
+            # have the environment to figure out whether objects are within
+            # VISIBILITY_DISTANCE, but object_counts_in_frame can - we still
+            # include it for faster dataset loading
+            scene_info['object_counts_visible'] = []
+            scene_info['object_counts_in_frame'] = []
+            if args.save_segmentation:
+                # Convert color_to_object_id to dict of have string keys since
+                # json.dump doesn't like tuples
+                color_to_object_id_str_keys = {}
+                for k, v in event.color_to_object_id.items():
+                    color_to_object_id_str_keys[str(k)] = v
+                scene_info['color_to_object_id'] = color_to_object_id_str_keys
+        if save_object:
+            object_index = 0
+            object_info = {}
+            object_info['scene_num'] = trajectory_info['scene_num']
+            object_info['type'] = []
+            # TODO: track distance from agent instead of visibility for both
+            # scene objects and individual objects
+            object_info['visible'] = []
         trajectory_start_time = time.time()
         print('trajectory %d/%d ' % (trajectory_index_local,
             len(trajectory_jsonfiles)))
@@ -145,22 +168,51 @@ def setup_replay(rank, args, trajectory_jsonfiles, trajectory_index_sync):
                 image_extension = '.jpg'
             else:
                 image_extension = '.png'
-            frame_save_path = os.path.join(replay_save_path, '%05d' % step +
-                    image_extension)
-            cv2.imwrite(frame_save_path,
-                    cv2.cvtColor(event.frame.astype('uint8'),
-                        cv2.COLOR_RGB2BGR))
-            if args.save_segmentation:
-                segmentation_save_path = os.path.join(replay_save_path,
-                        '%05d_segmentation' % step + image_extension)
-                cv2.imwrite(segmentation_save_path,
-                        cv2.cvtColor(event.instance_segmentation_frame
-                            .astype('uint8'), cv2.COLOR_RGB2BGR))
-
-            # TODO: do we need to save superpixels? It would be faster but for
-            # what purpose
-            object_counts_visible.append(get_object_counts_visible(event))
-            object_counts_in_frame.append(get_object_counts_in_frame(event))
+            if save_scene:
+                frame_save_path = os.path.join(scene_save_path, '%05d' % step
+                        + image_extension)
+                cv2.imwrite(frame_save_path,
+                        cv2.cvtColor(event.frame.astype('uint8'),
+                            cv2.COLOR_RGB2BGR))
+                if args.save_segmentation:
+                    segmentation_save_path = os.path.join(scene_save_path,
+                            '%05d_segmentation' % step + image_extension)
+                    cv2.imwrite(segmentation_save_path,
+                            cv2.cvtColor(event.instance_segmentation_frame
+                                .astype('uint8'), cv2.COLOR_RGB2BGR))
+                # TODO: do we need to save superpixels? It would be faster but
+                # for what purpose
+                scene_info['object_counts_visible'].append(
+                        get_object_counts_visible(event))
+                scene_info['object_counts_in_frame'].append(
+                        get_object_counts_in_frame(event))
+            if save_object:
+                # TODO: deal with duplicated frames due to failed actions?
+                for object_id, (start_x, start_y, end_x, end_y) in (
+                        event.instance_detections2D.items()):
+                    # TODO: excluded objects
+                    if start_x == end_x or start_y == end_y:
+                        continue
+                    obj = event.get_object(object_id)
+                    if obj is not None:
+                        # TODO: add black outer
+                        max_y, min_y, max_x, min_x = (
+                                SuperpixelFusion
+                                .get_max_min_y_x_with_boundary(event.frame,
+                                    [start_y, end_y], [start_x, end_x],
+                                    args.boundary_pixels))
+                        frame_crop = event.frame[min_y:max_y, min_x:max_x, :]
+                        crop_save_path = os.path.join(object_save_path, '%05d'
+                                % object_index + image_extension)
+                        cv2.imwrite(crop_save_path,
+                                cv2.cvtColor(frame_crop.astype('uint8'),
+                                    cv2.COLOR_RGB2BGR))
+                        object_info['type'].append(
+                                constants.ALL_OBJECTS.index(obj['objectType']))
+                        # All objects in instance_detections2D are in frame,
+                        # but not all objects in frame are visible
+                        object_info['visible'].append(obj['visible'])
+                        object_index += 1
             # Make frame torch and (3, 300, 300) to match with code in
             # get_superpixel_masks_frame_crops or
             # get_gt_segmentation_masks_frame_crops
@@ -198,15 +250,12 @@ def setup_replay(rank, args, trajectory_jsonfiles, trajectory_index_sync):
                     interact_mask=selected_mask)
             print(selected_action, action_success, reward, err)
             step += 1
-        # object_counts_visible can't be computed post-hoc because we don't
-        # have the environment to figure out whether objects are within
-        # VISIBILITY_DISTANCE, but object_counts_in_frame can - we still
-        # include it for faster dataset loading
-        trajectory_replay_dict['object_counts_visible'] = object_counts_visible
-        trajectory_replay_dict['object_counts_in_frame'] = (
-                object_counts_in_frame)
-        with open(trajectory_replay_dict_save_path, 'w') as jsonfile:
-            json.dump(trajectory_replay_dict, jsonfile)
+        if save_scene:
+            with open(scene_info_save_path, 'w') as jsonfile:
+                json.dump(scene_info, jsonfile)
+        if save_object:
+            with open(object_info_save_path, 'w') as jsonfile:
+                json.dump(object_info, jsonfile)
 
         total_steps += step
         current_time = time.time()
