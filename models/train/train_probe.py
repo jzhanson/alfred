@@ -45,9 +45,10 @@ def setup_dataloaders(args):
         eval_dataloader = DataLoader(eval_dataset, batch_size=args.batch_size,
                 shuffle=False, num_workers=args.dataloader_workers,
                 pin_memory=True)
-    elif args.dataset_type == 'interaction':
+    elif 'interaction' in args.dataset_type:
         # TODO: come up with a different eval dataset?
         dataset = InteractionDataset(args.dataset_path,
+                dataset_type=args.dataset_type.split('_')[1],
                 max_trajectory_length=args.max_trajectory_length,
                 high_res_images=args.high_res_images,
                 scene_target_type=args.interaction_scene_target_type,
