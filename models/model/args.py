@@ -221,7 +221,7 @@ parser.add_argument('--create-object-dataset', dest='create_object_dataset', act
 parser.add_argument('--no-create-object-dataset', dest='create_object_dataset', action='store_false', help='do not create dataset of object crops when replaying trajectories')
 parser.set_defaults(create_scene_dataset=True)
 parser.add_argument('--excluded-object-types', type=str, nargs='+', default=[], help='list of object types to exclude when creating object dataset or when loading dataset for probe')
-# TODO: distance threshold when loading object dataset
+parser.add_argument('--object-distance-threshold', type=float, default=None, help='distance threshold beyond which not to include objects from interaction_object dataset')
 parser.add_argument('--save-segmentation', dest='save_segmentation', action='store_true', help='save ground truth scene segmentations when replaying trajectories when creating scene dataset')
 parser.add_argument('--no-save-segmentation', dest='save_segmentation', action='store_false', help='do not save ground truth segmentations when replaying trajectories when creating scene dataset')
 parser.set_defaults(save_segmentation=False)
