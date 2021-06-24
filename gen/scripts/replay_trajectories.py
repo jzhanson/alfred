@@ -190,11 +190,11 @@ def setup_replay(rank, args, trajectory_jsonfiles, trajectory_index_sync):
                 # TODO: deal with duplicated frames due to failed actions?
                 for object_id, (start_x, start_y, end_x, end_y) in (
                         event.instance_detections2D.items()):
-                    # TODO: excluded objects
                     if start_x == end_x or start_y == end_y:
                         continue
                     obj = event.get_object(object_id)
-                    if obj is not None:
+                    if (obj is not None and obj['objectType'] not in
+                            args.excluded_object_types):
                         # TODO: add black outer
                         max_y, min_y, max_x, min_x = (
                                 SuperpixelFusion
@@ -285,6 +285,10 @@ if __name__ == '__main__':
         pass
     else:
         os.makedirs(args.save_path)
+
+    # In case only one object type was provided
+    if type(args.excluded_object_types) is str:
+        args.excluded_object_types = [args.excluded_object_types]
 
     trajectory_jsonfiles = [fname for fname in os.listdir(args.load_path)
             if 'json' in fname]
