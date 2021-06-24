@@ -14,7 +14,7 @@ import torch
 import torch.nn.functional as F
 
 import gen.constants as constants
-from models.utils.helper_utils import stack_frames
+from models.utils.helper_utils import stack_frames, ensure_shared_grads
 from models.model.rl_interaction import (save_checkpoint, save_optimizer,
         load_checkpoint, load_optimizer, write_results)
 import cv2
