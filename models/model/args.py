@@ -220,7 +220,7 @@ parser.set_defaults(create_scene_dataset=True)
 parser.add_argument('--create-object-dataset', dest='create_object_dataset', action='store_true', help='create dataset of object crops when replaying trajectories')
 parser.add_argument('--no-create-object-dataset', dest='create_object_dataset', action='store_false', help='do not create dataset of object crops when replaying trajectories')
 parser.set_defaults(create_scene_dataset=True)
-# TODO: excluded-objects
+parser.add_argument('--excluded-object-types', type=str, nargs='+', default=[], help='list of object types to exclude when creating object dataset')
 parser.add_argument('--save-segmentation', dest='save_segmentation', action='store_true', help='save ground truth scene segmentations when replaying trajectories when creating scene dataset')
 parser.add_argument('--no-save-segmentation', dest='save_segmentation', action='store_false', help='do not save ground truth segmentations when replaying trajectories when creating scene dataset')
 parser.set_defaults(save_segmentation=False)
