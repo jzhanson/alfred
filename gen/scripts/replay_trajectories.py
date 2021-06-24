@@ -140,6 +140,12 @@ def setup_replay(rank, args, trajectory_jsonfiles, trajectory_index_sync):
             # have the environment to figure out whether objects are within
             # VISIBILITY_DISTANCE, but object_counts_in_frame can - we still
             # include it for faster dataset loading
+            # It's also difficult to keep track of the distances of all
+            # (visible) objects in the scene. It's probably easier and costs
+            # much less memory to replay all trajectories to rebuild the
+            # dataset with a different VISIBILITY_DISTANCE than it is to record
+            # the object distances for every frame and filter objects by
+            # distance in the dataloader.
             scene_info['object_counts_visible'] = []
             scene_info['object_counts_in_frame'] = []
             if args.save_segmentation:
@@ -154,9 +160,10 @@ def setup_replay(rank, args, trajectory_jsonfiles, trajectory_index_sync):
             object_info = {}
             object_info['scene_num'] = trajectory_info['scene_num']
             object_info['type'] = []
-            # TODO: track distance from agent instead of visibility for both
-            # scene objects and individual objects
-            object_info['visible'] = []
+            # Record the distance of each object, since it's not a lot of
+            # memory and doable to iterate through all the images in the
+            # dataset and only select the ones within a certain distance
+            object_info['distance'] = []
         trajectory_start_time = time.time()
         print('trajectory %d/%d ' % (trajectory_index_local,
             len(trajectory_jsonfiles)))
@@ -187,7 +194,10 @@ def setup_replay(rank, args, trajectory_jsonfiles, trajectory_index_sync):
                 scene_info['object_counts_in_frame'].append(
                         get_object_counts_in_frame(event))
             if save_object:
-                # TODO: deal with duplicated frames due to failed actions?
+                # TODO: deal with duplicated frames due to failed actions by
+                # not writing to dataset if last action did not succeed. this
+                # messes up max-trajectory-length when loading the dataset,
+                # however, but that's only used for scenes not objects
                 for object_id, (start_x, start_y, end_x, end_y) in (
                         event.instance_detections2D.items()):
                     if start_x == end_x or start_y == end_y:
@@ -209,9 +219,7 @@ def setup_replay(rank, args, trajectory_jsonfiles, trajectory_index_sync):
                                     cv2.COLOR_RGB2BGR))
                         object_info['type'].append(
                                 constants.ALL_OBJECTS.index(obj['objectType']))
-                        # All objects in instance_detections2D are in frame,
-                        # but not all objects in frame are visible
-                        object_info['visible'].append(obj['visible'])
+                        object_info['distance'].append(obj['distance'])
                         object_index += 1
             # Make frame torch and (3, 300, 300) to match with code in
             # get_superpixel_masks_frame_crops or
