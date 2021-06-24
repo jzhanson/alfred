@@ -214,8 +214,15 @@ parser.add_argument('--interaction-target-type', type=str, default='in_frame', h
 parser.add_argument('--interaction-scene-binary-labels', dest='interaction_scene_binary_labels', action='store_true', help='use binary labels for object appearance in a scene frame instead of raw counts')
 parser.add_argument('--interaction-scene-counts-labels', dest='interaction_scene_binary_labels', action='store_false', help='use raw counts for object appearances in scene frames instead of binary labels')
 parser.set_defaults(interaction_scene_binary_labels=True)
-parser.add_argument('--save-segmentation', dest='save_segmentation', action='store_true', help='save ground truth segmentations when replaying trajectories')
-parser.add_argument('--no-save-segmentation', dest='save_segmentation', action='store_false', help='do not save ground truth segmentations when replaying trajectories')
+parser.add_argument('--create-scene-dataset', dest='create_scene_dataset', action='store_true', help='create dataset of whole scene frames when replaying trajectories')
+parser.add_argument('--no-create-scene-dataset', dest='create_scene_dataset', action='store_false', help='do not create dataset of whole scene frames when replaying trajectories')
+parser.set_defaults(create_scene_dataset=True)
+parser.add_argument('--create-object-dataset', dest='create_object_dataset', action='store_true', help='create dataset of object crops when replaying trajectories')
+parser.add_argument('--no-create-object-dataset', dest='create_object_dataset', action='store_false', help='do not create dataset of object crops when replaying trajectories')
+parser.set_defaults(create_scene_dataset=True)
+# TODO: excluded-objects
+parser.add_argument('--save-segmentation', dest='save_segmentation', action='store_true', help='save ground truth scene segmentations when replaying trajectories when creating scene dataset')
+parser.add_argument('--no-save-segmentation', dest='save_segmentation', action='store_false', help='do not save ground truth segmentations when replaying trajectories when creating scene dataset')
 parser.set_defaults(save_segmentation=False)
 
 def parse_args():
