@@ -1,6 +1,7 @@
 import os
 import sys
 sys.path.append(os.path.join(os.environ['ALFRED_ROOT']))
+sys.path.append(os.path.join(os.environ['ALFRED_ROOT'], 'gen'))
 
 import json
 
@@ -8,18 +9,22 @@ import cv2
 import torch
 from torch.utils.data import Dataset, DataLoader
 
+import gen.constants as constants
+
 class InteractionDataset(Dataset):
     """Indexes an interaction dataset, then returns frames by index."""
     def __init__(self, dataset_path, dataset_type='scene',
             max_trajectory_length=None, high_res_images=False,
-            scene_target_type='in_frame', scene_binary_labels=True):
-        # TODO: excluded objects, distance threshold
+            scene_target_type='in_frame', scene_binary_labels=True,
+            excluded_object_types=[], object_distance_threshold=None):
         self.dataset_path = dataset_path
         self.dataset_type = dataset_type
         self.max_trajectory_length = max_trajectory_length
         self.scene_target_type = scene_target_type
         self.high_res_images = high_res_images # .jpg or .png
         self.scene_binary_labels = scene_binary_labels
+        self.excluded_object_types = excluded_object_types
+        self.object_distance_threshold = object_distance_threshold
 
         self.frame_extension = '.png' if self.high_res_images else '.jpg'
 
@@ -49,12 +54,23 @@ class InteractionDataset(Dataset):
                         'info.json')
                 with open(info_path, 'r') as jsonfile:
                     info = json.load(jsonfile)
+                frame_indexes = [frame_i for frame_i in
+                        range(len(info[self.target_key]))]
                 if self.dataset_type == 'object':
-                    # TODO: filter frames by excluded objects, distance
-                    pass
-                self.trajectory_indexes_frames.extend([
-                    (trajectory_i, frame_i) for frame_i in range(len(
-                        info[self.target_key]))])
+                    # Filter frames by excluded objects, distance
+                    filtered_frame_indexes = []
+                    for frame_i in frame_indexes:
+                        object_type = constants.ALL_OBJECTS[info['type']
+                                [frame_i]]
+                        if object_type in self.excluded_object_types:
+                            continue
+                        if (self.object_distance_threshold is not None and
+                                info['distance'][frame_i] >
+                                self.object_distance_threshold):
+                            continue
+                        filtered_frame_indexes.append(frame_i)
+                self.trajectory_indexes_frames.extend([(trajectory_i, frame_i)
+                    for frame_i in frame_indexes])
         elif dataset_type == 'scene':
             self.num_frames = (len(self.trajectory_directories) *
                 self.max_trajectory_length)
@@ -113,7 +129,6 @@ class InteractionDataset(Dataset):
                 if self.scene_binary_labels:
                     raw_target = raw_target > 0
                 raw_target = raw_target.float()
-            # TODO: do we need to cast raw_target to anything for object dataset
             target.append(raw_target)
 
         if singleton:
