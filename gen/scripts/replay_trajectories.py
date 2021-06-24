@@ -126,6 +126,7 @@ def setup_replay(rank, args, trajectory_jsonfiles, trajectory_index_sync):
         object_counts_visible = []
         object_counts_in_frame = []
         trajectory_replay_dict = {}
+        trajectory_replay_dict['scene_num'] = trajectory_info['scene_num']
         if args.save_segmentation:
             # Convert color_to_object_id to dict of have string keys since
             # json.dump doesn't like tuples
@@ -149,8 +150,6 @@ def setup_replay(rank, args, trajectory_jsonfiles, trajectory_index_sync):
             cv2.imwrite(frame_save_path,
                     cv2.cvtColor(event.frame.astype('uint8'),
                         cv2.COLOR_RGB2BGR))
-            # TODO: also save bounding boxes for each segmentation so we don't
-            # have to compute it in data loader?
             if args.save_segmentation:
                 segmentation_save_path = os.path.join(replay_save_path,
                         '%05d_segmentation' % step + image_extension)
