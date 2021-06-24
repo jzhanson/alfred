@@ -32,14 +32,13 @@ def evaluate(model, shared_model, eval_dataloader, dataset_type='imagenet',
     with torch.no_grad():
         for data, target in eval_dataloader:
             output = model(data.cpu())
-            # TODO: change this conditional when adding classification
-            if dataset_type == 'imagenet':
+            if (dataset_type == 'imagenet' or dataset_type ==
+                    'interaction_object'):
                 output_log_probs = F.log_softmax(output, dim=1)
                 loss = F.nll_loss(output_log_probs, target.to(device))
                 max_values, max_indexes = torch.max(output_log_probs, 1)
                 correct += max_indexes.eq(target.to(device)).sum().item()
-            elif dataset_type == 'interaction':
-                # TODO: Add an option for classification of interaction objects
+            elif dataset_type == 'interaction_scene':
                 if interaction_scene_binary_labels:
                     loss = F.binary_cross_entropy_with_logits(output,
                             target.to(device))
@@ -47,10 +46,9 @@ def evaluate(model, shared_model, eval_dataloader, dataset_type='imagenet',
                     loss = F.mse_loss(output, target.to(device))
             eval_loss += loss
     model.train()
-    # TODO: change this conditional when adding classification
-    if dataset_type == 'imagenet':
+    if dataset_type == 'imagenet' or dataset_type == 'interaction_object':
         accuracy = correct / len(eval_dataloader.dataset)
-    else:
+    elif dataset_type == 'interaction_scene':
         accuracy = None
     return eval_loss.item(), accuracy
 
@@ -58,12 +56,10 @@ def take_step(model, shared_model, optimizer, data, target,
         dataset_type='imagenet', interaction_scene_binary_labels=True,
         max_grad_norm=50, device=torch.device('cpu')):
     output = model(data.cpu())
-    # TODO: change this conditional when adding classification
-    if dataset_type == 'imagenet':
+    if dataset_type == 'imagenet' or dataset_type == 'interaction_object':
         output_log_probs = F.log_softmax(output, dim=1)
         loss = F.nll_loss(output_log_probs, target.to(device))
-    elif dataset_type == 'interaction':
-        # TODO: Add an option for interaction objects
+    elif dataset_type == 'interaction_scene':
         if interaction_scene_binary_labels:
             loss = F.binary_cross_entropy_with_logits(output,
                     target.to(device))
@@ -76,12 +72,11 @@ def take_step(model, shared_model, optimizer, data, target,
         ensure_shared_grads(model, shared_model, gpu=(not device ==
             torch.device('cpu')))
     optimizer.step()
-    # TODO: change this conditional when adding classification
-    if dataset_type == 'imagenet':
+    if dataset_type == 'imagenet' or dataset_type == 'interaction_object':
         max_values, max_indexes = torch.max(output_log_probs, 1)
         correct = max_indexes.eq(target.to(device)).sum().item()
         accuracy = correct / data.shape[0]
-    else:
+    elif dataset_type == 'interaction_scene':
         accuracy = None
     return loss, accuracy
 
@@ -155,8 +150,8 @@ def train(rank, num_processes, model, shared_model, train_dataloader,
                         interaction_scene_binary_labels,
                         max_grad_norm=max_grad_norm, device=device)
                 last_metrics['loss'].append(loss.item())
-                # TODO: change this conditional when adding classification
-                if dataset_type == 'imagenet':
+                if (dataset_type == 'imagenet' or dataset_type ==
+                        'interaction_object'):
                     last_metrics['accuracy'].append(accuracy)
         else:
             # Pattern from
@@ -174,8 +169,8 @@ def train(rank, num_processes, model, shared_model, train_dataloader,
                     interaction_scene_binary_labels,
                     max_grad_norm=max_grad_norm, device=device)
             last_metrics['loss'].append(loss.item())
-            # TODO: change this conditional when adding classification
-            if dataset_type == 'imagenet':
+            if (dataset_type == 'imagenet' or dataset_type ==
+                    'interaction_object'):
                 last_metrics['accuracy'].append(accuracy)
 
         if writer is not None and rank == 0:
@@ -258,8 +253,8 @@ def train(rank, num_processes, model, shared_model, train_dataloader,
                 print('eval loss %.6f' % eval_loss)
                 writer.add_scalar('steps/eval/loss',
                         eval_loss, train_steps_local)
-                # TODO: change this conditional when adding classification
-                if dataset_type == 'imagenet':
+                if (dataset_type == 'imagenet' or dataset_type ==
+                        'interaction_object'):
                     print('eval accuracy %.6f' % eval_accuracy)
                     writer.add_scalar('steps/eval/accuracy',
                             eval_accuracy, train_steps_local)
@@ -289,8 +284,8 @@ def train(rank, num_processes, model, shared_model, train_dataloader,
             print('eval loss %.6f' % eval_loss)
             writer.add_scalar('steps/eval/loss',
                     eval_loss, train_steps_local)
-            # TODO: change this conditional when adding classification
-            if dataset_type == 'imagenet':
+            if (dataset_type == 'imagenet' or dataset_type ==
+                    'interaction_object'):
                 print('eval accuracy %.6f' % eval_accuracy)
                 writer.add_scalar('steps/eval/accuracy',
                         eval_accuracy, train_steps_local)
