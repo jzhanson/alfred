@@ -225,6 +225,9 @@ parser.add_argument('--object-distance-threshold', type=float, default=None, hel
 parser.add_argument('--save-segmentation', dest='save_segmentation', action='store_true', help='save ground truth scene segmentations when replaying trajectories when creating scene dataset')
 parser.add_argument('--no-save-segmentation', dest='save_segmentation', action='store_false', help='do not save ground truth segmentations when replaying trajectories when creating scene dataset')
 parser.set_defaults(save_segmentation=False)
+parser.add_argument('--exclude-repeated-frames', dest='exclude_repeated_frames', action='store_true', help='exclude repeated frames (i.e. frames where action failed)')
+parser.add_argument('--include-repeated-frames', dest='exclude_repeated_frames', action='store_false', help='include all frames, including those corresponding to failed actions')
+parser.set_defaults(exclude_repeate_frames=False)
 
 def parse_args():
     return parser.parse_args()
