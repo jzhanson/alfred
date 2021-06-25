@@ -208,13 +208,19 @@ def setup_replay(rank, args, trajectory_jsonfiles, trajectory_index_sync):
                     obj = event.get_object(object_id)
                     if (obj is not None and obj['objectType'] not in
                             args.excluded_object_types):
-                        # TODO: add black outer
                         max_y, min_y, max_x, min_x = (
                                 SuperpixelFusion
                                 .get_max_min_y_x_with_boundary(event.frame,
                                     [start_y, end_y], [start_x, end_x],
                                     args.boundary_pixels))
                         frame_crop = event.frame[min_y:max_y, min_x:max_x, :]
+                        if args.black_outer:
+                            mask = np.sum(event.instance_segmentation_frame ==
+                                event.object_id_to_color[object_id], 2) == 3
+                            frame_crop = (SuperpixelFusion
+                                    .get_black_outer_frame_crops([frame_crop],
+                                        [(min_y, max_y, min_x, max_x)],
+                                        [mask])[0])
                         crop_save_path = os.path.join(object_save_path, '%05d'
                                 % object_index + image_extension)
                         cv2.imwrite(crop_save_path,
