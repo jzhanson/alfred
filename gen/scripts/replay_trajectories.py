@@ -133,6 +133,7 @@ def setup_replay(rank, args, trajectory_jsonfiles, trajectory_index_sync):
         event = thor_env.step(init_pose_action)
 
         step = 0
+        action_success = True
         if save_scene:
             scene_info = {}
             scene_info['scene_num'] = trajectory_info['scene_num']
@@ -167,15 +168,21 @@ def setup_replay(rank, args, trajectory_jsonfiles, trajectory_index_sync):
         trajectory_start_time = time.time()
         print('trajectory %d/%d ' % (trajectory_index_local,
             len(trajectory_jsonfiles)))
+
         for pred_action_index, pred_mask_index in zip(
                 trajectory_info['pred_action_indexes'],
                 trajectory_info['pred_mask_indexes']):
+            # If excluding repeated frames, scene dataset cannot be loaded with
+            # max-trajectory-length, because the trajectories will be different
+            # lengths
+            save_this_step = ((not args.exclude_repeated_frames) or
+                    action_success)
             # Save frame and segmentation
             if args.high_res_images:
                 image_extension = '.jpg'
             else:
                 image_extension = '.png'
-            if save_scene:
+            if save_scene and save_this_step:
                 frame_save_path = os.path.join(scene_save_path, '%05d' % step
                         + image_extension)
                 cv2.imwrite(frame_save_path,
@@ -193,11 +200,7 @@ def setup_replay(rank, args, trajectory_jsonfiles, trajectory_index_sync):
                         get_object_counts_visible(event))
                 scene_info['object_counts_in_frame'].append(
                         get_object_counts_in_frame(event))
-            if save_object:
-                # TODO: deal with duplicated frames due to failed actions by
-                # not writing to dataset if last action did not succeed. this
-                # messes up max-trajectory-length when loading the dataset,
-                # however, but that's only used for scenes not objects
+            if save_object and save_this_step:
                 for object_id, (start_x, start_y, end_x, end_y) in (
                         event.instance_detections2D.items()):
                     if start_x == end_x or start_y == end_y:
