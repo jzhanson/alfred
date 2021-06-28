@@ -43,8 +43,6 @@ def evaluate(rank, shared_model, ie, evaluate_steps_sync, single_interact=False,
 
         scene_num = scene_numbers[evaluate_steps_local % len(scene_numbers)]
         with torch.no_grad():
-            # TODO: add an option for trajectory_results to save each step's
-            # coverage
             trajectory_results = rollout_trajectory(ie, shared_model,
                     single_interact=single_interact, use_masks=use_masks,
                     use_gt_segmentation=use_gt_segmentation,
