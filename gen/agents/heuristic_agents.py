@@ -15,22 +15,72 @@ import gen.constants as constants
 from models.model.args import parse_args
 from models.nn.ie import SuperpixelFusion
 from models.train.train_rl_ie import check_thor, get_scene_numbers, setup_env
+from models.utils.helper_utils import superpixelactionconcat_index_to_action
 import torch
 import multiprocessing as mp
 
-def heuristic_rollout(ie, scene_num, single_interact=False,
+class RandomAgent(object):
+    def __init__(self, single_interact=False, outer_product_sampling=False,
+            navigation_superpixels=False):
+        self.single_interact = single_interact
+        self.outer_product_sampling = outer_product_sampling
+        self.navigation_superpixels = navigation_superpixels
+        if self.single_interact:
+            self.actions = constants.SIMPLE_ACTIONS
+            self.index_to_action = constants.INDEX_TO_ACTION_SIMPLE
+        else:
+            self.actions = constants.COMPLEX_ACTIONS
+            self.index_to_action = constants.INDEX_TO_ACTION_COMPLEX
+
+    def reset(self, ie):
+        return
+
+    def get_pred_action_mask_indexes(self, ie, masks):
+        # Allow outer_product_sampling and navigation_superpixels for different
+        # flavors of random action selection
+        if self.outer_product_sampling:
+            if args.navigation_superpixels:
+                num_actions = len(self.actions) * len(masks)
+            else:
+                num_actions = (len(constants.NAV_ACTIONS) + (1 if
+                    self.single_interact else len(constants.INT_ACTIONS)) *
+                    len(masks))
+            pred_action = (
+                superpixelactionconcat_index_to_action(random.randint(0,
+                num_actions - 1), num_actions,
+                single_interact=self.single_interact,
+                navigation_superpixels=self.navigation_superpixels))
+            pred_action_index = self.actions.index(pred_action)
+            if args.navigation_superpixels:
+                pred_mask_index = pred_action_index % len(self.actions)
+            else:
+                # This will be nonsensical if a navigation action is chosen,
+                # but that's okay because we set pred_mask_index to -1 at the
+                # end of the function if a navigation action is chosen anyways
+                pred_mask_index = (pred_action_index -
+                        len(constants.NAV_ACTIONS)) % (1 if
+                                self.single_interact else
+                                len(constants.INT_ACTIONS))
+        else:
+            pred_action_index = random.randint(0, len(self.actions) - 1)
+            pred_mask_index = random.randint(0, len(masks) - 1)
+
+        if pred_action_index < len(constants.NAV_ACTIONS):
+            pred_mask_index = -1
+        return pred_action_index, pred_mask_index
+
+def heuristic_rollout(ie, scene_num, agent, single_interact=False,
         use_gt_segmentation=False, max_trajectory_length=None, slic_kwargs={},
         boundary_pixels=0, neighbor_depth=0, neighbor_connectivity=2,
         black_outer=False):
     if single_interact:
-        num_actions = len(constants.SIMPLE_ACTIONS)
         index_to_action = constants.INDEX_TO_ACTION_SIMPLE
     else:
-        num_actions = len(constants.COMPLEX_ACTIONS)
         index_to_action = constants.INDEX_TO_ACTION_COMPLEX
 
     frame = ie.reset(scene_num)
     event = ie.get_last_event()
+    agent.reset(ie)
 
     trajectory_info = {}
     trajectory_info['scene_num'] = scene_num
@@ -81,14 +131,11 @@ def heuristic_rollout(ie, scene_num, single_interact=False,
                         black_outer=black_outer))
 
         # TODO: select action and mask depending on random, random+, heuristic
-        pred_action_index = random.randint(0, num_actions - 1)
+        pred_action_index, pred_mask_index = (agent
+                .get_pred_action_mask_indexes(ie, masks))
         selected_action = index_to_action[pred_action_index]
-        if selected_action not in constants.NAV_ACTIONS:
-            pred_mask_index = random.randint(0, len(masks) - 1)
-            selected_mask = masks[pred_mask_index]
-        else:
-            pred_mask_index = -1
-            selected_mask = None
+        selected_mask = (masks[pred_mask_index] if pred_mask_index >= 0 else
+                None)
         _, reward, _, (action_success, event, err) = ie.step(
                 selected_action,
                 interact_mask=selected_mask)
@@ -147,6 +194,8 @@ def setup_rollouts(rank, args, trajectory_sync):
 
     scene_numbers = get_scene_numbers(args.scene_numbers, args.scene_types)
 
+    agent = RandomAgent(single_interact=args.single_interact)
+
     start_time = time.time()
     trajectory_local = 0
     total_steps = 0
@@ -168,7 +217,7 @@ def setup_rollouts(rank, args, trajectory_sync):
 
         trajectory_start_time = time.time()
         print('trajectory %d' % (trajectory_local))
-        trajectory_info, eval_results = heuristic_rollout(ie, scene_num,
+        trajectory_info, eval_results = heuristic_rollout(ie, scene_num, agent,
                 single_interact=args.single_interact,
                 use_gt_segmentation=args.use_gt_segmentation,
                 max_trajectory_length=args.max_trajectory_length,
