@@ -36,6 +36,30 @@ def check_thor():
     print(event.frame.shape)
     print("Everything works!!!")
 
+def get_scene_numbers(scene_numbers, scene_types):
+    """Contains logic for getting list of scene numbers from args.scene_numbers
+    and args.scene_types.
+    """
+    output_scene_numbers = []
+    if scene_numbers is not None:
+        if type(scene_numbers) is int:
+            output_scene_numbers = [scene_numbers]
+        else:
+            output_scene_numbers = scene_numbers
+    else:
+        # "'str' in" pattern will work for both list and single string
+        if 'kitchen' in scene_types:
+            output_scene_numbers.extend(constants.KITCHEN_TRAIN_SCENE_NUMBERS)
+        elif 'living_room' in scene_types:
+            output_scene_numbers.extend(
+                    constants.LIVING_ROOM_TRAIN_SCENE_NUMBERS)
+        elif 'bedroom' in scene_types:
+            output_scene_numbers.extend(constants.BEDROOM_TRAIN_SCENE_NUMBERS)
+        elif 'bathroom' in scene_types:
+            output_scene_numbers.extend(constants.BATHROOM_TRAIN_SCENE_NUMBERS)
+
+    return output_scene_numbers
+
 def setup_env(args):
     thor_env = ThorEnv()
 
@@ -371,22 +395,7 @@ def setup_train(rank, args, shared_model, shared_curiosity_model,
         # Likewise, shared optimizer state is already loaded
         optimizer = shared_optimizer
 
-    scene_numbers = []
-    if args.scene_numbers is not None:
-        if type(args.scene_numbers) is int:
-            scene_numbers = [args.scene_numbers]
-        else:
-            scene_numbers = args.scene_numbers
-    else:
-        # "'str' in" pattern will work for both list and single string
-        if 'kitchen' in args.scene_types:
-            scene_numbers.extend(constants.KITCHEN_TRAIN_SCENE_NUMBERS)
-        elif 'living_room' in args.scene_types:
-            scene_numbers.extend(constants.LIVING_ROOM_TRAIN_SCENE_NUMBERS)
-        elif 'bedroom' in args.scene_types:
-            scene_numbers.extend(constants.BEDROOM_TRAIN_SCENE_NUMBERS)
-        elif 'bathroom' in args.scene_types:
-            scene_numbers.extend(constants.BATHROOM_TRAIN_SCENE_NUMBERS)
+    scene_numbers = get_scene_numbers(args.scene_numbers, args.scene_types)
 
     reset_kwargs = {
             'random_object_positions' : args.random_object_positions,
