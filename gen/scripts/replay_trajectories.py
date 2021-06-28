@@ -12,7 +12,6 @@ import argparse
 import time
 import random
 import gen.constants as constants
-from utils.video_util import VideoSaver
 from models.model.args import parse_args
 from models.nn.ie import SuperpixelFusion
 from models.train.train_rl_ie import check_thor, setup_env
@@ -77,10 +76,7 @@ def setup_replay(rank, args, trajectory_jsonfiles, trajectory_index_sync):
         # "Grab ticket" and increment train_steps_sync with the intention of
         # replaying out that trajectory
         with trajectory_index_sync.get_lock():
-            if trajectory_index_local is None: # First iteration, even if loading
-                trajectory_index_local = trajectory_index_sync.value
-            else:
-                trajectory_index_local = trajectory_index_sync.value
+            trajectory_index_local = trajectory_index_sync.value
             trajectory_index_sync.value += 1
         if trajectory_index_local >= len(trajectory_jsonfiles):
             break
