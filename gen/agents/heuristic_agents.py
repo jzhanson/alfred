@@ -4,6 +4,8 @@ sys.path.append(os.path.join(os.environ['ALFRED_ROOT']))
 sys.path.append(os.path.join(os.environ['ALFRED_ROOT'], 'gen'))
 sys.path.append(os.path.join(os.environ['ALFRED_ROOT'], 'models'))
 
+import math
+import copy
 import json
 import constants
 import cv2
@@ -35,7 +37,8 @@ class RandomAgent(object):
     def reset(self, ie):
         return
 
-    def get_pred_action_mask_indexes(self, ie, masks):
+    def get_pred_action_mask_indexes(self, ie, masks,
+            last_action_success=True):
         # Allow outer_product_sampling and navigation_superpixels for different
         # flavors of random action selection
         if self.outer_product_sampling:
@@ -69,6 +72,94 @@ class RandomAgent(object):
             pred_mask_index = -1
         return pred_action_index, pred_mask_index
 
+class WallAgent(RandomAgent):
+    """Navigates to closest wall, then walks the perimeter of the scene.
+    """
+
+    def __init__(self, **kwargs):
+        super(WallAgent, self).__init__(**kwargs)
+
+    def reset(self, ie):
+        self.all_wall_points = WallAgent.find_wall_points(ie.graph.points)
+        self.reset_wall_points(ie.env.last_event.pose_discrete)
+        # self.path_to_wall will always be one longer than self.actions_to_wall
+        # and contain both the current pose and the goal pose
+        self.actions_to_wall, self.path_to_wall = (
+                WallAgent.get_closest_actions_path(ie, self.wall_points))
+
+    def get_pred_action_mask_indexes(self, ie, masks,
+            last_action_success=True):
+        if not last_action_success:
+            # Mark next location (i.e. would-be current location) as impossible
+            # and replan
+            print('Could not reach location ' + str(self.path_to_wall[0]) +
+                ', marking as impossible')
+            ie.graph.add_impossible_spot(self.path_to_wall[0])
+            self.actions_to_wall, self.path_to_wall = (
+                    WallAgent.get_closest_actions_path(ie, self.wall_points))
+        if len(self.actions_to_wall) == 0:
+            if len(self.path_to_wall) > 1:
+                # Didn't reach the target wall location
+                print('Could not reach goal ' + str(self.path_to_wall[-1]) +
+                    ', marking as impossible')
+                ie.graph.add_impossible_spot(self.path_to_wall[-1])
+            self.wall_points.remove(self.path_to_wall[-1][:2])
+            if len(self.wall_points) == 0:
+                # Perimeter lap complete - reset self.wall_points and "start
+                # over"
+                self.reset_wall_points(ie.env.last_event.pose_discrete)
+            self.actions_to_wall, self.path_to_wall = (
+                    WallAgent.get_closest_actions_path(ie, self.wall_points))
+        action = self.actions_to_wall[0]['action']
+        self.actions_to_wall = self.actions_to_wall[1:]
+        self.path_to_wall = self.path_to_wall[1:]
+        pred_action_index = self.actions.index(action)
+        return pred_action_index, -1
+
+    def reset_wall_points(self, pose_discrete):
+        self.wall_points = copy.deepcopy(self.all_wall_points)
+        if pose_discrete[:2] in self.wall_points:
+            self.wall_points.remove(pose_discrete[:2])
+
+    @classmethod
+    def find_wall_points(cls, points):
+        # A wall is a point where at least one cardinal direction is blocked (i.e.
+        # not in points)
+        tuple_points = [tuple(point) for point in list(points)]
+        wall_points = []
+        for x, z in tuple_points:
+            has_direction_blocked = not all([(x-1, z) in tuple_points, (x+1, z) in
+                tuple_points, (x, z-1) in tuple_points, (x, z+1) in tuple_points])
+            if has_direction_blocked:
+                wall_points.append((x, z))
+        return wall_points
+
+    @classmethod
+    def get_closest_actions_path(cls, ie, wall_points):
+        current_x, current_z, current_rotation, current_look_angle = (
+                ie.env.last_event.pose_discrete)
+        raw_distances_to_wall_points = [math.sqrt((current_x - x)**2 +
+            (current_z - z)**2) for x, z in wall_points]
+        min_distance = min(raw_distances_to_wall_points)
+        min_indexes = [i for i, distance in
+                enumerate(raw_distances_to_wall_points) if distance ==
+                min_distance]
+        min_points = [wall_points[min_index] for min_index in min_indexes]
+        actions_paths = []
+        for x, z in min_points:
+            # Check all rotations for minimum action distance
+            point_actions_paths = []
+            for rotation in range(4):
+                actions, path = ie.graph.get_shortest_path(
+                        ie.env.last_event.pose_discrete, (x, z, rotation,
+                            current_look_angle))
+                point_actions_paths.append((actions, path))
+            actions_paths.append(min(point_actions_paths, key=lambda ap:
+                len(ap[0])))
+        actions, path = min(actions_paths, key=lambda ap: len(ap[0]))
+        return actions, path
+
+
 def heuristic_rollout(ie, scene_num, agent, single_interact=False,
         use_gt_segmentation=False, max_trajectory_length=None, slic_kwargs={},
         boundary_pixels=0, neighbor_depth=0, neighbor_connectivity=2,
@@ -98,6 +189,7 @@ def heuristic_rollout(ie, scene_num, agent, single_interact=False,
 
     steps = 0
     done = False
+    action_success = True
     while not done and (max_trajectory_length is None or steps <
             max_trajectory_length):
         per_step_coverages.append(ie.get_coverages())
@@ -132,7 +224,8 @@ def heuristic_rollout(ie, scene_num, agent, single_interact=False,
 
         # TODO: select action and mask depending on random, random+, heuristic
         pred_action_index, pred_mask_index = (agent
-                .get_pred_action_mask_indexes(ie, masks))
+                .get_pred_action_mask_indexes(ie, masks,
+                    last_action_success=action_success))
         selected_action = index_to_action[pred_action_index]
         selected_mask = (masks[pred_mask_index] if pred_mask_index >= 0 else
                 None)
@@ -194,7 +287,10 @@ def setup_rollouts(rank, args, trajectory_sync):
 
     scene_numbers = get_scene_numbers(args.scene_numbers, args.scene_types)
 
-    agent = RandomAgent(single_interact=args.single_interact)
+    if args.heuristic_agent == 'random':
+        agent = RandomAgent(single_interact=args.single_interact)
+    elif args.heuristic_agent == 'wall':
+        agent = WallAgent(single_interact=args.single_interact)
 
     start_time = time.time()
     trajectory_local = 0
