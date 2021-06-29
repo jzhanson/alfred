@@ -214,6 +214,7 @@ parser.add_argument('--interaction-scene-target-type', type=str, default='in_fra
 parser.add_argument('--interaction-scene-binary-labels', dest='interaction_scene_binary_labels', action='store_true', help='use binary labels for object appearance in a scene frame instead of raw counts')
 parser.add_argument('--interaction-scene-counts-labels', dest='interaction_scene_binary_labels', action='store_false', help='use raw counts for object appearances in scene frames instead of binary labels')
 parser.set_defaults(interaction_scene_binary_labels=True)
+# Creating datasets for visual probes
 parser.add_argument('--create-scene-dataset', dest='create_scene_dataset', action='store_true', help='create dataset of whole scene frames when replaying trajectories')
 parser.add_argument('--no-create-scene-dataset', dest='create_scene_dataset', action='store_false', help='do not create dataset of whole scene frames when replaying trajectories')
 parser.set_defaults(create_scene_dataset=True)
@@ -228,6 +229,8 @@ parser.set_defaults(save_segmentation=False)
 parser.add_argument('--exclude-repeated-frames', dest='exclude_repeated_frames', action='store_true', help='exclude repeated frames (i.e. frames where action failed)')
 parser.add_argument('--include-repeated-frames', dest='exclude_repeated_frames', action='store_false', help='include all frames, including those corresponding to failed actions')
 parser.set_defaults(exclude_repeate_frames=False)
+# Heuristic agent arguments
+parser.add_argument('--heuristic-agent', type=str, default='random', help='heuristic agent to use (\'random\' or \'wall\')')
 
 def parse_args():
     return parser.parse_args()
