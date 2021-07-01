@@ -1,3 +1,4 @@
+import os
 import cv2
 import copy
 import gen.constants as constants
@@ -20,7 +21,7 @@ class ThorEnv(Controller):
     '''
     an extension of ai2thor.controller.Controller for ALFRED tasks
     '''
-    def __init__(self, x_display=constants.X_DISPLAY,
+    def __init__(self, x_display=os.environ['DISPLAY'],
                  player_screen_height=constants.DETECTION_SCREEN_HEIGHT,
                  player_screen_width=constants.DETECTION_SCREEN_WIDTH,
                  quality='MediumCloseFitShadows',
@@ -28,6 +29,8 @@ class ThorEnv(Controller):
 
         super().__init__(quality=quality)
         self.local_executable_path = build_path
+        # Get rid of leading colon from DISPLAY shell env variable
+        x_display = str(x_display)[1:]
         self.start(x_display=x_display,
                    player_screen_height=player_screen_height,
                    player_screen_width=player_screen_width)
