@@ -160,6 +160,15 @@ class WallAgent(RandomAgent):
         actions, path = min(actions_paths, key=lambda ap: len(ap[0]))
         return actions, path
 
+class NavCoverageAgent(WallAgent):
+    def __init__(self, **kwargs):
+        super(NavCoverageAgent, self).__init__(**kwargs)
+
+    def reset(self, ie):
+        self.all_points = [tuple(point) for point in list(ie.graph.points)]
+        self.reset_points(ie.env.last_event.pose_discrete)
+        self.actions_to_destination, self.path_to_destination = (
+                WallAgent.get_closest_actions_path(ie, self.points))
 
 def heuristic_rollout(ie, scene_num, agent, single_interact=False,
         use_gt_segmentation=False, max_trajectory_length=None, slic_kwargs={},
@@ -292,6 +301,8 @@ def setup_rollouts(rank, args, trajectory_sync):
         agent = RandomAgent(single_interact=args.single_interact)
     elif args.heuristic_agent == 'wall':
         agent = WallAgent(single_interact=args.single_interact)
+    elif args.heuristic_agent == 'navcoverage':
+        agent = NavCoverageAgent(single_interact=args.single_interact)
 
     start_time = time.time()
     trajectory_local = 0
