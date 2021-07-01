@@ -72,20 +72,18 @@ class RandomAgent(object):
             pred_mask_index = -1
         return pred_action_index, pred_mask_index
 
-class WallAgent(RandomAgent):
+class NavCoverageAgent(RandomAgent):
     """Navigates to closest wall, then walks the perimeter of the scene.
     """
 
     def __init__(self, **kwargs):
-        super(WallAgent, self).__init__(**kwargs)
+        super(NavCoverageAgent, self).__init__(**kwargs)
 
     def reset(self, ie):
-        self.all_points = WallAgent.find_wall_points(ie.graph.points)
+        self.all_points = [tuple(point) for point in list(ie.graph.points)]
         self.reset_points(ie.env.last_event.pose_discrete)
-        # self.path_to_wall will always be one longer than self.actions_to_wall
-        # and contain both the current pose and the goal pose
         self.actions_to_destination, self.path_to_destination = (
-                WallAgent.get_closest_actions_path(ie, self.points))
+                NavCoverageAgent.get_closest_actions_path(ie, self.points))
 
     def get_pred_action_mask_indexes(self, ie, masks,
             last_action_success=True):
@@ -97,7 +95,7 @@ class WallAgent(RandomAgent):
                     ', marking as impossible')
             ie.graph.add_impossible_spot(self.path_to_destination[0])
             self.actions_to_destination, self.path_to_destination = (
-                    WallAgent.get_closest_actions_path(ie, self.points))
+                    NavCoverageAgent.get_closest_actions_path(ie, self.points))
         if len(self.actions_to_destination) == 0:
             if len(self.path_to_destination) > 1:
                 # Didn't reach the target wall location
@@ -110,7 +108,7 @@ class WallAgent(RandomAgent):
                 # Perimeter lap complete - reset self.points and "start over"
                 self.reset_points(ie.env.last_event.pose_discrete)
             self.actions_to_destination, self.path_to_destination = (
-                    WallAgent.get_closest_actions_path(ie, self.points))
+                    NavCoverageAgent.get_closest_actions_path(ie, self.points))
         action = self.actions_to_destination[0]['action']
         self.actions_to_destination = self.actions_to_destination[1:]
         self.path_to_destination = self.path_to_destination[1:]
@@ -121,19 +119,6 @@ class WallAgent(RandomAgent):
         self.points = copy.deepcopy(self.all_points)
         if pose_discrete[:2] in self.points:
             self.points.remove(pose_discrete[:2])
-
-    @classmethod
-    def find_wall_points(cls, points):
-        # A wall is a point where at least one cardinal direction is blocked (i.e.
-        # not in points)
-        tuple_points = [tuple(point) for point in list(points)]
-        wall_points = []
-        for x, z in tuple_points:
-            has_direction_blocked = not all([(x-1, z) in tuple_points, (x+1, z) in
-                tuple_points, (x, z-1) in tuple_points, (x, z+1) in tuple_points])
-            if has_direction_blocked:
-                wall_points.append((x, z))
-        return wall_points
 
     @classmethod
     def get_closest_actions_path(cls, ie, points):
@@ -160,15 +145,31 @@ class WallAgent(RandomAgent):
         actions, path = min(actions_paths, key=lambda ap: len(ap[0]))
         return actions, path
 
-class NavCoverageAgent(WallAgent):
+class WallAgent(NavCoverageAgent):
     def __init__(self, **kwargs):
-        super(NavCoverageAgent, self).__init__(**kwargs)
+        super(WallAgent, self).__init__(**kwargs)
 
     def reset(self, ie):
-        self.all_points = [tuple(point) for point in list(ie.graph.points)]
+        self.all_points = WallAgent.find_wall_points(ie.graph.points)
         self.reset_points(ie.env.last_event.pose_discrete)
+        # self.path_to_wall will always be one longer than self.actions_to_wall
+        # and contain both the current pose and the goal pose
         self.actions_to_destination, self.path_to_destination = (
-                WallAgent.get_closest_actions_path(ie, self.points))
+                NavCoverageAgent.get_closest_actions_path(ie, self.points))
+
+    @classmethod
+    def find_wall_points(cls, points):
+        # A wall is a point where at least one cardinal direction is blocked (i.e.
+        # not in points)
+        tuple_points = [tuple(point) for point in list(points)]
+        wall_points = []
+        for x, z in tuple_points:
+            has_direction_blocked = not all([(x-1, z) in tuple_points, (x+1, z) in
+                tuple_points, (x, z-1) in tuple_points, (x, z+1) in tuple_points])
+            if has_direction_blocked:
+                wall_points.append((x, z))
+        return wall_points
+
 
 def heuristic_rollout(ie, scene_num, agent, single_interact=False,
         use_gt_segmentation=False, max_trajectory_length=None, slic_kwargs={},
@@ -299,10 +300,10 @@ def setup_rollouts(rank, args, trajectory_sync):
 
     if args.heuristic_agent == 'random':
         agent = RandomAgent(single_interact=args.single_interact)
-    elif args.heuristic_agent == 'wall':
-        agent = WallAgent(single_interact=args.single_interact)
     elif args.heuristic_agent == 'navcoverage':
         agent = NavCoverageAgent(single_interact=args.single_interact)
+    elif args.heuristic_agent == 'wall':
+        agent = WallAgent(single_interact=args.single_interact)
 
     start_time = time.time()
     trajectory_local = 0
