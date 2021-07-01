@@ -80,46 +80,47 @@ class WallAgent(RandomAgent):
         super(WallAgent, self).__init__(**kwargs)
 
     def reset(self, ie):
-        self.all_wall_points = WallAgent.find_wall_points(ie.graph.points)
-        self.reset_wall_points(ie.env.last_event.pose_discrete)
+        self.all_points = WallAgent.find_wall_points(ie.graph.points)
+        self.reset_points(ie.env.last_event.pose_discrete)
         # self.path_to_wall will always be one longer than self.actions_to_wall
         # and contain both the current pose and the goal pose
-        self.actions_to_wall, self.path_to_wall = (
-                WallAgent.get_closest_actions_path(ie, self.wall_points))
+        self.actions_to_destination, self.path_to_destination = (
+                WallAgent.get_closest_actions_path(ie, self.points))
 
     def get_pred_action_mask_indexes(self, ie, masks,
             last_action_success=True):
         if not last_action_success:
             # Mark next location (i.e. would-be current location) as impossible
             # and replan
-            print('Could not reach location ' + str(self.path_to_wall[0]) +
-                ', marking as impossible')
-            ie.graph.add_impossible_spot(self.path_to_wall[0])
-            self.actions_to_wall, self.path_to_wall = (
-                    WallAgent.get_closest_actions_path(ie, self.wall_points))
-        if len(self.actions_to_wall) == 0:
-            if len(self.path_to_wall) > 1:
-                # Didn't reach the target wall location
-                print('Could not reach goal ' + str(self.path_to_wall[-1]) +
+            print('Could not reach location ' +
+                    str(self.path_to_destination[0]) +
                     ', marking as impossible')
-                ie.graph.add_impossible_spot(self.path_to_wall[-1])
-            self.wall_points.remove(self.path_to_wall[-1][:2])
-            if len(self.wall_points) == 0:
-                # Perimeter lap complete - reset self.wall_points and "start
-                # over"
-                self.reset_wall_points(ie.env.last_event.pose_discrete)
-            self.actions_to_wall, self.path_to_wall = (
-                    WallAgent.get_closest_actions_path(ie, self.wall_points))
-        action = self.actions_to_wall[0]['action']
-        self.actions_to_wall = self.actions_to_wall[1:]
-        self.path_to_wall = self.path_to_wall[1:]
+            ie.graph.add_impossible_spot(self.path_to_destination[0])
+            self.actions_to_destination, self.path_to_destination = (
+                    WallAgent.get_closest_actions_path(ie, self.points))
+        if len(self.actions_to_destination) == 0:
+            if len(self.path_to_destination) > 1:
+                # Didn't reach the target wall location
+                print('Could not reach goal ' +
+                        str(self.path_to_destination[-1]) +
+                        ', marking as impossible')
+                ie.graph.add_impossible_spot(self.path_to_destination[-1])
+            self.points.remove(self.path_to_destination[-1][:2])
+            if len(self.points) == 0:
+                # Perimeter lap complete - reset self.points and "start over"
+                self.reset_points(ie.env.last_event.pose_discrete)
+            self.actions_to_destination, self.path_to_destination = (
+                    WallAgent.get_closest_actions_path(ie, self.points))
+        action = self.actions_to_destination[0]['action']
+        self.actions_to_destination = self.actions_to_destination[1:]
+        self.path_to_destination = self.path_to_destination[1:]
         pred_action_index = self.actions.index(action)
         return pred_action_index, -1
 
-    def reset_wall_points(self, pose_discrete):
-        self.wall_points = copy.deepcopy(self.all_wall_points)
-        if pose_discrete[:2] in self.wall_points:
-            self.wall_points.remove(pose_discrete[:2])
+    def reset_points(self, pose_discrete):
+        self.points = copy.deepcopy(self.all_points)
+        if pose_discrete[:2] in self.points:
+            self.points.remove(pose_discrete[:2])
 
     @classmethod
     def find_wall_points(cls, points):
@@ -135,16 +136,16 @@ class WallAgent(RandomAgent):
         return wall_points
 
     @classmethod
-    def get_closest_actions_path(cls, ie, wall_points):
+    def get_closest_actions_path(cls, ie, points):
         current_x, current_z, current_rotation, current_look_angle = (
                 ie.env.last_event.pose_discrete)
-        raw_distances_to_wall_points = [math.sqrt((current_x - x)**2 +
-            (current_z - z)**2) for x, z in wall_points]
-        min_distance = min(raw_distances_to_wall_points)
+        raw_distances_to_points = [math.sqrt((current_x - x)**2 +
+            (current_z - z)**2) for x, z in points]
+        min_distance = min(raw_distances_to_points)
         min_indexes = [i for i, distance in
-                enumerate(raw_distances_to_wall_points) if distance ==
+                enumerate(raw_distances_to_points) if distance ==
                 min_distance]
-        min_points = [wall_points[min_index] for min_index in min_indexes]
+        min_points = [points[min_index] for min_index in min_indexes]
         actions_paths = []
         for x, z in min_points:
             # Check all rotations for minimum action distance
