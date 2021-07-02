@@ -21,6 +21,10 @@ from models.utils.helper_utils import superpixelactionconcat_index_to_action
 import torch
 import multiprocessing as mp
 
+def trajectory_index_break_tie(tiebreaker, l):
+    trajectory_index, total_trajectories = tiebreaker
+    return l[trajectory_index // total_trajectories]
+
 class RandomAgent(object):
     def __init__(self, single_interact=False, outer_product_sampling=False,
             navigation_superpixels=False):
@@ -34,7 +38,7 @@ class RandomAgent(object):
             self.actions = constants.COMPLEX_ACTIONS
             self.index_to_action = constants.INDEX_TO_ACTION_COMPLEX
 
-    def reset(self, ie):
+    def reset(self, ie, tiebreaker):
         return
 
     def get_pred_action_mask_indexes(self, ie, masks,
@@ -79,11 +83,13 @@ class NavCoverageAgent(RandomAgent):
     def __init__(self, **kwargs):
         super(NavCoverageAgent, self).__init__(**kwargs)
 
-    def reset(self, ie):
+    def reset(self, ie, tiebreaker):
         self.all_points = [tuple(point) for point in list(ie.graph.points)]
         self.reset_points(ie.env.last_event.pose_discrete)
+        self.tiebreaker = tiebreaker
         self.actions_to_destination, self.path_to_destination = (
-                NavCoverageAgent.get_closest_actions_path(ie, self.points))
+                NavCoverageAgent.get_closest_actions_path(ie, self.points,
+                    self.tiebreaker))
 
     def get_pred_action_mask_indexes(self, ie, masks,
             last_action_success=True):
@@ -95,7 +101,8 @@ class NavCoverageAgent(RandomAgent):
                     ', marking as impossible')
             ie.graph.add_impossible_spot(self.path_to_destination[0])
             self.actions_to_destination, self.path_to_destination = (
-                    NavCoverageAgent.get_closest_actions_path(ie, self.points))
+                    NavCoverageAgent.get_closest_actions_path(ie, self.points,
+                        self.tiebreaker))
         if len(self.actions_to_destination) == 0:
             if len(self.path_to_destination) > 1:
                 # Didn't reach the target wall location
@@ -108,7 +115,8 @@ class NavCoverageAgent(RandomAgent):
                 # Perimeter lap complete - reset self.points and "start over"
                 self.reset_points(ie.env.last_event.pose_discrete)
             self.actions_to_destination, self.path_to_destination = (
-                    NavCoverageAgent.get_closest_actions_path(ie, self.points))
+                    NavCoverageAgent.get_closest_actions_path(ie, self.points,
+                        self.tiebreaker))
         action = self.actions_to_destination[0]['action']
         self.actions_to_destination = self.actions_to_destination[1:]
         self.path_to_destination = self.path_to_destination[1:]
@@ -121,18 +129,13 @@ class NavCoverageAgent(RandomAgent):
             self.points.remove(pose_discrete[:2])
 
     @classmethod
-    def get_closest_actions_path(cls, ie, points):
+    def get_closest_actions_path(cls, ie, points, tiebreaker):
         current_x, current_z, current_rotation, current_look_angle = (
                 ie.env.last_event.pose_discrete)
-        raw_distances_to_points = [math.sqrt((current_x - x)**2 +
-            (current_z - z)**2) for x, z in points]
-        min_distance = min(raw_distances_to_points)
-        min_indexes = [i for i, distance in
-                enumerate(raw_distances_to_points) if distance ==
-                min_distance]
-        min_points = [points[min_index] for min_index in min_indexes]
+        # Check all rotations of all given points - doesn't seem to noticably
+        # slow down the rollouts
         actions_paths = []
-        for x, z in min_points:
+        for x, z in points:
             # Check all rotations for minimum action distance
             point_actions_paths = []
             for rotation in range(4):
@@ -142,20 +145,27 @@ class NavCoverageAgent(RandomAgent):
                 point_actions_paths.append((actions, path))
             actions_paths.append(min(point_actions_paths, key=lambda ap:
                 len(ap[0])))
-        actions, path = min(actions_paths, key=lambda ap: len(ap[0]))
+        min_actions_distance = min([len(actions) for (actions, path) in
+            actions_paths])
+        min_actions_paths = [(actions, path) for (actions, path) in
+                actions_paths if len(actions) == min_actions_distance]
+        actions, path = trajectory_index_break_tie(tiebreaker,
+                min_actions_paths)
         return actions, path
 
 class WallAgent(NavCoverageAgent):
     def __init__(self, **kwargs):
         super(WallAgent, self).__init__(**kwargs)
 
-    def reset(self, ie):
+    def reset(self, ie, tiebreaker):
         self.all_points = WallAgent.find_wall_points(ie.graph.points)
         self.reset_points(ie.env.last_event.pose_discrete)
         # self.path_to_wall will always be one longer than self.actions_to_wall
         # and contain both the current pose and the goal pose
+        self.tiebreaker = tiebreaker
         self.actions_to_destination, self.path_to_destination = (
-                NavCoverageAgent.get_closest_actions_path(ie, self.points))
+                NavCoverageAgent.get_closest_actions_path(ie, self.points,
+                    self.tiebreaker))
 
     @classmethod
     def find_wall_points(cls, points):
@@ -171,10 +181,11 @@ class WallAgent(NavCoverageAgent):
         return wall_points
 
 
-def heuristic_rollout(ie, reset_kwargs, agent, starting_look_angle=None,
-        single_interact=False, use_gt_segmentation=False,
-        max_trajectory_length=None, slic_kwargs={}, boundary_pixels=0,
-        neighbor_depth=0, neighbor_connectivity=2, black_outer=False):
+def heuristic_rollout(ie, reset_kwargs, agent, tiebreaker,
+        starting_look_angle=None, single_interact=False,
+        use_gt_segmentation=False, max_trajectory_length=None, slic_kwargs={},
+        boundary_pixels=0, neighbor_depth=0, neighbor_connectivity=2,
+        black_outer=False):
     if single_interact:
         index_to_action = constants.INDEX_TO_ACTION_SIMPLE
     else:
@@ -198,7 +209,7 @@ def heuristic_rollout(ie, reset_kwargs, agent, starting_look_angle=None,
                   'horizon': starting_look_angle,
                   }
         event = ie.env.step(init_pose_action)
-    agent.reset(ie)
+    agent.reset(ie, tiebreaker)
 
     trajectory_info = {}
     trajectory_info['scene_num'] = reset_kwargs['scene_name_or_num']
@@ -358,8 +369,11 @@ def setup_rollouts(rank, args, trajectory_sync):
                 'random_rotation' : args.random_rotation,
                 'random_look_angle' : args.random_look_angle,
         }
-        trajectory_info, eval_results = heuristic_rollout(ie, reset_kwargs, agent,
-                starting_look_angle=starting_look_angle,
+        tiebreaker = (trajectory_local, len(scene_numbers) * (1 if
+            args.heuristic_look_angles is None else
+            len(args.heuristic_look_angles)))
+        trajectory_info, eval_results = heuristic_rollout(ie, reset_kwargs,
+                agent, tiebreaker, starting_look_angle=starting_look_angle,
                 single_interact=args.single_interact,
                 use_gt_segmentation=args.use_gt_segmentation,
                 max_trajectory_length=args.max_trajectory_length,
