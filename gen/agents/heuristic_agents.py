@@ -171,21 +171,37 @@ class WallAgent(NavCoverageAgent):
         return wall_points
 
 
-def heuristic_rollout(ie, scene_num, agent, single_interact=False,
-        use_gt_segmentation=False, max_trajectory_length=None, slic_kwargs={},
-        boundary_pixels=0, neighbor_depth=0, neighbor_connectivity=2,
-        black_outer=False):
+def heuristic_rollout(ie, reset_kwargs, agent, starting_look_angle=None,
+        single_interact=False, use_gt_segmentation=False,
+        max_trajectory_length=None, slic_kwargs={}, boundary_pixels=0,
+        neighbor_depth=0, neighbor_connectivity=2, black_outer=False):
     if single_interact:
         index_to_action = constants.INDEX_TO_ACTION_SIMPLE
     else:
         index_to_action = constants.INDEX_TO_ACTION_COMPLEX
 
-    frame = ie.reset(scene_num)
+    frame = ie.reset(**reset_kwargs)
     event = ie.get_last_event()
+    if starting_look_angle is not None:
+        # Teleport agent to given starting look angle
+        start_pose = event.pose_discrete
+        agent_height = event.metadata['agent']['position']['y']
+        # This init_pose_action going around InteractionExploration might mess
+        # up the initial look angle for reward calculation for eval_results,
+        # but only if reward_rotation_look_angle is true
+        init_pose_action = {'action': 'TeleportFull',
+                  'x': start_pose[0] * constants.AGENT_STEP_SIZE,
+                  'y': agent_height,
+                  'z': start_pose[1] * constants.AGENT_STEP_SIZE,
+                  'rotateOnTeleport': True,
+                  'rotation': start_pose[2] * 90,
+                  'horizon': starting_look_angle,
+                  }
+        event = ie.env.step(init_pose_action)
     agent.reset(ie)
 
     trajectory_info = {}
-    trajectory_info['scene_num'] = scene_num
+    trajectory_info['scene_num'] = reset_kwargs['scene_name_or_num']
     trajectory_info['agent_pose_discrete'] = event.pose_discrete
     trajectory_info['object_poses'] = [{'objectName':
         obj['name'].split('(Clone)')[0], 'position': obj['position'],
@@ -251,7 +267,7 @@ def heuristic_rollout(ie, scene_num, agent, single_interact=False,
         steps += 1
 
 
-    eval_results['scene_name_or_num'] = scene_num
+    eval_results['scene_name_or_num'] = reset_kwargs['scene_name_or_num']
     eval_results['pred_action_indexes'] = (
             trajectory_info['pred_action_indexes'])
     eval_results['rewards'] = trajectory_info['rewards']
@@ -305,6 +321,9 @@ def setup_rollouts(rank, args, trajectory_sync):
     elif args.heuristic_agent == 'wall':
         agent = WallAgent(single_interact=args.single_interact)
 
+    if type(args.heuristic_look_angles) is int:
+        args.heuristic_look_angles = [args.heuristic_look_angles]
+
     start_time = time.time()
     trajectory_local = 0
     total_steps = 0
@@ -322,11 +341,25 @@ def setup_rollouts(rank, args, trajectory_sync):
         eval_results_save_path = os.path.join(args.save_path,
                 'eval_results', str(trajectory_local) + '.json')
 
+        # TODO: change look angle: first normal, then down, then up.
         scene_num = scene_numbers[trajectory_local % len(scene_numbers)]
+        if args.heuristic_look_angles is not None:
+            starting_look_angle = args.heuristic_look_angles[trajectory_local
+                    // len(scene_numbers)]
+        else:
+            starting_look_angle = None
 
         trajectory_start_time = time.time()
         print('trajectory %d' % (trajectory_local))
-        trajectory_info, eval_results = heuristic_rollout(ie, scene_num, agent,
+        reset_kwargs = {
+                'scene_name_or_num' : scene_num,
+                'random_object_positions' : args.random_object_positions,
+                'random_position' : args.random_position,
+                'random_rotation' : args.random_rotation,
+                'random_look_angle' : args.random_look_angle,
+        }
+        trajectory_info, eval_results = heuristic_rollout(ie, reset_kwargs, agent,
+                starting_look_angle=starting_look_angle,
                 single_interact=args.single_interact,
                 use_gt_segmentation=args.use_gt_segmentation,
                 max_trajectory_length=args.max_trajectory_length,
