@@ -438,8 +438,12 @@ if __name__ == '__main__':
 
     if not os.path.isdir(args.save_path):
         os.makedirs(args.save_path)
-        os.mkdir(os.path.join(args.save_path, 'trajectory_info'))
-        os.mkdir(os.path.join(args.save_path, 'eval_results'))
+    trajectory_info_path = os.path.join(args.save_path, 'trajectory_info')
+    eval_results_path = os.path.join(args.save_path, 'eval_results')
+    if not os.path.isdir(trajectory_info_path):
+        os.makedirs(trajectory_info_path)
+    if not os.path.isdir(eval_results_path):
+        os.makedirs(eval_results_path)
 
     mp.set_start_method('spawn')
     processes = []
