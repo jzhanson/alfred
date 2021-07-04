@@ -96,13 +96,21 @@ class NavCoverageAgent(RandomAgent):
 
     def get_pred_action_mask_indexes(self, ie, masks,
             last_action_success=True):
-        if not last_action_success:
+        if last_action_success:
+            current_point = self.path_to_destination[0][:2]
+            assert current_point == ie.env.last_event.pose_discrete[:2]
+            if current_point in self.points:
+                self.points.remove(current_point)
+        else:
             # Mark next location (i.e. would-be current location) as impossible
             # and replan
+            impossible_next_pose = self.path_to_destination[0]
             print('Could not reach location ' +
-                    str(self.path_to_destination[0]) +
+                    str(impossible_next_pose) +
                     ', marking as impossible')
-            ie.graph.add_impossible_spot(self.path_to_destination[0])
+            ie.graph.add_impossible_spot(impossible_next_pose)
+            if impossible_next_pose[:2] in self.points:
+                self.points.remove(impossible_next_pose[:2])
             self.actions_to_destination, self.path_to_destination = (
                     self.get_closest_actions_path(ie))
         if len(self.actions_to_destination) == 0:
@@ -112,7 +120,11 @@ class NavCoverageAgent(RandomAgent):
                         str(self.path_to_destination[-1]) +
                         ', marking as impossible')
                 ie.graph.add_impossible_spot(self.path_to_destination[-1])
-            self.points.remove(self.path_to_destination[-1][:2])
+            end_point = self.path_to_destination[-1][:2]
+            # Sometimes end point not in points due to having already been to
+            # that location
+            if end_point in self.points:
+                self.points.remove(end_point)
             if len(self.points) == 0:
                 # Perimeter lap complete - reset self.points and "start over"
                 self.reset_points(ie.env.last_event.pose_discrete)
