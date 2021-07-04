@@ -23,7 +23,10 @@ import multiprocessing as mp
 
 def trajectory_index_break_tie(tiebreaker, l):
     trajectory_index, total_trajectories = tiebreaker
-    return l[trajectory_index // total_trajectories]
+    chosen_index = (trajectory_index // total_trajectories) % len(l)
+    if len(l) > 1:
+        print('tiebreaker', chosen_index, len(l))
+    return l[chosen_index]
 
 class RandomAgent(object):
     def __init__(self, single_interact=False, outer_product_sampling=False,
@@ -260,7 +263,6 @@ def heuristic_rollout(ie, reset_kwargs, agent, tiebreaker,
                         neighbor_connectivity=neighbor_connectivity,
                         black_outer=black_outer))
 
-        # TODO: select action and mask depending on random, random+, heuristic
         pred_action_index, pred_mask_index = (agent
                 .get_pred_action_mask_indexes(ie, masks,
                     last_action_success=action_success))
@@ -352,11 +354,10 @@ def setup_rollouts(rank, args, trajectory_sync):
         eval_results_save_path = os.path.join(args.save_path,
                 'eval_results', str(trajectory_local) + '.json')
 
-        # TODO: change look angle: first normal, then down, then up.
         scene_num = scene_numbers[trajectory_local % len(scene_numbers)]
         if args.heuristic_look_angles is not None:
-            starting_look_angle = args.heuristic_look_angles[trajectory_local
-                    // len(scene_numbers)]
+            starting_look_angle = args.heuristic_look_angles[(trajectory_local
+                    // len(scene_numbers)) % len(args.heuristic_look_angles)]
         else:
             starting_look_angle = None
 
