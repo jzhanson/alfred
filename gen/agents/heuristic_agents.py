@@ -92,8 +92,7 @@ class NavCoverageAgent(RandomAgent):
         self.tiebreaker = tiebreaker
         self.scene_num = scene_num
         self.actions_to_destination, self.path_to_destination = (
-                NavCoverageAgent.get_closest_actions_path(ie, self.points,
-                    self.tiebreaker))
+                self.get_closest_actions_path(ie))
 
     def get_pred_action_mask_indexes(self, ie, masks,
             last_action_success=True):
@@ -105,8 +104,7 @@ class NavCoverageAgent(RandomAgent):
                     ', marking as impossible')
             ie.graph.add_impossible_spot(self.path_to_destination[0])
             self.actions_to_destination, self.path_to_destination = (
-                    NavCoverageAgent.get_closest_actions_path(ie, self.points,
-                        self.tiebreaker))
+                    self.get_closest_actions_path(ie))
         if len(self.actions_to_destination) == 0:
             if len(self.path_to_destination) > 1:
                 # Didn't reach the target wall location
@@ -119,8 +117,7 @@ class NavCoverageAgent(RandomAgent):
                 # Perimeter lap complete - reset self.points and "start over"
                 self.reset_points(ie.env.last_event.pose_discrete)
             self.actions_to_destination, self.path_to_destination = (
-                    NavCoverageAgent.get_closest_actions_path(ie, self.points,
-                        self.tiebreaker))
+                    self.get_closest_actions_path(ie))
         action = self.actions_to_destination[0]['action']
         self.actions_to_destination = self.actions_to_destination[1:]
         self.path_to_destination = self.path_to_destination[1:]
@@ -132,28 +129,49 @@ class NavCoverageAgent(RandomAgent):
         if pose_discrete[:2] in self.points:
             self.points.remove(pose_discrete[:2])
 
-    @classmethod
-    def get_closest_actions_path(cls, ie, points, tiebreaker):
+    def get_closest_actions_path(self, ie):
         current_x, current_z, current_rotation, current_look_angle = (
                 ie.env.last_event.pose_discrete)
-        # Check all rotations of all given points - doesn't seem to noticably
-        # slow down the rollouts
-        actions_paths = []
-        for x, z in points:
-            # Check all rotations for minimum action distance
-            point_actions_paths = []
-            for rotation in range(4):
-                actions, path = ie.graph.get_shortest_path(
-                        ie.env.last_event.pose_discrete, (x, z, rotation,
-                            current_look_angle))
-                point_actions_paths.append((actions, path))
-            actions_paths.append(min(point_actions_paths, key=lambda ap:
-                len(ap[0])))
+        # Keep replanning until no impossible points are encountered
+        need_restart = True
+        impossible_point = None
+        while need_restart:
+            actions_paths = []
+            # Remove impossible points here so we're not removing inside the
+            # same iteration loop
+            if impossible_point is not None:
+                # assert impossible_point in points
+                self.points.remove(impossible_point)
+                impossible_point = None
+            need_restart = False
+            for x, z in self.points:
+                point_actions_paths = []
+                # Check all rotations of all given points for minimum action
+                # distance - doesn't seem to noticably slow down the rollouts
+                for rotation in range(4):
+                    actions, path = ie.graph.get_shortest_path(
+                            ie.env.last_event.pose_discrete, (x, z, rotation,
+                                current_look_angle))
+                    point_actions_paths.append((actions, path))
+                min_actions, min_path = min(point_actions_paths, key=lambda ap:
+                        len(ap[0]))
+                # Impossible spot will have undefined behavior
+                if min_path[-1][:2] != (x, z):
+                    # Rotation, look angle doesn't matter
+                    ie.graph.add_impossible_spot((x, z, 0, 0))
+                    impossible_point = (x, z)
+                    need_restart = True
+                    break
+                else:
+                    actions_paths.append((min_actions, min_path))
         min_actions_distance = min([len(actions) for (actions, path) in
             actions_paths])
+        # Current pose shouldn't appear in points, and no points should be
+        # impossible
+        assert min_actions_distance > 0
         min_actions_paths = [(actions, path) for (actions, path) in
                 actions_paths if len(actions) == min_actions_distance]
-        actions, path = trajectory_index_break_tie(tiebreaker,
+        actions, path = trajectory_index_break_tie(self.tiebreaker,
                 min_actions_paths)
         return actions, path
 
@@ -169,8 +187,7 @@ class WallAgent(NavCoverageAgent):
         self.tiebreaker = tiebreaker
         self.scene_num = scene_num
         self.actions_to_destination, self.path_to_destination = (
-                NavCoverageAgent.get_closest_actions_path(ie, self.points,
-                    self.tiebreaker))
+                self.get_closest_actions_path(ie))
 
     @classmethod
     def find_wall_points(cls, points):
