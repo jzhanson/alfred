@@ -41,7 +41,7 @@ class RandomAgent(object):
             self.actions = constants.COMPLEX_ACTIONS
             self.index_to_action = constants.INDEX_TO_ACTION_COMPLEX
 
-    def reset(self, ie, tiebreaker):
+    def reset(self, ie, tiebreaker, scene_num):
         return
 
     def get_pred_action_mask_indexes(self, ie, masks,
@@ -86,10 +86,11 @@ class NavCoverageAgent(RandomAgent):
     def __init__(self, **kwargs):
         super(NavCoverageAgent, self).__init__(**kwargs)
 
-    def reset(self, ie, tiebreaker):
+    def reset(self, ie, tiebreaker, scene_num):
         self.all_points = [tuple(point) for point in list(ie.graph.points)]
         self.reset_points(ie.env.last_event.pose_discrete)
         self.tiebreaker = tiebreaker
+        self.scene_num = scene_num
         self.actions_to_destination, self.path_to_destination = (
                 NavCoverageAgent.get_closest_actions_path(ie, self.points,
                     self.tiebreaker))
@@ -160,12 +161,13 @@ class WallAgent(NavCoverageAgent):
     def __init__(self, **kwargs):
         super(WallAgent, self).__init__(**kwargs)
 
-    def reset(self, ie, tiebreaker):
+    def reset(self, ie, tiebreaker, scene_num):
         self.all_points = WallAgent.find_wall_points(ie.graph.points)
         self.reset_points(ie.env.last_event.pose_discrete)
         # self.path_to_wall will always be one longer than self.actions_to_wall
         # and contain both the current pose and the goal pose
         self.tiebreaker = tiebreaker
+        self.scene_num = scene_num
         self.actions_to_destination, self.path_to_destination = (
                 NavCoverageAgent.get_closest_actions_path(ie, self.points,
                     self.tiebreaker))
@@ -212,7 +214,7 @@ def heuristic_rollout(ie, reset_kwargs, agent, tiebreaker,
                   'horizon': starting_look_angle,
                   }
         event = ie.env.step(init_pose_action)
-    agent.reset(ie, tiebreaker)
+    agent.reset(ie, tiebreaker, reset_kwargs['scene_name_or_num'])
 
     trajectory_info = {}
     trajectory_info['scene_num'] = reset_kwargs['scene_name_or_num']
