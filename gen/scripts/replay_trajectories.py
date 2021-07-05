@@ -33,7 +33,11 @@ def get_object_counts_in_frame(event):
     for i in range(event.instance_segmentation_frame.shape[0]):
         for j in range(event.instance_segmentation_frame.shape[1]):
             color = tuple(event.instance_segmentation_frame[i][j])
-            object_ids_in_frame.add(event.color_to_object_id[color])
+            # Sometimes colors aren't in the color_to_object_id dict since
+            # color_to_object_id doesn't track all objects (like maybe not
+            # Ceiling or Cube)
+            if color in event.color_to_object_id:
+                object_ids_in_frame.add(event.color_to_object_id[color])
     object_counts = [0 for _ in constants.ALL_OBJECTS]
     for object_id in object_ids_in_frame:
         obj = event.get_object(object_id)
