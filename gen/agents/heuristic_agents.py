@@ -91,8 +91,8 @@ class NavCoverageAgent(RandomAgent):
         self.reset_points(ie.env.last_event.pose_discrete)
         self.tiebreaker = tiebreaker
         self.scene_num = scene_num
-        self.actions_to_destination, self.path_to_destination = (
-                self.get_closest_actions_path(ie))
+        (self.actions_to_destination, self.path_to_destination,
+                self.end_pose) = (self.get_closest_actions_path(ie))
 
     def get_pred_action_mask_indexes(self, ie, masks,
             last_action_success=True):
@@ -111,15 +111,14 @@ class NavCoverageAgent(RandomAgent):
             ie.graph.add_impossible_spot(impossible_next_pose)
             if impossible_next_pose[:2] in self.points:
                 self.points.remove(impossible_next_pose[:2])
-            self.actions_to_destination, self.path_to_destination = (
-                    self.get_closest_actions_path(ie))
+            (self.actions_to_destination, self.path_to_destination,
+                    self.end_pose) = (self.get_closest_actions_path(ie))
         if len(self.actions_to_destination) == 0:
-            if len(self.path_to_destination) > 1:
+            if self.path_to_destination[0] != self.end_pose[:3]:
                 # Didn't reach the target wall location
-                print('Could not reach goal ' +
-                        str(self.path_to_destination[-1]) +
-                        ', marking as impossible')
-                ie.graph.add_impossible_spot(self.path_to_destination[-1])
+                print('Could not reach goal ' + str(self.end_pose) +
+                    ', marking as impossible')
+                ie.graph.add_impossible_spot(self.end_pose)
             end_point = self.path_to_destination[-1][:2]
             # Sometimes end point not in points due to having already been to
             # that location
@@ -128,8 +127,8 @@ class NavCoverageAgent(RandomAgent):
             if len(self.points) == 0:
                 # Perimeter lap complete - reset self.points and "start over"
                 self.reset_points(ie.env.last_event.pose_discrete)
-            self.actions_to_destination, self.path_to_destination = (
-                    self.get_closest_actions_path(ie))
+            (self.actions_to_destination, self.path_to_destination,
+                    self.end_pose) = (self.get_closest_actions_path(ie))
         action = self.actions_to_destination[0]['action']
         self.actions_to_destination = self.actions_to_destination[1:]
         self.path_to_destination = self.path_to_destination[1:]
@@ -148,7 +147,7 @@ class NavCoverageAgent(RandomAgent):
         need_restart = True
         impossible_point = None
         while need_restart:
-            actions_paths = []
+            end_poses_actions_paths = []
             # Remove impossible points here so we're not removing inside the
             # same iteration loop
             if impossible_point is not None:
@@ -157,15 +156,17 @@ class NavCoverageAgent(RandomAgent):
                 impossible_point = None
             need_restart = False
             for x, z in self.points:
-                point_actions_paths = []
+                point_end_poses_actions_paths = []
                 # Check all rotations of all given points for minimum action
                 # distance - doesn't seem to noticably slow down the rollouts
                 for rotation in range(4):
                     actions, path = ie.graph.get_shortest_path(
                             ie.env.last_event.pose_discrete, (x, z, rotation,
                                 current_look_angle))
-                    point_actions_paths.append((actions, path))
-                min_actions, min_path = min(point_actions_paths, key=lambda ap:
+                    point_end_poses_actions_paths.append(((x, z, rotation,
+                        current_look_angle), actions, path))
+                min_end_pose, min_actions, min_path = min(
+                        point_end_poses_actions_paths, key=lambda ap:
                         len(ap[0]))
                 # Impossible spot will have undefined behavior
                 if min_path[-1][:2] != (x, z):
@@ -175,17 +176,19 @@ class NavCoverageAgent(RandomAgent):
                     need_restart = True
                     break
                 else:
-                    actions_paths.append((min_actions, min_path))
-        min_actions_distance = min([len(actions) for (actions, path) in
-            actions_paths])
+                    end_poses_actions_paths.append((min_end_pose, min_actions,
+                        min_path))
+        min_actions_distance = min([len(actions) for (end_pose, actions, path)
+            in end_poses_actions_paths])
         # Current pose shouldn't appear in points, and no points should be
         # impossible
         assert min_actions_distance > 0
-        min_actions_paths = [(actions, path) for (actions, path) in
-                actions_paths if len(actions) == min_actions_distance]
-        actions, path = trajectory_index_break_tie(self.tiebreaker,
-                min_actions_paths)
-        return actions, path
+        min_end_poses_actions_paths = [(end_pose, actions, path) for (end_pose,
+            actions, path) in end_poses_actions_paths if len(actions) ==
+            min_actions_distance]
+        end_pose, actions, path = trajectory_index_break_tie(self.tiebreaker,
+                min_end_poses_actions_paths)
+        return actions, path, end_pose
 
 class WallAgent(NavCoverageAgent):
     def __init__(self, **kwargs):
@@ -198,8 +201,8 @@ class WallAgent(NavCoverageAgent):
         # and contain both the current pose and the goal pose
         self.tiebreaker = tiebreaker
         self.scene_num = scene_num
-        self.actions_to_destination, self.path_to_destination = (
-                self.get_closest_actions_path(ie))
+        (self.actions_to_destination, self.path_to_destination,
+                self.end_pose) = (self.get_closest_actions_path(ie))
 
     @classmethod
     def find_wall_points(cls, points):
