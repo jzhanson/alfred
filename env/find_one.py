@@ -54,6 +54,100 @@ def crow_distance(a, b):
     # Does not account for obstructions, rotation, or looking up/down
     return np.sqrt(delta_x**2 + delta_y**2 + delta_z**2)
 
+def get_end_poses_point_indexes(env, graph, target_objects, scene_name_or_num):
+    """
+    Get the end poses and the indexes of the ending point in the navigation
+    graph corresponding to target_instance_ids
+    """
+    agent_height = env.last_event.metadata['agent']['position']['y']
+    end_poses = []
+    end_point_indexes = []
+    # TODO: should this to match up perfectly with get_obj_coords in
+    # gen/game_states/task_game_state_full_knowledge.py? get_obj_coords
+    # uses backed off point if the distance to object is < 0.5 and the
+    # point is better than before. This works fine as-is for most objects
+    # but more poorly for large things like CounterTop
+    for target_object in target_objects:
+        distances_to_target = []
+        for point in graph.points:
+            # Skip impossible points
+            impossible_points = [spot[:2] for spot in
+                    list(graph.impossible_spots)]
+            if tuple(point) in impossible_points:
+                continue
+
+            point_xyz = {
+                    'x' : point[0]*constants.AGENT_STEP_SIZE,
+                    'y' : agent_height,
+                    'z' : point[1]*constants.AGENT_STEP_SIZE
+            }
+            distances_to_target.append(crow_distance(
+                target_object['position'], point_xyz))
+
+        end_point_index = np.argmin(distances_to_target)
+
+        end_point = graph.points[end_point_index]
+        delta_x = target_object['position']['x'] - \
+                end_point[0]*constants.AGENT_STEP_SIZE
+        delta_z = target_object['position']['z'] - \
+                end_point[1]*constants.AGENT_STEP_SIZE
+        '''
+        Center is point, where agent would stand.
+                z
+          \     |     /
+           \  0 | 0  /
+            \   |   /
+             \  |  /
+           3  \ | /  1
+               \|/
+        ---------------- x
+               /|\
+           3  / | \  1
+             /  |  \
+            /   |   \
+           /  2 | 2  \
+          /     |     \
+
+        '''
+        if np.abs(delta_x) < np.abs(delta_z) and delta_z >= 0:
+            end_rotation = 0
+        elif np.abs(delta_x) < np.abs(delta_z) and delta_z < 0:
+            end_rotation = 2
+        elif np.abs(delta_x) >= np.abs(delta_z) and delta_x >= 0:
+            end_rotation = 1
+        elif np.abs(delta_x) >= np.abs(delta_z) and delta_x < 0:
+            end_rotation = 3
+        # Calculate look angle: from get_obj_coords in
+        # gen/game_states/task_game_state_full_knowledge.py
+        horizontal_dist_to_obj = np.max(np.abs([delta_x, delta_z]))
+        # Use the center y for now. Corners are in
+        # target_object['objectBounds']['objectBoundsCorners']
+        obj_height = ((agent_height + constants.CAMERA_HEIGHT_OFFSET) -
+                target_object['position']['y'])
+        camera_angle = int(np.clip(np.round(np.arctan2(obj_height,
+            horizontal_dist_to_obj) * (180 / np.pi /
+                constants.HORIZON_GRANULARITY)) *
+            constants.HORIZON_GRANULARITY, -30,  60))
+
+        # Hard overwrites for camera_angle adjustments based on object type
+        # and scene.
+        if target_object['objectType'] is not None and scene_name_or_num \
+                is not None:
+            if (target_object['objectType'], scene_name_or_num) in \
+                    constants.FORCED_HORIZON_OBJS:
+                camera_angle = constants.FORCED_HORIZON_OBJS[
+                    (target_object['objectType'], sscene_name_or_num)]
+            elif (target_object['objectType'], None) in \
+                    constants.FORCED_HORIZON_OBJS:
+                camera_angle = constants.FORCED_HORIZON_OBJS[
+                    (target_object['objectType'], None)]
+
+        end_pose = (end_point[0], end_point[1], end_rotation, camera_angle)
+        end_poses.append(end_pose)
+        end_point_indexes.append(end_point_index)
+
+    return end_poses, end_point_indexes
+
 
 class FindOne(object):
     """Task is to find an instance of a specified object in a scene"""
@@ -142,8 +236,9 @@ class FindOne(object):
                 scene_id=self.scene_name_or_num)
         # Find out which graph points are closest to the object and the ending
         # positions+rotations
-        self.end_poses, self.end_point_indexes = \
-                self.get_end_poses_point_indexes()
+        self.end_poses, self.end_point_indexes = get_end_poses_point_indexes(
+                self.env, self.graph, self.target_objects,
+                self.scene_name_or_num)
 
         self.update_expert_actions_path()
         # Expert actions need not be the same as those in traj_data but they
@@ -199,8 +294,9 @@ class FindOne(object):
         agent_height = event.metadata['agent']['position']['y']
         # Find out which graph points are closest to the object and the ending
         # positions+rotations
-        self.end_poses, self.end_point_indexes = \
-                self.get_end_poses_point_indexes()
+        self.end_poses, self.end_point_indexes = get_end_poses_point_indexes(
+                self.env, self.graph, self.target_objects,
+                self.scene_name_or_num)
 
         # Randomly initialize agent position
         # len(self.graph.points) - 1 because randint is inclusive
@@ -316,100 +412,6 @@ class FindOne(object):
                 if any(parent_receptacles_closed):
                     continue
             self.target_objects.append(candidate_object)
-
-    def get_end_poses_point_indexes(self):
-        """
-        Get the end poses and the indexes of the ending point in the navigation
-        graph (self.graph) corresponding to self.target_instance_ids
-        """
-        agent_height = self.env.last_event.metadata['agent']['position']['y']
-        end_poses = []
-        end_point_indexes = []
-        # TODO: should this to match up perfectly with get_obj_coords in
-        # gen/game_states/task_game_state_full_knowledge.py? get_obj_coords
-        # uses backed off point if the distance to object is < 0.5 and the
-        # point is better than before. This works fine as-is for most objects
-        # but more poorly for large things like CounterTop
-        for target_object in self.target_objects:
-            distances_to_target = []
-            for point in self.graph.points:
-                # Skip impossible points
-                impossible_points = [spot[:2] for spot in
-                        list(self.graph.impossible_spots)]
-                if tuple(point) in impossible_points:
-                    continue
-
-                point_xyz = {
-                        'x' : point[0]*constants.AGENT_STEP_SIZE,
-                        'y' : agent_height,
-                        'z' : point[1]*constants.AGENT_STEP_SIZE
-                }
-                distances_to_target.append(crow_distance(
-                    target_object['position'], point_xyz))
-
-            end_point_index = np.argmin(distances_to_target)
-
-            end_point = self.graph.points[end_point_index]
-            delta_x = target_object['position']['x'] - \
-                    end_point[0]*constants.AGENT_STEP_SIZE
-            delta_z = target_object['position']['z'] - \
-                    end_point[1]*constants.AGENT_STEP_SIZE
-            '''
-            Center is point, where agent would stand.
-                    z
-              \     |     /
-               \  0 | 0  /
-                \   |   /
-                 \  |  /
-               3  \ | /  1
-                   \|/
-            ---------------- x
-                   /|\
-               3  / | \  1
-                 /  |  \
-                /   |   \
-               /  2 | 2  \
-              /     |     \
-
-            '''
-            if np.abs(delta_x) < np.abs(delta_z) and delta_z >= 0:
-                end_rotation = 0
-            elif np.abs(delta_x) < np.abs(delta_z) and delta_z < 0:
-                end_rotation = 2
-            elif np.abs(delta_x) >= np.abs(delta_z) and delta_x >= 0:
-                end_rotation = 1
-            elif np.abs(delta_x) >= np.abs(delta_z) and delta_x < 0:
-                end_rotation = 3
-            # Calculate look angle: from get_obj_coords in
-            # gen/game_states/task_game_state_full_knowledge.py
-            horizontal_dist_to_obj = np.max(np.abs([delta_x, delta_z]))
-            # Use the center y for now. Corners are in
-            # target_object['objectBounds']['objectBoundsCorners']
-            obj_height = ((agent_height + constants.CAMERA_HEIGHT_OFFSET) -
-                    target_object['position']['y'])
-            camera_angle = int(np.clip(np.round(np.arctan2(obj_height,
-                horizontal_dist_to_obj) * (180 / np.pi /
-                    constants.HORIZON_GRANULARITY)) *
-                constants.HORIZON_GRANULARITY, -30,  60))
-
-            # Hard overwrites for camera_angle adjustments based on object type
-            # and scene.
-            if self.target_object_type is not None and self.scene_name_or_num \
-                    is not None:
-                if (self.target_object_type, self.scene_name_or_num) in \
-                        constants.FORCED_HORIZON_OBJS:
-                    camera_angle = constants.FORCED_HORIZON_OBJS[
-                        (self.target_object_type, self.scene_name_or_num)]
-                elif (self.target_object_type, None) in \
-                        constants.FORCED_HORIZON_OBJS:
-                    camera_angle = constants.FORCED_HORIZON_OBJS[
-                        (self.target_object_type, None)]
-
-            end_pose = (end_point[0], end_point[1], end_rotation, camera_angle)
-            end_poses.append(end_pose)
-            end_point_indexes.append(end_point_index)
-
-        return end_poses, end_point_indexes
 
     def update_expert_actions_path(self):
         """
