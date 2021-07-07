@@ -333,6 +333,12 @@ class FindOne(object):
         for target_object in self.target_objects:
             distances_to_target = []
             for point in self.graph.points:
+                # Skip impossible points
+                impossible_points = [spot[:2] for spot in
+                        list(self.graph.impossible_spots)]
+                if tuple(point) in impossible_points:
+                    continue
+
                 point_xyz = {
                         'x' : point[0]*constants.AGENT_STEP_SIZE,
                         'y' : agent_height,
@@ -379,7 +385,8 @@ class FindOne(object):
             horizontal_dist_to_obj = np.max(np.abs([delta_x, delta_z]))
             # Use the center y for now. Corners are in
             # target_object['objectBounds']['objectBoundsCorners']
-            obj_height = agent_height - target_object['position']['y']
+            obj_height = ((agent_height + constants.CAMERA_HEIGHT_OFFSET) -
+                    target_object['position']['y'])
             camera_angle = int(np.clip(np.round(np.arctan2(obj_height,
                 horizontal_dist_to_obj) * (180 / np.pi /
                     constants.HORIZON_GRANULARITY)) *
