@@ -18,6 +18,7 @@ from models.model.args import parse_args
 from models.nn.ie import SuperpixelFusion
 from models.train.train_rl_ie import check_thor, get_scene_numbers, setup_env
 from models.utils.helper_utils import superpixelactionconcat_index_to_action
+from env.find_one import crow_distance, get_end_poses_point_indexes
 import torch
 import multiprocessing as mp
 
@@ -27,6 +28,25 @@ def trajectory_index_break_tie(tiebreaker, l):
     if len(l) > 1:
         print('tiebreaker', chosen_index, len(l))
     return l[chosen_index]
+
+def in_closed_receptacle(event, obj):
+    if obj['parentReceptacles'] is not None:
+        for parent_receptacle_id in obj['parentReceptacles']:
+            parent_receptacle = event.get_object(parent_receptacle_id)
+            if (parent_receptacle['openable'] and not
+                    parent_receptacle['isOpen']):
+                return True
+    return False
+
+def get_closed_parent_receptacle_ids(event, obj):
+    closed_parent_receptacle_ids = []
+    if obj['parentReceptacles'] is not None:
+        for parent_receptacle_id in obj['parentReceptacles']:
+            parent_receptacle = event.get_object(parent_receptacle_id)
+            if (parent_receptacle['openable'] and not
+                    parent_receptacle['isOpen']):
+                closed_parent_receptacle_ids.append(parent_receptacle_id)
+    return closed_parent_receptacle_ids
 
 class RandomAgent(object):
     def __init__(self, single_interact=False, outer_product_sampling=False,
@@ -217,6 +237,308 @@ class WallAgent(NavCoverageAgent):
                 wall_points.append((x, z))
         return wall_points
 
+class IntCoverageAgent(RandomAgent):
+    def __init__(self, **kwargs):
+        super(IntCoverageAgent, self).__init__(**kwargs)
+
+    def reset(self, ie, tiebreaker, scene_num):
+        self.tiebreaker = tiebreaker
+        self.scene_num = scene_num
+        event = ie.env.last_event
+
+        instance_ids = [obj['objectId'] for obj in event.metadata['objects']]
+        self.interactable_instance_ids = ie.env.prune_by_any_interaction(
+                instance_ids)
+        self.seen_interactions = set() # (instance_id, action)
+        (self.closest_instance_id, self.closest_instance_action,
+                self.actions_to_destination, self.path_to_destination,
+                self.end_pose) = (
+                        self.get_closest_interactable_instance_id_action(ie,
+                        crow_distance=False))
+        self.last_action_type = 'navigation'
+
+    # A good amount of this code is taken from env/find_one.py
+    def get_closest_interactable_instance_id_action(self, ie,
+            crow_distance=False):
+        """By crow distance, filtering by current interactability."""
+        event = ie.env.last_event
+        interactable_objects = [event.get_object(instance_id) for
+                instance_id in self.interactable_instance_ids]
+        current_interactable_objects_actions = []
+        blocked_objects_actions = []
+        for obj in interactable_objects:
+            obj_accessible = True
+            obj_seen_actions = [action for (target_instance_id, action) in
+                    self.seen_interactions if target_instance_id ==
+                    obj['objectId']]
+
+            # Inventory object is inaccessible
+            if ((len(event.metadata['inventoryObjects']) > 0 and
+                obj['objectId'] ==
+                event.metadata['inventoryObjects'][0]['objectId']) or
+                in_closed_receptacle(event, obj)):
+                obj_accessible = False
+
+            if obj['pickupable'] and 'PickupObject' not in obj_seen_actions:
+                if (len(event.metadata['inventoryObjects']) == 0 and
+                        obj_accessible):
+                    current_interactable_objects_actions.append((obj,
+                        'PickupObject'))
+                else:
+                    blocked_objects_actions.append((obj, 'PickupObject'))
+            if (obj['receptacle'] and 'PutObject' not in obj_seen_actions):
+                # Sink is not in VAL_RECEPTACLE_OBJECTS, wait for SinkBasin
+                # instead
+                if (len(event.metadata['inventoryObjects']) > 0 and
+                        obj['objectType'] != 'Sink' and
+                        event.metadata['inventoryObjects'][0]['objectType'] in
+                        constants.VAL_RECEPTACLE_OBJECTS[obj['objectType']] and
+                        obj_accessible):
+                    current_interactable_objects_actions.append((obj,
+                        'PutObject'))
+                else:
+                    blocked_objects_actions.append((obj, 'PutObject'))
+            if obj['openable']:
+                if not obj['isOpen'] and 'OpenObject' not in obj_seen_actions:
+                    if obj_accessible:
+                        current_interactable_objects_actions.append((obj,
+                            'OpenObject'))
+                    else:
+                        blocked_objects_actions.append((obj, 'OpenObject'))
+                elif obj['isOpen'] and 'CloseObject' not in obj_seen_actions:
+                    if obj_accessible:
+                        current_interactable_objects_actions.append((obj,
+                            'CloseObject'))
+                    else:
+                        blocked_objects_actions.append((obj, 'CloseObject'))
+            if obj['toggleable']:
+                if (not obj['isToggled'] and 'ToggleObjectOn' not in
+                        obj_seen_actions):
+                    if obj_accessible:
+                        current_interactable_objects_actions.append((obj,
+                            'ToggleObjectOn'))
+                    else:
+                        blocked_objects_actions.append((obj, 'ToggleObjectOn'))
+                elif (obj['isToggled'] and 'ToggleObjectOff' not in
+                        obj_seen_actions):
+                    if obj_accessible:
+                        current_interactable_objects_actions.append((obj,
+                            'ToggleObjectOff'))
+                    else:
+                        blocked_objects_actions.append((obj, 'ToggleObjectOff'))
+            if obj['sliceable'] and 'SliceObject' not in obj_seen_actions:
+                if (len(event.metadata['inventoryObjects']) > 0 and 'Knife'
+                        in event.metadata['inventoryObjects'][0][
+                            'objectType'] and obj_accessible):
+                    current_interactable_objects_actions.append((obj,
+                        'SliceObject'))
+                else:
+                    blocked_objects_actions.append((obj, 'SliceObject'))
+
+        # If current_interactable_objects_actions is empty, that means that
+        # self.seen_interactions has not seen all possible interactions yet but
+        # something is blocking the last few interactions, so fill
+        # current_interactable_objects_actions with any action to unblock
+        # TODO: it might be easier to just reset self.seen_interactions
+        if len(current_interactable_objects_actions) == 0:
+            assert len(blocked_objects_actions) > 0
+            for obj, action in blocked_objects_actions:
+                # For branches where an object is required but that object
+                # could be in a closed receptacle, opening closed receptacles
+                # that contain instances of those objects and objects outside
+                # closed receptacles are equally weighted (i.e.  chosen by
+                # distance to agent)
+
+                # Object is in closed receptacle
+                if in_closed_receptacle(event, obj):
+                    # Open at least one closed receptacle - we might choose, in
+                    # a pathological case, a closed receptacle inside another
+                    # closed receptacle, but at that point, there's not much we
+                    # can do
+                    closed_parent_receptacle_ids = (
+                            get_closed_parent_receptacle_ids(event, obj))
+                    current_interactable_objects_actions.extend([
+                            (event.get_object(parent_receptacle_id),
+                                'OpenObject') for parent_receptacle_id in
+                            closed_parent_receptacle_ids])
+                # Holding uninteracted object (e.g. Box is pickupable and
+                # openable)
+                # Holding an object so can't pick up an uninteracted object
+                # Holding an object so can't pick up knife for slicing
+                # Holding the wrong object (not an object necessary to interact
+                # with receptacle)
+                elif (len(event.metadata['inventoryObjects']) > 0 and
+                        (obj['objectId'] ==
+                            event.metadata['inventoryObjects'][0]['objectId']
+                            or action == 'PickupObject' or action ==
+                            'SliceObject' or action == 'PutObject')):
+                    # Find valid receptacle to put current object down
+                    for possible_receptacle_obj in interactable_objects:
+                        if (possible_receptacle_obj['receptacle'] and
+                                event.metadata['inventoryObjects'][0][
+                                    'objectType'] in
+                                constants.VAL_RECEPTACLE_OBJECTS[
+                                    obj['objectType']]):
+                            if in_closed_receptacle(event,
+                                    possible_receptacle_obj):
+                                closed_parent_receptacle_ids = (
+                                        get_closed_parent_receptacle_ids(event,
+                                            obj))
+                                current_interactable_objects_actions.extend([
+                                    (event.get_object(parent_receptacle_id),
+                                        'OpenObject') for parent_receptacle_id
+                                    in closed_parent_receptacle_ids])
+                            else:
+                                current_interactable_objects_actions.append((
+                                    obj, 'PutObject'))
+                # Not having a knife to slice with
+                elif action == 'SliceObject':
+                    for possible_knife_obj in interactable_objects:
+                        if 'Knife' in possible_knife_obj['objectType']:
+                            if in_closed_receptacle(event, possible_knife_obj):
+                                closed_parent_receptacle_ids = (
+                                        get_closed_parent_receptacle_ids(event,
+                                            obj))
+                                current_interactable_objects_actions.extend([
+                                    (event.get_object(parent_receptacle_id),
+                                        'OpenObject') for parent_receptacle_id
+                                    in closed_parent_receptacle_ids])
+                            else:
+                                current_interactable_objects_actions.append((
+                                    obj, 'PickupObject'))
+                # Not holding an object necessary to interact with receptacle
+                elif action  == 'PutObject':
+                    for possible_inside_obj in interactable_objects:
+                        if (possible_inside_obj['objectType'] in
+                                constants.VAL_RECEPTACLE_OBJECTS[
+                                    obj['objectType']]):
+                            if in_closed_receptacle(event,
+                                    possible_inside_obj):
+                                closed_parent_receptacle_ids = (
+                                        get_closed_parent_receptacle_ids(event,
+                                            obj))
+                                current_interactable_objects_actions.extend([
+                                    (event.get_object(parent_receptacle_id),
+                                        'OpenObject') for parent_receptacle_id
+                                    in closed_parent_receptacle_ids])
+                            else:
+                                current_interactable_objects_actions.append((
+                                    obj, 'PickupObject'))
+
+        # get_end_poses_point_indexes and get_shortest_path will path to the
+        # next closest point for objects where the closest point is not
+        # reachable
+        #
+        # end_poses and end_point_indexes will never be empty, but
+        # current_interactable_objects_actions could be. closest_obj and
+        # action will be found as long as current_interactable_objects_actions
+        # is not empty
+        assert len(current_interactable_objects_actions) > 0
+        if crow_distance:
+            min_distance = min([obj['distance'] for (obj, action) in
+                current_interactable_objects_actions])
+            closest_obj_actions = [(obj, action) for (obj, action) in
+                    current_interactable_objects_actions if obj['distance'] ==
+                    min_distance]
+            closest_obj, action = trajectory_index_break_tie(self.tiebreaker,
+                    closest_obj_actions)
+            end_poses, end_point_indexes = get_end_poses_point_indexes(ie.env,
+                    ie.graph, [closest_obj], self.scene_num)
+            end_pose = trajectory_index_break_tie(self.tiebreaker, end_poses)
+            # ie.graph.get_shortest_path will do its best if the path is
+            # impossible, and we should still give that path a try
+            actions, path = ie.graph.get_shortest_path(
+                    ie.env.last_event.pose_discrete, end_pose)
+        else:
+            # Action distance
+            end_poses, end_point_indexes = get_end_poses_point_indexes(ie.env,
+                    ie.graph, [obj for (obj, action) in
+                        current_interactable_objects_actions], self.scene_num)
+            obj_action_end_poses_actions_paths = []
+            for (obj, action), end_pose in zip(
+                    current_interactable_objects_actions, end_poses):
+                obj_action_end_poses_actions_paths.append((obj, action,
+                    end_pose, *ie.graph.get_shortest_path(
+                        ie.env.last_event.pose_discrete, end_pose)))
+            min_actions = min([len(actions) for (_, _, _, actions, _) in
+                obj_action_end_poses_actions_paths])
+            min_obj_action_end_poses_actions_paths = [(obj, action, end_pose,
+                actions, path) for (obj, action, end_pose, actions, path) in
+                obj_action_end_poses_actions_paths if len(actions) ==
+                min_actions]
+            closest_obj, action, end_pose, actions, path = (
+                    trajectory_index_break_tie(self.tiebreaker,
+                        min_obj_action_end_poses_actions_paths))
+        return closest_obj['objectId'], action, actions, path, end_pose
+
+    def get_pred_action_mask_indexes(self, ie, masks,
+            last_action_success=True, debug=False):
+        if not last_action_success and self.last_action_type == 'navigation':
+            # Mark next location (i.e. would-be current location) as
+            # impossible
+            print('Could not reach location ' +
+                    str(self.path_to_destination[0]) +
+                    ', marking as impossible')
+            ie.graph.add_impossible_spot(self.path_to_destination[0])
+            # Replan
+            (self.closest_instance_id, self.closest_instance_action,
+                    self.actions_to_destination,
+                    self.path_to_destination, self.end_pose) = (self
+                            .get_closest_interactable_instance_id_action(ie,
+                                crow_distance=False))
+        elif self.last_action_type == 'interaction':
+            # Mark tried interaction as seen if tried once, even if
+            # impossible. Retrying from a different location is a bit too
+            # complicated for now
+            self.seen_interactions.add((self.closest_instance_id,
+                self.closest_instance_action))
+
+            # If all interactions seen, empty interacted objects and "start over"
+            if (len(self.seen_interactions) ==
+                    constants.SCENE_INTERACTION_COVERAGES_BY_OBJECT[
+                        self.scene_num]):
+                self.seen_interactions = set()
+            # Replan
+            (self.closest_instance_id, self.closest_instance_action,
+                    self.actions_to_destination,
+                    self.path_to_destination, self.end_pose) = (self
+                            .get_closest_interactable_instance_id_action(ie,
+                                crow_distance=False))
+
+        if debug:
+            print('closest_instance_id action end pose',
+                    self.closest_instance_id, self.closest_instance_action,
+                    self.end_pose)
+            print('current pose end pose', ie.env.last_event.pose_discrete,
+                    self.end_pose)
+            print('actions', self.actions_to_destination)
+            print('path', self.path_to_destination)
+
+        if len(self.actions_to_destination) == 0:
+            if self.path_to_destination[0] != self.end_pose[:3]:
+                # Didn't reach the target location
+                print('Could not reach goal ' + str(self.end_pose) +
+                    ', marking as impossible')
+                ie.graph.add_impossible_spot(self.end_pose)
+                # Try interaction anyway
+            # Select mask and return from this branch - if no mask found that
+            # will interact with the target object, return -1
+            pred_mask_index = -1
+            for i, mask in enumerate(masks):
+                if (ie.env.mask_to_target_instance_id(mask) ==
+                        self.closest_instance_id):
+                    pred_mask_index = i
+                    break
+            self.last_action_type = 'interaction'
+            return (self.actions.index(self.closest_instance_action),
+                    pred_mask_index)
+
+        self.last_action_type = 'navigation'
+        action = self.actions_to_destination[0]['action']
+        self.actions_to_destination = self.actions_to_destination[1:]
+        self.path_to_destination = self.path_to_destination[1:]
+        pred_action_index = self.actions.index(action)
+        return pred_action_index, -1
 
 def heuristic_rollout(ie, reset_kwargs, agent, tiebreaker,
         starting_look_angle=None, single_interact=False,
@@ -368,6 +690,8 @@ def setup_rollouts(rank, args, trajectory_sync):
         agent = NavCoverageAgent(single_interact=args.single_interact)
     elif args.heuristic_agent == 'wall':
         agent = WallAgent(single_interact=args.single_interact)
+    elif args.heuristic_agent == 'intcoverage':
+        agent = IntCoverageAgent(single_interact=args.single_interact)
 
     if type(args.heuristic_look_angles) is int:
         args.heuristic_look_angles = [args.heuristic_look_angles]
