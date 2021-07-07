@@ -107,7 +107,7 @@ parser.add_argument('--no-sample-contextual-action', dest='sample_contextual_act
 parser.set_defaults(sample_contextual_action=False)
 parser.add_argument('--use-masks', dest='use_masks', action='store_true', help='use interaction masks')
 parser.add_argument('--no-use-masks', dest='use_masks', action='store_false', help='do not use interaction masks (use contextual interaction with object closest to center of view)')
-parser.set_defaults(use_masks=False)
+parser.set_defaults(use_masks=True)
 parser.add_argument('--random-object-positions', dest='random_object_positions', action='store_true', help='randomize object positions for each episode')
 parser.add_argument('--fixed-object-positions', dest='random_object_positions', action='store_false', help='keep object positions fixed in each scene')
 parser.set_defaults(random_object_positions=False)
