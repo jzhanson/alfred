@@ -66,7 +66,10 @@ def take_step(model, shared_model, optimizer, data, target,
         else:
             loss = F.mse_loss(output, target.to(device))
     optimizer.zero_grad()
-    loss.backward()
+    try:
+        loss.backward(retain_graph=True)
+    except:
+        loss.backward()
     torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
     if model != shared_model:
         ensure_shared_grads(model, shared_model, gpu=(not device ==
