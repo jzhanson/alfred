@@ -55,7 +55,7 @@ def evaluate(model, shared_model, eval_dataloader, dataset_type='imagenet',
 def take_step(model, shared_model, optimizer, data, target,
         dataset_type='imagenet', interaction_scene_binary_labels=True,
         max_grad_norm=50, device=torch.device('cpu')):
-    output = model(data.cpu())
+    output = model(data)
     if dataset_type == 'imagenet' or dataset_type == 'interaction_object':
         output_log_probs = F.log_softmax(output, dim=1)
         loss = F.nll_loss(output_log_probs, target.to(device))
