@@ -8,6 +8,7 @@ import json
 import cv2
 import torch
 from torch.utils.data import Dataset, DataLoader
+from torchvision import transforms
 
 import gen.constants as constants
 
@@ -16,7 +17,8 @@ class InteractionDataset(Dataset):
     def __init__(self, dataset_path, dataset_type='scene',
             max_trajectory_length=None, high_res_images=False,
             scene_target_type='in_frame', scene_binary_labels=True,
-            excluded_object_types=[], object_distance_threshold=None):
+            excluded_object_types=[], object_distance_threshold=None,
+            resize_size=(224, 224)):
         self.dataset_path = dataset_path
         self.dataset_type = dataset_type
         self.max_trajectory_length = max_trajectory_length
@@ -25,8 +27,17 @@ class InteractionDataset(Dataset):
         self.scene_binary_labels = scene_binary_labels
         self.excluded_object_types = excluded_object_types
         self.object_distance_threshold = object_distance_threshold
+        self.resize_size = resize_size
 
         self.frame_extension = '.png' if self.high_res_images else '.jpg'
+
+        # In torchvision 0.3.0 only supports PIL.Image as input to
+        # transforms.Resize, not torch.tensor or numpy.ndarray
+        self.transform = transforms.Compose([
+            transforms.ToPILImage(),
+            transforms.Resize(self.resize_size),
+            transforms.ToTensor()
+            ])
 
         self.trajectory_directories = os.listdir(dataset_path)
         self.trajectory_directories.sort()
@@ -116,10 +127,11 @@ class InteractionDataset(Dataset):
                 trajectory_directory, self.dataset_type, '%05d' % frame_index +
                 self.frame_extension)
 
-            # Reshape cv2 BGR to RGB
+            # Reshape cv2 BGR to RGB and reshape so the color dimension is
+            # first for self.transform
             img = cv2.imread(frame_path)
-            data.append(torch.tensor(cv2.cvtColor(img,
-                cv2.COLOR_BGR2RGB)))
+            data.append(self.transform(cv2.cvtColor(img, cv2.COLOR_BGR2RGB)))
+
             info_path = os.path.join(self.dataset_path, trajectory_directory,
                     self.dataset_type, 'info.json')
             with open(info_path, 'r') as jsonfile:
