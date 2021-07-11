@@ -682,7 +682,10 @@ def setup_rollouts(rank, args, trajectory_sync):
             'min_size_factor' : args.slic_min_size_factor
     }
 
-    scene_numbers = get_scene_numbers(args.scene_numbers, args.scene_types)
+    scene_numbers = get_scene_numbers(args.scene_numbers, args.scene_types,
+            include_train=args.include_train_scenes,
+            include_valid=args.include_valid_scenes,
+            include_test=args.include_test_scenes)
 
     if args.heuristic_agent == 'random':
         agent = RandomAgent(single_interact=args.single_interact)
