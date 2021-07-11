@@ -28,10 +28,15 @@ def get_object_counts_visible(event):
             object_counts[object_index] += 1
     return object_counts
 
-def get_object_counts_in_frame(event):
+def get_object_counts_in_frame(event, y_bounds=None, x_bounds=None):
     object_ids_in_frame = set()
-    for i in range(event.instance_segmentation_frame.shape[0]):
-        for j in range(event.instance_segmentation_frame.shape[1]):
+    if y_bounds is None:
+        y_bounds = (0, 300)
+    if x_bounds is None:
+        x_bounds = (0, 300)
+
+    for i in range(*y_bounds):
+        for j in range(*x_bounds):
             color = tuple(event.instance_segmentation_frame[i][j])
             # Sometimes colors aren't in the color_to_object_id dict since
             # color_to_object_id doesn't track all objects (like maybe not
