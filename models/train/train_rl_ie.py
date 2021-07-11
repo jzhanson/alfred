@@ -36,7 +36,7 @@ def check_thor():
     print(event.frame.shape)
     print("Everything works!!!")
 
-def get_scene_numbers(scene_numbers, scene_types):
+def get_scene_numbers(scene_numbers, scene_types, include_test=False):
     """Contains logic for getting list of scene numbers from args.scene_numbers
     and args.scene_types.
     """
@@ -49,13 +49,25 @@ def get_scene_numbers(scene_numbers, scene_types):
     else:
         # "'str' in" pattern will work for both list and single string
         if 'kitchen' in scene_types:
+            if include_test:
+                output_scene_numbers.extend(
+                        constants.KITCHEN_TEST_SCENE_NUMBERS)
             output_scene_numbers.extend(constants.KITCHEN_TRAIN_SCENE_NUMBERS)
-        elif 'living_room' in scene_types:
+        if 'living_room' in scene_types:
+            if include_test:
+                output_scene_numbers.extend(
+                        constants.LIVING_ROOM_TEST_SCENE_NUMBERS)
             output_scene_numbers.extend(
                     constants.LIVING_ROOM_TRAIN_SCENE_NUMBERS)
-        elif 'bedroom' in scene_types:
+        if 'bedroom' in scene_types:
+            if include_test:
+                output_scene_numbers.extend(
+                        constants.BEDROOM_TEST_SCENE_NUMBERS)
             output_scene_numbers.extend(constants.BEDROOM_TRAIN_SCENE_NUMBERS)
-        elif 'bathroom' in scene_types:
+        if 'bathroom' in scene_types:
+            if include_test:
+                output_scene_numbers.extend(
+                        constants.BATHROOM_TEST_SCENE_NUMBERS)
             output_scene_numbers.extend(constants.BATHROOM_TRAIN_SCENE_NUMBERS)
 
     return output_scene_numbers
