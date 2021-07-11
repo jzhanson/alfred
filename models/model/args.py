@@ -240,7 +240,7 @@ parser.add_argument('--exclude-test-scenes', dest='include_test_scenes', action=
 parser.set_defaults(include_test_scenes=False)
 # Heuristic agent arguments
 parser.add_argument('--heuristic-agent', type=str, default='random', help='heuristic agent to use (\'random\' or \'wall\')')
-parser.add_argument('--heuristic-look-angles', type=int, nargs='+', default=None, help='starting look angles for heuristic agents. more useful for  navcoverage or wall than random or intcoverage. a good spread is [0, -15, -30, -45, -60, -75, -90, 15, 30, 45, 60]')
+parser.add_argument('--starting-look-angles', type=int, nargs='+', default=None, help='starting look angles for heuristic agents and probe generation. more useful for  navcoverage or wall than random or intcoverage. a good spread is [0, -15, -30, -45, -60, -75, -90, 15, 30, 45, 60]')
 
 def parse_args():
     return parser.parse_args()
