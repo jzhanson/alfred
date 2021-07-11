@@ -36,7 +36,8 @@ def check_thor():
     print(event.frame.shape)
     print("Everything works!!!")
 
-def get_scene_numbers(scene_numbers, scene_types, include_test=False):
+def get_scene_numbers(scene_numbers, scene_types, include_train=True,
+        include_valid=False, include_test=False):
     """Contains logic for getting list of scene numbers from args.scene_numbers
     and args.scene_types.
     """
@@ -49,27 +50,45 @@ def get_scene_numbers(scene_numbers, scene_types, include_test=False):
     else:
         # "'str' in" pattern will work for both list and single string
         if 'kitchen' in scene_types:
+            if include_train:
+                output_scene_numbers.extend(
+                        constants.KITCHEN_TRAIN_SCENE_NUMBERS)
+            if include_valid:
+                output_scene_numbers.extend(
+                        constants.KITCHEN_VALID_SCENE_NUMBERS)
             if include_test:
                 output_scene_numbers.extend(
                         constants.KITCHEN_TEST_SCENE_NUMBERS)
-            output_scene_numbers.extend(constants.KITCHEN_TRAIN_SCENE_NUMBERS)
         if 'living_room' in scene_types:
+            if include_train:
+                output_scene_numbers.extend(
+                        constants.LIVING_ROOM_TRAIN_SCENE_NUMBERS)
+            if include_valid:
+                output_scene_numbers.extend(
+                        constants.LIVING_ROOM_VALID_SCENE_NUMBERS)
             if include_test:
                 output_scene_numbers.extend(
                         constants.LIVING_ROOM_TEST_SCENE_NUMBERS)
-            output_scene_numbers.extend(
-                    constants.LIVING_ROOM_TRAIN_SCENE_NUMBERS)
         if 'bedroom' in scene_types:
+            if include_train:
+                output_scene_numbers.extend(
+                        constants.BEDROOM_TRAIN_SCENE_NUMBERS)
+            if include_valid:
+                output_scene_numbers.extend(
+                        constants.BEDROOM_VALID_SCENE_NUMBERS)
             if include_test:
                 output_scene_numbers.extend(
                         constants.BEDROOM_TEST_SCENE_NUMBERS)
-            output_scene_numbers.extend(constants.BEDROOM_TRAIN_SCENE_NUMBERS)
         if 'bathroom' in scene_types:
+            if include_train:
+                output_scene_numbers.extend(
+                        constants.BATHROOM_TRAIN_SCENE_NUMBERS)
+            if include_valid:
+                output_scene_numbers.extend(
+                        constants.BATHROOM_VALID_SCENE_NUMBERS)
             if include_test:
                 output_scene_numbers.extend(
                         constants.BATHROOM_TEST_SCENE_NUMBERS)
-            output_scene_numbers.extend(constants.BATHROOM_TRAIN_SCENE_NUMBERS)
-
     return output_scene_numbers
 
 def setup_env(args):
@@ -407,7 +426,10 @@ def setup_train(rank, args, shared_model, shared_curiosity_model,
         # Likewise, shared optimizer state is already loaded
         optimizer = shared_optimizer
 
-    scene_numbers = get_scene_numbers(args.scene_numbers, args.scene_types)
+    scene_numbers = get_scene_numbers(args.scene_numbers, args.scene_types,
+            include_train=args.include_train_scenes,
+            include_valid=args.include_valid_scenes,
+            include_test=args.include_test_scenes)
 
     reset_kwargs = {
             'random_object_positions' : args.random_object_positions,
