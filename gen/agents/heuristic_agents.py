@@ -696,8 +696,8 @@ def setup_rollouts(rank, args, trajectory_sync):
     elif args.heuristic_agent == 'intcoverage':
         agent = IntCoverageAgent(single_interact=args.single_interact)
 
-    if type(args.heuristic_look_angles) is int:
-        args.heuristic_look_angles = [args.heuristic_look_angles]
+    if type(args.starting_look_angles) is int:
+        args.starting_look_angles = [args.starting_look_angles]
 
     start_time = time.time()
     trajectory_local = 0
@@ -717,9 +717,9 @@ def setup_rollouts(rank, args, trajectory_sync):
                 'eval_results', str(trajectory_local) + '.json')
 
         scene_num = scene_numbers[trajectory_local % len(scene_numbers)]
-        if args.heuristic_look_angles is not None:
-            starting_look_angle = args.heuristic_look_angles[(trajectory_local
-                    // len(scene_numbers)) % len(args.heuristic_look_angles)]
+        if args.starting_look_angles is not None:
+            starting_look_angle = args.starting_look_angles[(trajectory_local
+                    // len(scene_numbers)) % len(args.starting_look_angles)]
         else:
             starting_look_angle = None
 
@@ -733,8 +733,8 @@ def setup_rollouts(rank, args, trajectory_sync):
                 'random_look_angle' : args.random_look_angle,
         }
         tiebreaker = (trajectory_local, len(scene_numbers) * (1 if
-            args.heuristic_look_angles is None else
-            len(args.heuristic_look_angles)))
+            args.starting_look_angles is None else
+            len(args.starting_look_angles)))
         trajectory_info, eval_results = heuristic_rollout(ie, reset_kwargs,
                 agent, tiebreaker, starting_look_angle=starting_look_angle,
                 single_interact=args.single_interact,
