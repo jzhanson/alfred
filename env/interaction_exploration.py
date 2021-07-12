@@ -82,10 +82,10 @@ class InteractionExploration(object):
         if random_rotation:
             rotation = random.randint(0, 3)
         if random_look_angle:
-            # Choose a reasonable-ish starting look angle, including 60 degrees
-            # I thought the look horizon limits were (-30, 60) but I can't seem
-            # to find that anywhere
-            look_angle = random.randrange(-30, 61, 15)
+            # randrange is exclusive of second number
+            horizon_start = constants.HORIZON_BOUNDS[0]
+            horizon_end = constants.HORIZON_BOUNDS[1] + 1
+            look_angle = random.randrange(horizon_start, horizon_end, 15)
         start_pose = (start_point[0], start_point[1], rotation, look_angle)
         action = {'action': 'TeleportFull',
                   'x': start_pose[0] * constants.AGENT_STEP_SIZE,
