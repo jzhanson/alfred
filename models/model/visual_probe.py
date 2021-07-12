@@ -184,7 +184,11 @@ def train(rank, num_processes, model, shared_model, train_dataloader,
                     continue
                 results['train'][metric] = [last_metrics[metric][-1]]
             # Don't write training results to file
-            write_results(writer, results, train_steps_local, save_path=None)
+            if sync_on_epoch:
+                actual_steps = train_steps_local * len(train_dataloader)
+            else:
+                actual_steps = train_steps_local
+            write_results(writer, results, actual_steps, save_path=None)
 
         # Save checkpoint every N trajectories, collect/print stats
         # If an eval_interval was passed, execute code - hopefully
@@ -192,9 +196,10 @@ def train(rank, num_processes, model, shared_model, train_dataloader,
         # num_processes that multiple eval_intervals can't be passed in one go
         if (last_train_steps_local // eval_interval != train_steps_local //
                 eval_interval):
-            print('steps %d ' % train_steps_local)
+            print('steps %d actual steps %d' % (train_steps_local,
+                actual_steps))
             current_time = time.time()
-            total_frames = train_steps_local * batch_size
+            total_frames = actual_steps * batch_size
             if sync_on_epoch:
                 total_frames *= len(train_dataloader)
             total_fps = total_frames / (current_time - start_time)
@@ -216,11 +221,11 @@ def train(rank, num_processes, model, shared_model, train_dataloader,
             # Output FPS to tensorboard SummaryWriter
             if rank == 0:
                 writer.add_scalar('steps/train/fps_total_since_start',
-                        total_fps, train_steps_local)
+                        total_fps, actual_steps)
                 writer.add_scalar('steps/train/fps_total_last_interval',
-                        eval_interval_fps, train_steps_local)
+                        eval_interval_fps, actual_steps)
                 writer.add_scalar('steps/train/fps_process_last_interval',
-                        process_fps, train_steps_local)
+                        process_fps, actual_steps)
 
             for metric, values in last_metrics.items():
                 last_metrics[metric] = []
@@ -235,7 +240,7 @@ def train(rank, num_processes, model, shared_model, train_dataloader,
                 # roughly happen at the same time due to the eval_interval
                 # interval wraparound logic
                 if rank == 0:
-                    save_checkpoint(shared_model, optimizer, train_steps_local,
+                    save_checkpoint(shared_model, optimizer, actual_steps,
                             save_path=save_path,
                             save_intermediate=save_intermediate)
                 else:
@@ -244,7 +249,7 @@ def train(rank, num_processes, model, shared_model, train_dataloader,
                     # a shared optimizer is being used when loading, and it's a
                     # little simpler than passing a shared_optimizer argument
                     # to this function
-                    save_optimizer(rank, optimizer, train_steps_local,
+                    save_optimizer(rank, optimizer, actual_steps,
                             save_path=save_path,
                             save_intermediate=save_intermediate)
             if rank == 0:
@@ -255,17 +260,17 @@ def train(rank, num_processes, model, shared_model, train_dataloader,
                         device=device)
                 print('eval loss %.6f' % eval_loss)
                 writer.add_scalar('steps/eval/loss',
-                        eval_loss, train_steps_local)
+                        eval_loss, actual_steps)
                 if (dataset_type == 'imagenet' or dataset_type ==
                         'interaction_object'):
                     print('eval accuracy %.6f' % eval_accuracy)
                     writer.add_scalar('steps/eval/accuracy',
-                            eval_accuracy, train_steps_local)
+                            eval_accuracy, actual_steps)
 
             last_eval_time = time.time()
 
     if save_path is not None:
-        print('steps %d ' % train_steps_local)
+        print('steps %d actual steps %d' % (train_steps_local, actual_steps))
         if rank == 0:
             # Wait until all other processes have taken their last (extra)
             # ticket/increment before saving checkpoint to make sure that
@@ -286,12 +291,12 @@ def train(rank, num_processes, model, shared_model, train_dataloader,
                     device=device)
             print('eval loss %.6f' % eval_loss)
             writer.add_scalar('steps/eval/loss',
-                    eval_loss, train_steps_local)
+                    eval_loss, actual_steps)
             if (dataset_type == 'imagenet' or dataset_type ==
                     'interaction_object'):
                 print('eval accuracy %.6f' % eval_accuracy)
                 writer.add_scalar('steps/eval/accuracy',
-                        eval_accuracy, train_steps_local)
+                        eval_accuracy, actual_steps)
         else:
             save_optimizer(rank, optimizer, max_steps,
                     save_path=save_path,
