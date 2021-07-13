@@ -184,7 +184,7 @@ def setup_generate(rank, args, lock, trajectories_properties,
                 frame_crops_to_save = []
                 # Seen/unseen scene (True for seen, False for unseen), object
                 # is within visibility distance, look angle, number of objects
-                # in frame greater than cluttered crop threshold, for each
+                # in crop greater than cluttered crop threshold, for each
                 # object type
                 for (object_type, distance, object_count_in_crop,
                         frame_crop) in zip(object_info['type'],
