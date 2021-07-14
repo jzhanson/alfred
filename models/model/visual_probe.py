@@ -21,8 +21,9 @@ import cv2
 
 from tensorboardX import SummaryWriter
 
-def evaluate(model, shared_model, eval_dataloader, dataset_type='imagenet',
-        interaction_scene_binary_labels=True, device=torch.device('cpu')):
+def evaluate(model, shared_model, eval_dataloader, model_type='resnet',
+        dataset_type='imagenet', interaction_scene_binary_labels=True,
+        device=torch.device('cpu')):
     # First, load state dict
     if model != shared_model:
         model.load_state_dict(shared_model.state_dict())
@@ -31,8 +32,10 @@ def evaluate(model, shared_model, eval_dataloader, dataset_type='imagenet',
     correct = 0
     with torch.no_grad():
         for data, target in eval_dataloader:
-            output = model(data.cpu())
-            if (dataset_type == 'imagenet' or dataset_type ==
+            output = model(data)
+            if model_type == 'resnet_ae':
+                loss = F.mse_loss(output, data.to(device))
+            elif (dataset_type == 'imagenet' or dataset_type ==
                     'interaction_object'):
                 output_log_probs = F.log_softmax(output, dim=1)
                 loss = F.nll_loss(output_log_probs, target.to(device))
@@ -53,10 +56,13 @@ def evaluate(model, shared_model, eval_dataloader, dataset_type='imagenet',
     return eval_loss.item(), accuracy
 
 def take_step(model, shared_model, optimizer, data, target,
-        dataset_type='imagenet', interaction_scene_binary_labels=True,
-        max_grad_norm=50, device=torch.device('cpu')):
+        model_type='resnet', dataset_type='imagenet',
+        interaction_scene_binary_labels=True, max_grad_norm=50,
+        device=torch.device('cpu')):
     output = model(data)
-    if dataset_type == 'imagenet' or dataset_type == 'interaction_object':
+    if model_type == 'resnet_ae':
+        loss = F.mse_loss(output, data.to(device))
+    elif dataset_type == 'imagenet' or dataset_type == 'interaction_object':
         output_log_probs = F.log_softmax(output, dim=1)
         loss = F.nll_loss(output_log_probs, target.to(device))
     elif dataset_type == 'interaction_scene':
@@ -88,8 +94,8 @@ def take_step(model, shared_model, optimizer, data, target,
 # TODO: consider sharing multiprocessing and eval logic with a shared train
 # function and separate metrics and batch+step functions
 def train(rank, num_processes, model, shared_model, train_dataloader,
-        eval_dataloader, optimizer, train_steps_sync, batch_size=50,
-        sync_on_epoch=False, dataset_type='imagenet',
+        eval_dataloader, optimizer, train_steps_sync, model_type='resnet',
+        batch_size=50, sync_on_epoch=False, dataset_type='imagenet',
         interaction_scene_binary_labels=False, max_grad_norm=50,
         eval_interval=10, max_steps=1000000, device=torch.device('cpu'),
         save_path=None, save_intermediate=False):
@@ -148,13 +154,14 @@ def train(rank, num_processes, model, shared_model, train_dataloader,
             for data, target in train_dataloader:
                 # accuracy is None if task is not classification
                 loss, accuracy = take_step(model, shared_model, optimizer,
-                        data, target, dataset_type=dataset_type,
+                        data, target, model_type=model_type,
+                        dataset_type=dataset_type,
                         interaction_scene_binary_labels=
                         interaction_scene_binary_labels,
                         max_grad_norm=max_grad_norm, device=device)
                 last_metrics['loss'].append(loss.item())
                 if (dataset_type == 'imagenet' or dataset_type ==
-                        'interaction_object'):
+                        'interaction_object') and model_type != 'resnet_ae':
                     last_metrics['accuracy'].append(accuracy)
         else:
             # Pattern from
@@ -165,15 +172,19 @@ def train(rank, num_processes, model, shared_model, train_dataloader,
             except StopIteration:
                 train_dataloader_iterator = iter(train_dataloader)
                 data, target = next(train_dataloader_iterator)
+            # Data and target will be on cpu, but that is okay because CUDA
+            # tensor can't be cast to PIL image when Resnet needs to do its
+            # transform
+            #
             # accuracy is None if task is not classification
             loss, accuracy = take_step(model, shared_model, optimizer,
-                    data, target, dataset_type=dataset_type,
-                    interaction_scene_binary_labels=
+                    data, target, model_type=model_type,
+                    dataset_type=dataset_type, interaction_scene_binary_labels=
                     interaction_scene_binary_labels,
                     max_grad_norm=max_grad_norm, device=device)
             last_metrics['loss'].append(loss.item())
             if (dataset_type == 'imagenet' or dataset_type ==
-                    'interaction_object'):
+                    'interaction_object') and model_type != 'resnet_ae':
                 last_metrics['accuracy'].append(accuracy)
 
         if writer is not None and rank == 0:
@@ -254,7 +265,8 @@ def train(rank, num_processes, model, shared_model, train_dataloader,
                             save_intermediate=save_intermediate)
             if rank == 0:
                 eval_loss, eval_accuracy = evaluate(model, shared_model,
-                        eval_dataloader, dataset_type=dataset_type,
+                        eval_dataloader, model_type=model_type,
+                        dataset_type=dataset_type,
                         interaction_scene_binary_labels=
                         interaction_scene_binary_labels,
                         device=device)
@@ -285,15 +297,15 @@ def train(rank, num_processes, model, shared_model, train_dataloader,
                     save_path=save_path,
                     save_intermediate=save_intermediate)
             eval_loss, eval_accuracy = evaluate(model, shared_model,
-                    eval_dataloader, dataset_type=dataset_type,
-                    interaction_scene_binary_labels=
+                    eval_dataloader, model_type=model_type,
+                    dataset_type=dataset_type, interaction_scene_binary_labels=
                     interaction_scene_binary_labels,
                     device=device)
             print('eval loss %.6f' % eval_loss)
             writer.add_scalar('steps/eval/loss',
                     eval_loss, actual_steps)
             if (dataset_type == 'imagenet' or dataset_type ==
-                    'interaction_object'):
+                    'interaction_object') and model_type != 'resnet_ae':
                 print('eval accuracy %.6f' % eval_accuracy)
                 writer.add_scalar('steps/eval/accuracy',
                         eval_accuracy, actual_steps)
