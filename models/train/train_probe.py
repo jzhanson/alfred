@@ -74,8 +74,8 @@ def setup_model(args, gpu_id=None):
     else:
         device = torch.device('cpu')
 
-    resnet_args = Namespace(visual_model='resnet', gpu=gpu_id is not None,
-            gpu_index=gpu_id if gpu_id is not None else -1)
+    resnet_args = Namespace(visual_model=args.visual_model, gpu=gpu_id is not
+            None, gpu_index=gpu_id if gpu_id is not None else -1)
     if 'resnet' in args.visual_model:
         visual_model = Resnet(resnet_args, use_conv_feat=False,
                 pretrained=args.pretrained_visual_model,
@@ -86,15 +86,21 @@ def setup_model(args, gpu_id=None):
     else:
         print("visual model '" + args.visual_model + "' not supported")
 
-    if args.visual_fc_units is None:
-        # This case probably won't happen since we want to do classification
-        # with the model output
-        args.visual_fc_units = []
-    elif type(args.visual_fc_units) is int:
-        args.visual_fc_units = [args.visual_fc_units]
-    visual_model = ResnetWrapper(resnet_model=visual_model,
-            fc_units=args.visual_fc_units, dropout=args.dropout,
-            use_tanh=args.use_tanh)
+    # Since this models/train/train_probe.py and models/model/visual_probe.py
+    # code doubles as supervised model training code, don't use ResnetWrapper
+    # if we're training an autoencoder - if you want to load an autoencoder,
+    # load the checkpoint but call --visual-model 'resnet' and it should load
+    # fine
+    if args.visual_model != 'resnet_ae':
+        if args.visual_fc_units is None:
+            # This case probably won't happen since we want to do classification
+            # with the model output
+            args.visual_fc_units = []
+        elif type(args.visual_fc_units) is int:
+            args.visual_fc_units = [args.visual_fc_units]
+        visual_model = ResnetWrapper(resnet_model=visual_model,
+                fc_units=args.visual_fc_units, dropout=args.dropout,
+                use_tanh=args.use_tanh)
 
     try:
         visual_model = visual_model.to(device)
@@ -199,8 +205,8 @@ def setup_train(rank, args, shared_model, shared_optimizer, train_steps_sync):
 
     train(rank, args.num_processes, model, shared_model, train_dataloader,
             eval_dataloader, optimizer, train_steps_sync,
-            batch_size=args.batch_size, sync_on_epoch=args.sync_on_epoch,
-            dataset_type=args.dataset_type,
+            model_type=args.visual_model, batch_size=args.batch_size,
+            sync_on_epoch=args.sync_on_epoch, dataset_type=args.dataset_type,
             interaction_scene_binary_labels=
             args.interaction_scene_binary_labels,
             max_grad_norm=args.max_grad_norm, eval_interval=args.eval_interval,
